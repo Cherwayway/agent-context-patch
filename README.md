@@ -121,23 +121,6 @@ Global agent instructions are always in context, so they must stay short. Agent
 Context Patch keeps the startup guidance small and moves the real workflow into
 a skill that loads only when needed.
 
-## Suggested GitHub Topics
-
-```text
-ai-agent
-coding-agents
-codex
-claude-code
-agents-md
-agent-skills
-context-engineering
-project-context
-agent-memory
-context-patch
-self-improving-agents
-developer-tools
-```
-
 ## Development
 
 Run the demo validation:
