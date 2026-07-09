@@ -1,0 +1,9 @@
+{
+  "name": "fake-js-repo",
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "node test/greeting.test.js"
+  }
+}
+

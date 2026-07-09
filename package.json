@@ -1,0 +1,11 @@
+{
+  "name": "agent-context-patch",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Turn AI agent mistakes into durable project context patches.",
+  "type": "module",
+  "scripts": {
+    "test": "node scripts/validate-demo.mjs"
+  },
+  "license": "MIT"
+}

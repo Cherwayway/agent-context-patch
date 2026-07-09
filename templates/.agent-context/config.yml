@@ -1,0 +1,25 @@
+evolution_style: balanced
+context_write_policy: propose
+
+domains:
+  - coding
+
+budgets:
+  global_fragment_lines: 120
+  workspace_profile_lines: 500
+  repo_profile_lines: 300
+  proposal_lines: 180
+  weekly_report_lines: 250
+  pending_proposal_limit: 10
+
+privacy:
+  store_secrets: false
+  store_customer_data: false
+  store_production_credentials: false
+  store_private_conversation_text: false
+
+approval:
+  global_context_requires_approval: true
+  project_context_requires_approval: true
+  preserve_rejection_reasons: true
+
