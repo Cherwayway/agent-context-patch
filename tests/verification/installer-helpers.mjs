@@ -150,6 +150,117 @@ export function assertLegacyWorkspaceIsReadOnly({ runDryRun, runApply }) {
   }
 }
 
+export function assertV1ConfigBootstrapContract({ repositoryRoot, runDryRun, runApply }) {
+  const templateConfig = readFileSync(
+    join(repositoryRoot, "templates", ".agent-context", "config.yml"),
+    "utf8",
+  );
+  const invalidScenarios = [
+    {
+      name: "incomplete v1 config",
+      config: "schema_version: 1\ncontext_write_policy: propose\nenabled_domains: []\n",
+    },
+    {
+      name: "unsafe privacy config",
+      config: templateConfig.replace("raw_conversation_stored: false", "raw_conversation_stored: true"),
+    },
+    {
+      name: "unknown top-level config key",
+      config: `${templateConfig}unexpected_setting: true\n`,
+    },
+    {
+      name: "duplicate config key",
+      config: templateConfig.replace(
+        "context_write_policy: propose",
+        "context_write_policy: propose\ncontext_write_policy: auto",
+      ),
+    },
+    {
+      name: "dangerous config key",
+      config: `${templateConfig}__proto__: unsafe\n`,
+    },
+    {
+      name: "duplicate inline domain",
+      config: templateConfig.replace("enabled_domains: []", "enabled_domains: [coding, 'coding']"),
+    },
+  ];
+
+  for (const scenario of invalidScenarios) {
+    const workspace = mkdtempSync(join(tmpdir(), "agent-context-patch-v1-config-invalid-"));
+    try {
+      const contextRoot = join(workspace, ".agent-context");
+      const configPath = join(contextRoot, "config.yml");
+      mkdirSync(contextRoot);
+      writeFileSync(configPath, scenario.config, "utf8");
+      const before = snapshotTree(workspace);
+
+      const dryRun = runDryRun(workspace);
+      assertCommandFailed(dryRun, `${scenario.name} dry-run`);
+      assert.match(
+        dryRun.stdout,
+        /(?:InvalidConfig|Conflict)[^\r\n]*config\.yml/iu,
+        `${scenario.name} did not produce a clear invalid-config plan action`,
+      );
+      assert.deepEqual(snapshotTree(workspace), before, `${scenario.name} dry-run wrote files`);
+
+      const apply = runApply(workspace, extractPlanHash(dryRun.stdout));
+      assertCommandFailed(apply, `${scenario.name} apply`);
+      assert.deepEqual(snapshotTree(workspace), before, `${scenario.name} apply wrote files`);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  }
+
+  const workspace = mkdtempSync(join(tmpdir(), "agent-context-patch-v1-config-valid-"));
+  try {
+    const contextRoot = join(workspace, ".agent-context");
+    const configPath = join(contextRoot, "config.yml");
+    const validQuotedInlineConfig = [
+      "schema_version: 1",
+      "created_with_kit_version: '0.2.0'",
+      'last_migrated_with_kit_version: "0.2.0" # current migration writer',
+      'context_write_policy: "propose"',
+      'enabled_domains: ["coding", \'prd\']',
+      "budgets:",
+      "  active_context:",
+      '    unit: "lines"',
+      "    warn: 500",
+      "    block_auto: 800",
+      "  single_proposal:",
+      "    unit: 'lines'",
+      "    warn: 220",
+      "  pending_proposals:",
+      "    unit: count",
+      "    warn: 8",
+      "    block_auto: 12",
+      "privacy:",
+      "  raw_conversation_stored: false",
+      "  full_logs_stored: false",
+      "  secrets_stored: false",
+      "  customer_data_stored: false",
+      "  absolute_user_paths_stored: false",
+      "",
+    ].join("\n");
+    mkdirSync(contextRoot);
+    writeFileSync(configPath, validQuotedInlineConfig, "utf8");
+    const before = snapshotTree(workspace);
+
+    const dryRun = runDryRun(workspace);
+    assertCommandSucceeded(dryRun, "valid quoted/inline v1 config dry-run");
+    assert.deepEqual(snapshotTree(workspace), before, "valid v1 config dry-run wrote files");
+
+    const apply = runApply(workspace, extractPlanHash(dryRun.stdout));
+    assertCommandSucceeded(apply, "valid quoted/inline v1 config apply");
+    assert.equal(
+      readFileSync(configPath, "utf8"),
+      validQuotedInlineConfig,
+      "valid custom v1 config was overwritten",
+    );
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+}
+
 export function assertSkillAndGuidanceContract({ repositoryRoot, runDryRun, runApply }) {
   const sandbox = mkdtempSync(join(tmpdir(), "agent-context-patch-skill-install-"));
   const workspace = join(sandbox, "workspace");

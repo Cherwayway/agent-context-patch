@@ -109,6 +109,11 @@ that its target has not changed.
 - Existing user-modified workspace context is preserved.
 - An unversioned `.agent-context/config.yml` is `legacy_v0`; Bootstrap stops and
   directs the Agent to create a migration proposal.
+- A `schema_version: 1` config is current only when its complete policy,
+  domain, budget, version, and privacy envelope is valid. PowerShell and Bash
+  fail closed with `InvalidConfig` before materializing any template when that
+  envelope is incomplete, unsafe, duplicated, or contains unknown fields.
+- A future schema is read-only and requires a newer Bootstrap.
 - A different installed skill version requires a reviewed upgrade/backup plan.
 - An unversioned existing skill is a conflict, not an overwrite target.
 - Existing `AGENTS.md` or `CLAUDE.md` always uses semantic patch review.

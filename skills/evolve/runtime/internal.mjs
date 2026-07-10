@@ -13,6 +13,8 @@ import {
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
+import { inspectV1ConfigDocument } from "./config.mjs";
+
 const SCHEMA_VERSION = 1;
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
 const MACHINE_STRING_PATTERN = /^[a-z][a-z0-9_-]{0,127}$/;
@@ -127,16 +129,26 @@ async function commitPatchPlan(plan, authorization, { replaceFile, afterLockAcqu
   }
 
   const contextRoot = resolve(plan.workspaceRoot, ".agent-context");
-  let autoConfig;
-  if (!approved) {
-    autoConfig = await readAutoWorkspaceConfig(contextRoot);
-    if (!autoConfig) {
-      return makeApplyAttempt(plan, "conflict", "auto_not_enabled", []);
-    }
+  let workspaceGate;
+  try {
+    workspaceGate = await checkWorkspaceState(plan, contextRoot, { approved });
+  } catch {
+    return makeApplyAttempt(plan, "failed", "filesystem_error", []);
+  }
+  if (workspaceGate.problem) {
+    return makeApplyAttempt(
+      plan,
+      workspaceGate.problem.status,
+      workspaceGate.problem.reason,
+      [],
+    );
   }
   let preflight;
   try {
-    preflight = await preflightOperations(plan, contextRoot, { approved, autoConfig });
+    preflight = await preflightOperations(plan, contextRoot, {
+      approved,
+      autoConfig: workspaceGate.autoConfig,
+    });
   } catch {
     return makeApplyAttempt(plan, "failed", "filesystem_error", []);
   }
@@ -167,12 +179,19 @@ async function commitPatchPlan(plan, authorization, { replaceFile, afterLockAcqu
 }
 
 async function commitWhileLocked(plan, contextRoot, { approved, replaceFile }) {
-  let autoConfig;
-  if (!approved) {
-    autoConfig = await readAutoWorkspaceConfig(contextRoot);
-    if (!autoConfig) return makeApplyAttempt(plan, "conflict", "auto_not_enabled", []);
+  let workspaceGate = await checkWorkspaceState(plan, contextRoot, { approved });
+  if (workspaceGate.problem) {
+    return makeApplyAttempt(
+      plan,
+      workspaceGate.problem.status,
+      workspaceGate.problem.reason,
+      [],
+    );
   }
-  const preflight = await preflightOperations(plan, contextRoot, { approved, autoConfig });
+  const preflight = await preflightOperations(plan, contextRoot, {
+    approved,
+    autoConfig: workspaceGate.autoConfig,
+  });
   if (preflight.problem) {
     return makeApplyAttempt(plan, preflight.problem.status, preflight.problem.reason, []);
   }
@@ -190,22 +209,28 @@ async function commitWhileLocked(plan, contextRoot, { approved, replaceFile }) {
       }
       await mkdir(dirname(prepared.absoluteTarget), { recursive: true });
     }
-    if (!approved) {
-      const commitConfig = await readAutoWorkspaceConfig(contextRoot);
-      if (!commitConfig || commitConfig.contentHash !== autoConfig.contentHash) {
-        await rm(stagingRoot, { recursive: true, force: true });
-        return makeApplyAttempt(
-          plan,
-          "conflict",
-          "auto_not_enabled",
-          attemptOperations(preflight.operations),
-        );
-      }
-      autoConfig = commitConfig;
+    const commitGate = await checkWorkspaceState(plan, contextRoot, { approved });
+    if (
+      commitGate.problem ||
+      (!approved &&
+        commitGate.workspaceState.contentHash !== workspaceGate.workspaceState.contentHash)
+    ) {
+      await rm(stagingRoot, { recursive: true, force: true });
+      const problem = commitGate.problem ?? {
+        status: "conflict",
+        reason: "auto_not_enabled",
+      };
+      return makeApplyAttempt(
+        plan,
+        problem.status,
+        problem.reason,
+        attemptOperations(preflight.operations),
+      );
     }
+    workspaceGate = commitGate;
     const commitPreflight = await preflightOperations(plan, contextRoot, {
       approved,
-      autoConfig,
+      autoConfig: workspaceGate.autoConfig,
     });
     if (commitPreflight.problem) {
       await rm(stagingRoot, { recursive: true, force: true });
@@ -372,71 +397,85 @@ function containsPrivacyHazard(content) {
   );
 }
 
-async function readAutoWorkspaceConfig(contextRoot) {
-  try {
-    const content = await readFile(join(contextRoot, "config.yml"), "utf8");
-    const parsed = parseWorkspaceConfig(content);
-    if (parsed?.schemaVersion !== SCHEMA_VERSION || parsed.contextWritePolicy !== "auto") {
-      return undefined;
+async function checkWorkspaceState(plan, contextRoot, { approved }) {
+  const workspaceState = await readWorkspaceConfigState(contextRoot);
+  if (!approved) {
+    if (
+      workspaceState.kind !== "current_v1" ||
+      workspaceState.config.context_write_policy !== "auto"
+    ) {
+      return {
+        workspaceState,
+        problem: { status: "conflict", reason: "auto_not_enabled" },
+      };
     }
     return {
-      contentHash: sha256Text(content),
-      enabledDomains: parsed.enabledDomains,
+      workspaceState,
+      autoConfig: {
+        contentHash: workspaceState.contentHash,
+        enabledDomains: new Set(workspaceState.config.enabled_domains),
+      },
     };
-  } catch {
-    return undefined;
   }
+
+  if (workspaceState.kind === "future_schema") {
+    return {
+      workspaceState,
+      problem: { status: "conflict", reason: "future_schema_read_only" },
+    };
+  }
+  if (plan.semanticOperation === "migration") {
+    if (workspaceState.kind !== "legacy_v0") {
+      return {
+        workspaceState,
+        problem: { status: "conflict", reason: "migration_source_not_legacy" },
+      };
+    }
+    return { workspaceState };
+  }
+  if (workspaceState.kind === "legacy_v0") {
+    return {
+      workspaceState,
+      problem: { status: "conflict", reason: "legacy_workspace_read_only" },
+    };
+  }
+  if (workspaceState.kind !== "current_v1") {
+    return {
+      workspaceState,
+      problem: { status: "conflict", reason: "invalid_workspace_config" },
+    };
+  }
+  return { workspaceState };
 }
 
-function parseWorkspaceConfig(content) {
-  content = content.replace(/^\uFEFF/, "");
-  let schemaVersion;
-  let contextWritePolicy;
-  let sawSchemaVersion = false;
-  let sawContextWritePolicy = false;
-  let sawEnabledDomains = false;
-  let activeSection;
-  const enabledDomains = new Set();
+async function readWorkspaceConfigState(contextRoot) {
+  const contextStat = await statMaybe(contextRoot);
+  if (!contextStat) return { kind: "legacy_v0" };
+  if (!contextStat.isDirectory() || contextStat.isSymbolicLink()) return { kind: "invalid" };
 
-  for (const rawLine of content.split(/\r?\n/)) {
-    if (rawLine.includes("\t")) return undefined;
-    const line = rawLine.trimEnd();
-    if (!line.trim() || line.trimStart().startsWith("#")) continue;
+  const configPath = join(contextRoot, "config.yml");
+  const configStat = await statMaybe(configPath);
+  if (!configStat) return { kind: "legacy_v0" };
+  if (!configStat.isFile() || configStat.isSymbolicLink()) return { kind: "invalid" };
 
-    if (!/^\s/.test(line)) {
-      activeSection = "other";
-      if (line.startsWith("schema_version:")) {
-        if (sawSchemaVersion) return undefined;
-        const match = /^schema_version:\s*(\d+)\s*$/.exec(line);
-        if (!match) return undefined;
-        sawSchemaVersion = true;
-        schemaVersion = Number(match[1]);
-      } else if (line.startsWith("context_write_policy:")) {
-        if (sawContextWritePolicy) return undefined;
-        const match = /^context_write_policy:\s*(auto|propose)\s*$/.exec(line);
-        if (!match) return undefined;
-        sawContextWritePolicy = true;
-        contextWritePolicy = match[1];
-      } else if (line.startsWith("enabled_domains:")) {
-        if (sawEnabledDomains) return undefined;
-        const emptyList = /^enabled_domains:\s*\[\s*\]\s*$/.test(line);
-        if (!emptyList && !/^enabled_domains:\s*$/.test(line)) return undefined;
-        sawEnabledDomains = true;
-        activeSection = emptyList ? "other" : "enabled_domains";
-      }
-      continue;
-    }
+  const bytes = await readFile(configPath);
+  const content = bytes.toString("utf8");
+  if (!Buffer.from(content, "utf8").equals(bytes)) return { kind: "invalid" };
+  const inspection = inspectV1ConfigDocument(content, ".agent-context/config.yml");
+  if (inspection.value === undefined) return { kind: "invalid", contentHash: sha256(bytes) };
+  const schemaVersion = inspection.value?.schema_version;
+  const contentHash = sha256(bytes);
 
-    if (activeSection === "enabled_domains") {
-      const match = /^\s+-\s+([a-z0-9][a-z0-9-]*)\s*$/.exec(line);
-      if (!match) return undefined;
-      if (enabledDomains.has(match[1])) return undefined;
-      enabledDomains.add(match[1]);
-    }
+  if (schemaVersion === undefined || schemaVersion === 0) {
+    return { kind: "legacy_v0", contentHash };
   }
-
-  if (!sawSchemaVersion || !sawContextWritePolicy || !sawEnabledDomains) return undefined;
-  return { schemaVersion, contextWritePolicy, enabledDomains };
+  if (Number.isInteger(schemaVersion) && schemaVersion > SCHEMA_VERSION) {
+    return { kind: "future_schema", contentHash, schemaVersion };
+  }
+  if (schemaVersion === SCHEMA_VERSION && inspection.failures.length === 0) {
+    return { kind: "current_v1", contentHash, config: inspection.value };
+  }
+  return { kind: "invalid", contentHash };
 }
 
 async function preflightOperations(plan, contextRoot, { approved, autoConfig }) {
@@ -462,8 +501,21 @@ async function preflightOperations(plan, contextRoot, { approved, autoConfig }) 
     if (!isSupportedTarget(target)) {
       return { problem: { status: "failed", reason: "target_not_supported" } };
     }
+    if (
+      plan.semanticOperation !== "migration" &&
+      target.startsWith(".agent-context/archive/") &&
+      operation.type !== "create"
+    ) {
+      return { problem: { status: "failed", reason: "archive_create_only" } };
+    }
     if (!approved && !isAutoEligibleTarget(target)) {
       return { problem: { status: "failed", reason: "auto_target_forbidden" } };
+    }
+    if (
+      target === ".agent-context/config.yml" &&
+      inspectV1ConfigDocument(operation.content, "PatchPlan config content").failures.length > 0
+    ) {
+      return { problem: { status: "failed", reason: "invalid_config_content" } };
     }
     if (!approved && isChecklistTarget(target)) {
       const domain = target.slice(target.lastIndexOf("/") + 1, -".md".length);
@@ -494,7 +546,66 @@ async function preflightOperations(plan, contextRoot, { approved, autoConfig }) 
       afterHash: sha256Text(operation.content),
     });
   }
+  if (plan.semanticOperation === "migration") {
+    const migrationProblem = await validateMigrationOperations(operations);
+    if (migrationProblem) return { problem: migrationProblem };
+  }
   return { operations };
+}
+
+async function validateMigrationOperations(operations) {
+  const configOperation = operations.find(
+    ({ target }) => target === ".agent-context/config.yml",
+  );
+  if (!configOperation) {
+    return { status: "failed", reason: "invalid_migration_config" };
+  }
+
+  const backupPattern = /^\.agent-context\/archive\/migrations\/([^/]+)\/(.+)$/u;
+  const archiveOperations = operations
+    .filter(({ target }) => target.startsWith(".agent-context/archive/"))
+    .map((prepared) => ({ prepared, match: backupPattern.exec(prepared.target) }));
+  if (
+    archiveOperations.some(
+      ({ prepared, match }) => prepared.operation.type !== "create" || !match,
+    )
+  ) {
+    return { status: "failed", reason: "invalid_migration_backup" };
+  }
+
+  const updatedLegacyFiles = operations.filter(
+    ({ operation, target }) =>
+      operation.type === "update" && !target.startsWith(".agent-context/archive/"),
+  );
+  if (updatedLegacyFiles.length === 0) return undefined;
+
+  const backupOperations = archiveOperations;
+  const migrationIds = new Set(backupOperations.map(({ match }) => match[1]));
+  if (migrationIds.size !== 1) {
+    return { status: "failed", reason: "invalid_migration_backup" };
+  }
+  const [migrationId] = migrationIds;
+  if (!isIdentifier(migrationId)) {
+    return { status: "failed", reason: "invalid_migration_backup" };
+  }
+
+  for (const updated of updatedLegacyFiles) {
+    const sourceRelative = updated.target.slice(".agent-context/".length);
+    const expectedBackupTarget =
+      `.agent-context/archive/migrations/${migrationId}/${sourceRelative}`;
+    const backup = backupOperations.find(
+      ({ prepared }) => prepared.target === expectedBackupTarget,
+    )?.prepared;
+    if (!backup) {
+      return { status: "failed", reason: "invalid_migration_backup" };
+    }
+    const sourceBytes = await readFile(updated.absoluteTarget);
+    const backupBytes = Buffer.from(backup.operation.content, "utf8");
+    if (!sourceBytes.equals(backupBytes)) {
+      return { status: "failed", reason: "invalid_migration_backup" };
+    }
+  }
+  return undefined;
 }
 
 async function rollback(applied, replaceFile) {
@@ -573,7 +684,6 @@ function isSupportedTarget(target) {
     target === ".agent-context/PROJECT_CONTEXT_INDEX.md" ||
     target === ".agent-context/PROJECT_PROFILE.md" ||
     isChecklistTarget(target) ||
-    /^\.agent-context\/proposals\/[^/]+\.md$/.test(target) ||
     /^\.agent-context\/reports\/[^/]+\.md$/.test(target) ||
     target.startsWith(".agent-context/archive/")
   );

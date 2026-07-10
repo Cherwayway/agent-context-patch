@@ -19,6 +19,7 @@ import {
   assertInstallerContract,
   assertLegacyWorkspaceIsReadOnly,
   assertSkillAndGuidanceContract,
+  assertV1ConfigBootstrapContract,
   commandAvailable,
   extractPlanHash,
   run,
@@ -95,6 +96,34 @@ test(
   },
   () => {
     assertLegacyWorkspaceIsReadOnly({
+      runDryRun(workspace) {
+        return invokeAt(installer, ["--mode", "dry-run", "--workspace", workspace]);
+      },
+      runApply(workspace, planHash) {
+        return invokeAt(installer, [
+          "--mode",
+          "apply",
+          "--workspace",
+          workspace,
+          "--approved-plan-hash",
+          planHash,
+        ]);
+      },
+    });
+  },
+);
+
+test(
+  "Bash validates the complete v1 config envelope before planning writes",
+  {
+    skip:
+      process.platform === "win32" || !bashAvailable
+        ? "Bash apply behavior runs on the Ubuntu CI job"
+        : false,
+  },
+  () => {
+    assertV1ConfigBootstrapContract({
+      repositoryRoot,
       runDryRun(workspace) {
         return invokeAt(installer, ["--mode", "dry-run", "--workspace", workspace]);
       },

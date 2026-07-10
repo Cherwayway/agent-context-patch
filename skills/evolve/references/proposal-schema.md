@@ -346,6 +346,11 @@ kernel's content-free status and reason into these audit fields. Failed attempts
 do not change status from approved. Every attempt plan_hash must equal the
 aggregate frontmatter and recomputed PatchPlan hash.
 
+Terminal status remains derivable from this history. `superseded` requires a
+valid applied history and a non-empty Supersession target. `archived` requires
+either that superseded history or a rejected Decision with meaningful Rejection
+Notes and no Apply Attempt. Empty history can never be relabeled archived.
+
 ## Evidence requirements
 
 At least one concrete item is required:

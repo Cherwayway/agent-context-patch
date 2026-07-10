@@ -19,6 +19,7 @@ import {
   assertInstallerContract,
   assertLegacyWorkspaceIsReadOnly,
   assertSkillAndGuidanceContract,
+  assertV1ConfigBootstrapContract,
   commandAvailable,
   extractPlanHash,
   run,
@@ -58,6 +59,29 @@ test(
   { skip: powershell === undefined ? "PowerShell is not available on this platform" : false },
   () => {
     assertLegacyWorkspaceIsReadOnly({
+      runDryRun(workspace) {
+        return invoke(["-Mode", "DryRun", "-WorkspacePath", workspace]);
+      },
+      runApply(workspace, planHash) {
+        return invoke([
+          "-Mode",
+          "Apply",
+          "-WorkspacePath",
+          workspace,
+          "-ApprovedPlanHash",
+          planHash,
+        ]);
+      },
+    });
+  },
+);
+
+test(
+  "PowerShell validates the complete v1 config envelope before planning writes",
+  { skip: powershell === undefined ? "PowerShell is not available on this platform" : false },
+  () => {
+    assertV1ConfigBootstrapContract({
+      repositoryRoot,
       runDryRun(workspace) {
         return invoke(["-Mode", "DryRun", "-WorkspacePath", workspace]);
       },

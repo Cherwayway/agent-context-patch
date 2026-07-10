@@ -12,6 +12,28 @@ test("valid proposal fixture satisfies the v1 envelope", () => {
   assert.deepEqual(validateProposalDocument(read("valid.md"), "valid.md"), []);
 });
 
+test("valid policy_auto proposal completes the exact auto lifecycle", () => {
+  assert.deepEqual(validateProposalDocument(read("valid-auto.md"), "valid-auto.md"), []);
+});
+
+test("policy_auto Decision is rejected when any auto gate is false", () => {
+  const source = read("valid-auto.md");
+  const mutations = [
+    source.replace('"requestedPolicy": "auto"', '"requestedPolicy": "propose"'),
+    source.replace('"policy": "auto"', '"policy": "propose"'),
+    source.replace('"semanticOperation": "add"', '"semanticOperation": "update"'),
+    source.replace('"risk": "low"', '"risk": "high"'),
+    source.replaceAll("verified", "in_progress"),
+    source.replace('"privacy": {\n    "safe": true', '"privacy": {\n    "safe": false'),
+    source.replace('"autoAllowed": true', '"autoAllowed": false'),
+    source.replaceAll(
+      ".agent-context/PROJECT_PROFILE.md",
+      ".agent-context/reports/auto-report.md",
+    ),
+  ];
+  for (const mutated of mutations) assertRejected(mutated, "policy_auto");
+});
+
 test("applied proposal rejects a Decision hash from a different plan", () => {
   const mutated = replaceInSection(
     read("valid.md"),
@@ -22,6 +44,19 @@ test("applied proposal rejects a Decision hash from a different plan", () => {
   assertRejected(mutated, "Decision");
 });
 
+test("Decision records require a valid enum, timestamp, actor, and reason", () => {
+  const source = read("valid.md");
+  for (const [search, replacement, expected] of [
+    ["decision: approved", "decision: maybe", "decision is invalid"],
+    ["decided_at: 2026-07-10T00:00:00Z", "decided_at: yesterday", "decided_at"],
+    ["decided_at: 2026-07-10T00:00:00Z", "decided_at: 2026-07-10", "decided_at"],
+    ["decided_by: fixture_user", "decided_by:", "decided_by"],
+    ["reason: Exact fixture plan approved.", "reason:", "reason"],
+  ]) {
+    assertRejected(replaceInSection(source, "Decision Log", search, replacement), expected);
+  }
+});
+
 test("applied proposal rejects an Apply Attempt hash from a different plan", () => {
   const mutated = replaceInSection(
     read("valid.md"),
@@ -30,6 +65,74 @@ test("applied proposal rejects an Apply Attempt hash from a different plan", () 
     "3".repeat(64),
   );
   assertRejected(mutated, "Apply Attempt");
+});
+
+test("Apply Attempt requires positive unique sequential attempt numbers", () => {
+  const source = read("valid.md");
+  assertRejected(
+    replaceInSection(source, "Apply Attempts", "attempt: 1", "attempt: 0"),
+    "attempt must be a positive integer",
+  );
+  assertRejected(appendAttempt(source, 1), "attempt numbers must not repeat");
+  assertRejected(appendAttempt(source, 3), "attempt numbers must be sequential");
+});
+
+test("Apply Attempt validates result and timestamp lifecycle", () => {
+  const source = read("valid.md");
+  assertRejected(
+    replaceInSection(source, "Apply Attempts", "result: applied", "result: maybe"),
+    "result is invalid",
+  );
+  assertRejected(
+    replaceInSection(
+      source,
+      "Apply Attempts",
+      "attempted_at: 2026-07-10T00:00:01Z",
+      "attempted_at: yesterday",
+    ),
+    "attempted_at",
+  );
+  assertRejected(
+    replaceInSection(source, "Apply Attempts", "  applied_at: 2026-07-10T00:00:01Z\n", ""),
+    "applied_at",
+  );
+
+  const conflict = asConflict(source);
+  assert.deepEqual(validateProposalDocument(conflict, "valid conflict attempt"), []);
+  assertRejected(
+    replaceInSection(
+      conflict,
+      "Apply Attempts",
+      "attempted_at: 2026-07-10T00:00:01Z",
+      "attempted_at: 2026-07-10T00:00:01Z\n  applied_at: 2026-07-10T00:00:01Z",
+    ),
+    "applied_at",
+  );
+  assertRejected(
+    replaceInSection(conflict, "Apply Attempts", "error_summary: before_hash_mismatch", "error_summary: null"),
+    "error_summary",
+  );
+});
+
+test("Apply Attempt hash maps and error_summary follow the audit schema", () => {
+  const source = read("valid.md");
+  assertRejected(
+    replaceInSection(source, "Apply Attempts", "1".repeat(64), "not-a-hash"),
+    "before_hashes",
+  );
+  assertRejected(
+    replaceInSection(
+      source,
+      "Apply Attempts",
+      "78c30b878e02b328c81cb90ca9d4ff41223d22c63dd1a09c51192a8d7ea6a5e0",
+      "not-a-hash",
+    ),
+    "after_hashes",
+  );
+  assertRejected(
+    replaceInSection(source, "Apply Attempts", "error_summary: null", "error_summary: unexpected_error"),
+    "error_summary",
+  );
 });
 
 test("proposal rejects changed operation content under an unchanged plan_hash", () => {
@@ -56,7 +159,11 @@ test("PatchPlan semanticOperation must match frontmatter operation", () => {
 
 test("PatchPlan targets must be supported by the v1 runtime topology", () => {
   const source = read("valid.md");
-  for (const target of [".agent-context/random.md", ".agent-context/.commit-lock"]) {
+  for (const target of [
+    ".agent-context/random.md",
+    ".agent-context/.commit-lock",
+    ".agent-context/proposals/other-proposal.md",
+  ]) {
     assertRejected(
       source.replaceAll(".agent-context/PROJECT_PROFILE.md", target),
       "target is unsupported",
@@ -163,6 +270,82 @@ test("approved proposal also binds every Decision and failed Attempt to the exac
   );
 });
 
+test("proposal status agrees with Decision and Apply Attempt history", () => {
+  const source = read("valid.md");
+  assertRejected(source.replace("status: applied", "status: approved"), "approved status");
+  assertRejected(
+    asConflict(source).replace("status: approved", "status: applied"),
+    "applied status",
+  );
+  assertRejected(source.replace("status: applied", "status: proposed"), "proposed status");
+  assertRejected(
+    source.replace(
+      "- decision: approved",
+      [
+        "- decision: rejected",
+        "  decided_at: 2026-07-09T23:59:59Z",
+        "  decided_by: fixture_user",
+        "  plan_hash: 95065339e93055d01831861860854f67dbc21a7b69d81d66f0c26fc11e1ee5bd",
+        "  reason: Rejected decisions are terminal for this proposal.",
+        "- decision: approved",
+      ].join("\n"),
+    ),
+    "cannot contain a rejected Decision",
+  );
+
+  const rejected = asRejected(source);
+  assert.deepEqual(validateProposalDocument(rejected, "valid rejected proposal"), []);
+  assertRejected(
+    replaceSectionContent(
+      rejected,
+      "Apply Attempts",
+      extractSectionContent(source, "Apply Attempts"),
+    ),
+    "rejected status",
+  );
+});
+
+test("superseded and archived statuses require one valid terminal transition", () => {
+  const applied = read("valid.md");
+  const superseded = replaceSectionContent(
+    applied.replace("status: applied", "status: superseded"),
+    "Supersession",
+    "fixture-replacement-proposal",
+  );
+  assert.deepEqual(validateProposalDocument(superseded, "valid superseded proposal"), []);
+
+  const archivedSuperseded = superseded.replace("status: superseded", "status: archived");
+  assert.deepEqual(
+    validateProposalDocument(archivedSuperseded, "valid archived superseded proposal"),
+    [],
+  );
+
+  const archivedRejected = asRejected(applied).replace("status: rejected", "status: archived");
+  assert.deepEqual(
+    validateProposalDocument(archivedRejected, "valid archived rejected proposal"),
+    [],
+  );
+
+  assertRejected(applied.replace("status: applied", "status: superseded"), "Supersession");
+  assertRejected(
+    replaceSectionContent(applied, "Supersession", "fixture-replacement-proposal"),
+    "applied status",
+  );
+  assertRejected(
+    replaceSectionContent(asRejected(applied), "Rejection Notes", "Not rejected."),
+    "Rejection Notes",
+  );
+  assertRejected(
+    replaceSectionContent(asRejected(applied), "Rejection Notes", "None."),
+    "Rejection Notes",
+  );
+
+  let emptyArchived = applied.replace("status: applied", "status: archived");
+  emptyArchived = replaceSectionContent(emptyArchived, "Decision Log", "None.");
+  emptyArchived = replaceSectionContent(emptyArchived, "Apply Attempts", "None.");
+  assertRejected(emptyArchived, "archived status");
+});
+
 test("cleanup operation vocabulary is accepted", () => {
   const source = asPending(read("valid.md"));
   for (const operation of [
@@ -195,6 +378,17 @@ test("user-global promotion candidate content is bound to candidate_hash", () =>
     "Persist every raw log across workspaces.",
   );
   assertRejected(mutated, "candidate_hash");
+});
+
+test("user-global promotion rejects quoted authorization decisions", () => {
+  for (const decision of ['"approved"', "'policy_auto'"]) {
+    const mutated = replaceSectionContent(
+      read("valid-user-global.md"),
+      "Decision Log",
+      `~~~yaml\n- decision: ${decision}\n~~~`,
+    );
+    assertRejected(mutated, "approved or policy_auto Decision");
+  }
 });
 
 test("plan_hash is required after pending_current_fix", () => {
@@ -266,4 +460,45 @@ function asPending(source) {
   pending = replaceSectionContent(pending, "Proposed Patch", "Draft pending current fix.");
   pending = replaceSectionContent(pending, "Decision Log", "None.");
   return replaceSectionContent(pending, "Apply Attempts", "None.");
+}
+
+function asConflict(source) {
+  return source
+    .replace("status: applied", "status: approved")
+    .replace("result: applied", "result: conflict")
+    .replace("  applied_at: 2026-07-10T00:00:01Z\n", "")
+    .replace("error_summary: null", "error_summary: before_hash_mismatch");
+}
+
+function asRejected(source) {
+  let rejected = source
+    .replace("status: applied", "status: rejected")
+    .replace("decision: approved", "decision: rejected")
+    .replace("reason: Exact fixture plan approved.", "reason: Exact fixture plan rejected.");
+  rejected = replaceSectionContent(rejected, "Apply Attempts", "None.");
+  return replaceSectionContent(rejected, "Rejection Notes", "The exact plan was rejected.");
+}
+
+function extractSectionContent(source, heading) {
+  const headingMarker = `## ${heading}`;
+  const start = source.indexOf(headingMarker);
+  const next = source.indexOf("\n## ", start + headingMarker.length);
+  const end = next === -1 ? source.length : next;
+  return source.slice(start + headingMarker.length, end).trim();
+}
+
+function appendAttempt(source, attemptNumber) {
+  const heading = "Apply Attempts";
+  const headingMarker = `## ${heading}`;
+  const start = source.indexOf(headingMarker);
+  const next = source.indexOf("\n## ", start + headingMarker.length);
+  const end = next === -1 ? source.length : next;
+  const section = source.slice(start, end);
+  const recordStart = section.indexOf("- attempt: 1");
+  const recordEnd = section.lastIndexOf("\n~~~~");
+  assert.notEqual(recordStart, -1);
+  assert.notEqual(recordEnd, -1);
+  const record = section.slice(recordStart, recordEnd).replace("- attempt: 1", `- attempt: ${attemptNumber}`);
+  const expanded = `${section.slice(0, recordEnd)}\n${record}${section.slice(recordEnd)}`;
+  return `${source.slice(0, start)}${expanded}${source.slice(end)}`;
 }

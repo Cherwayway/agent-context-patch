@@ -31,15 +31,18 @@ A thin deterministic Commit Kernel owns only mechanical invariants:
 
 - supported plan shape;
 - allowed workspace targets;
+- complete workspace-config and schema compatibility;
 - write-policy guards;
 - apply-result status;
 - plan and file hashes;
 - conflict detection;
+- migration backup mapping;
 - staging, commit, rollback, and ApplyAttempt output.
 
 `propose` remains usable without Node. `auto` requires the kernel and explicitly
-downgrades to `propose` when the kernel is unavailable. Before every automatic
-commit, the kernel re-reads v1 workspace config to verify that `auto` is
+downgrades to `propose` when the kernel is unavailable. The kernel requires a
+complete current v1 config before every non-migration commit. Before every
+automatic commit it additionally re-reads that config to verify that `auto` is
 explicitly enabled and that checklist targets belong to enabled domains.
 
 ### 2. Scope
@@ -95,7 +98,9 @@ deterministic Bootstrap module plans and applies only file operations.
 
 PowerShell and Bash are real platform adapters. They share the same plan fields,
 conflict rules, and contract tests. They never merge existing `AGENTS.md` or
-`CLAUDE.md` automatically.
+`CLAUDE.md` automatically. Because Bootstrap must work without Node, each
+adapter implements the same strict v1 config envelope natively; shared black-box
+fixtures prevent their accepted syntax and fail-closed behavior from drifting.
 
 The skill and optional Commit Kernel install user-level by default. The short
 guidance fragment and `.agent-context/` install workspace-local by default. A
@@ -112,8 +117,10 @@ commit implementation is maintained.
 
 V1 config declares `schema_version: 1`. Unversioned context is `legacy_v0` and
 read-only. Migration requires a reviewed MigrationPlan, an exact approval,
-workspace-local backup, and an ApplyAttempt. Migration never fabricates missing
-historical decisions or receipts.
+byte-identical workspace-local backups for every changed legacy file, and an
+ApplyAttempt in the same transaction. A future schema is never a migration
+target for this kit. Migration never fabricates missing historical decisions
+or receipts.
 
 ### 8. Domain activation
 
@@ -142,10 +149,15 @@ One proposal Markdown file is the evolution aggregate. It owns the observed
 failure, evidence, proposed patch, context priority, append-only Decision Log,
 Apply Attempts, supersession, and rejection notes.
 
+The proposal aggregate is not a PatchPlan target. The Agent writes its
+Decision before invoking the kernel and its Apply Attempt after the kernel
+returns, so an approved context plan cannot overwrite its own audit source.
+
 There is no separate `mistakes/` or `receipts/` source of truth. Reports are
 derived and archives are inactive. Ordinary tasks read only the context index,
 profile, and relevant enabled checklists. Per-run `contextRead` is not appended
-to the active profile.
+to the active profile. Archive targets are create-only history and cannot be
+rewritten by either automatic or exactly approved plans.
 
 ### 11. Evidence privacy
 

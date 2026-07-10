@@ -34,6 +34,8 @@ const workspaceSemanticOperations = new Set(
 const fixStatuses = new Set(["not_started", "in_progress", "fixed", "verified"]);
 const priorities = new Set(["low", "medium", "high"]);
 const planRisks = new Set(["low", "high"]);
+const decisionKinds = new Set(["approved", "rejected", "policy_auto"]);
+const attemptResults = new Set(["applied", "conflict", "failed", "rolled_back"]);
 const authorities = new Set([
   "user_decision",
   "current_source",
@@ -128,14 +130,17 @@ export function validateProposalDocument(source, label = "proposal") {
   let plan;
   if (data.scope === "workspace" && data.status !== "pending_current_fix") {
     plan = validateWorkspacePatchPlan(data, sections.get("Proposed Patch"), expect);
-    if (plan) validateAuditHashes(data.status, data.plan_hash, sections, expect);
+    if (plan) validateAuditHashes(data.status, data.plan_hash, plan, sections, expect);
   }
   if (promotion) {
     validatePromotionCandidate(data, sections, expect);
   }
-  if (data.status === "applied") {
-    expect(data.current_fix_status === "verified", "applied proposal requires a verified current fix");
-    if (plan) validateAppliedAudit(plan, sections, expect);
+  if (plan && hasAppliedAttempt(sections)) {
+    expect(
+      data.current_fix_status === "verified",
+      "an applied history requires a verified current fix",
+    );
+    validateAppliedAudit(plan, sections, expect);
   }
   if (data.status === "pending_current_fix") {
     expect(
@@ -340,7 +345,12 @@ function validatePromotionCandidate(data, sections, expect) {
 
   const decision = sections.get("Decision Log") ?? "";
   const attempts = sections.get("Apply Attempts") ?? "";
-  expect(!/decision:\s*approved/iu.test(decision), "user-global candidate cannot contain an approved Decision");
+  expect(
+    !yamlListRecords(decision, "decision").some((record) =>
+      ["approved", "policy_auto"].includes(normalizeAuditToken(record.value)),
+    ),
+    "user-global candidate cannot contain an approved or policy_auto Decision",
+  );
   expect(!/^\s*-\s*attempt:/imu.test(attempts), "user-global candidate cannot contain an Apply Attempt");
 }
 
@@ -369,27 +379,169 @@ function validateAppliedAudit(plan, sections, expect) {
   }
 }
 
-function validateAuditHashes(status, planHash, sections, expect) {
+function validateAuditHashes(status, planHash, plan, sections, expect) {
   const decisions = yamlListRecords(sections.get("Decision Log"), "decision");
   const attempts = yamlListRecords(sections.get("Apply Attempts"), "attempt");
+  const allowedTargets = new Set(plan.operations.map((operation) => operation.target));
   for (const record of decisions) {
+    expect(decisionKinds.has(record.value), `Decision decision is invalid: ${record.value}`);
+    expect(validTimestamp(scalarField(record.text, "decided_at")), "Decision decided_at is invalid");
+    expect(nonEmptyString(scalarField(record.text, "decided_by")), "Decision decided_by is required");
     expect(
       scalarField(record.text, "plan_hash") === planHash,
       "Decision plan_hash must equal the computed plan_hash",
     );
+    expect(nonEmptyString(scalarField(record.text, "reason")), "Decision reason is required");
+    if (record.value === "policy_auto") validatePolicyAutoPlan(plan, expect);
   }
-  for (const record of attempts) {
+  const attemptNumbers = new Set();
+  for (const [index, record] of attempts.entries()) {
+    const attemptNumber = /^[1-9][0-9]*$/u.test(record.value) ? Number(record.value) : undefined;
+    expect(attemptNumber !== undefined, "Apply Attempt attempt must be a positive integer");
+    if (attemptNumber !== undefined) {
+      expect(!attemptNumbers.has(attemptNumber), "Apply Attempt attempt numbers must not repeat");
+      attemptNumbers.add(attemptNumber);
+      expect(attemptNumber === index + 1, "Apply Attempt attempt numbers must be sequential from 1");
+    }
     expect(
       scalarField(record.text, "plan_hash") === planHash,
       "Apply Attempt plan_hash must equal the computed plan_hash",
     );
-  }
-  if (["approved", "applied"].includes(status)) {
+    const result = scalarField(record.text, "result");
+    expect(attemptResults.has(result), `Apply Attempt result is invalid: ${String(result)}`);
     expect(
-      decisions.some((record) => record.value === "approved"),
-      `${status} proposal needs an approved Decision`,
+      validTimestamp(scalarField(record.text, "attempted_at")),
+      "Apply Attempt attempted_at is invalid",
+    );
+    const appliedAt = scalarField(record.text, "applied_at");
+    if (result === "applied") {
+      expect(validTimestamp(appliedAt), "applied Apply Attempt requires a valid applied_at");
+    } else {
+      expect(appliedAt === undefined, "non-applied Apply Attempt must not contain applied_at");
+    }
+    const beforeHashes = yamlHashMap(record.text, "before_hashes");
+    const afterHashes = yamlHashMap(record.text, "after_hashes");
+    expect(
+      validAuditHashMap(beforeHashes, { allowNull: true, allowedTargets }),
+      "Apply Attempt before_hashes is invalid",
+    );
+    expect(
+      validAuditHashMap(afterHashes, { allowNull: false, allowedTargets }),
+      "Apply Attempt after_hashes is invalid",
+    );
+    const errorSummary = scalarField(record.text, "error_summary");
+    if (result === "applied") {
+      expect(errorSummary === "null", "applied Apply Attempt error_summary must be null");
+    } else {
+      expect(
+        typeof errorSummary === "string" &&
+          errorSummary !== "null" &&
+          POLICY_REASON_PATTERN.test(errorSummary),
+        "non-applied Apply Attempt error_summary must be a machine-readable reason",
+      );
+    }
+  }
+  const hasApproval = decisions.some(
+    (record) => record.value === "approved" || record.value === "policy_auto",
+  );
+  const hasRejection = decisions.some((record) => record.value === "rejected");
+  const results = attempts.map((record) => scalarField(record.text, "result"));
+  const finalApplied = attempts.length > 0 && results.at(-1) === "applied";
+  const hasSupersession = meaningfulSection(sections.get("Supersession"), ["none"]);
+  const hasRejectionNotes = meaningfulSection(sections.get("Rejection Notes"), [
+    "not rejected",
+    "none",
+  ]);
+  if (status === "proposed") {
+    expect(decisions.length === 0 && attempts.length === 0, "proposed status cannot contain Decision or Apply Attempt history");
+    expect(!hasSupersession, "proposed status cannot contain Supersession");
+    expect(!hasRejectionNotes, "proposed status cannot contain Rejection Notes");
+  } else if (status === "approved") {
+    expect(hasApproval, "approved proposal needs an approved or policy_auto Decision");
+    expect(!hasRejection, "approved proposal cannot contain a rejected Decision");
+    expect(!results.includes("applied"), "approved status cannot contain an applied Apply Attempt");
+    expect(!hasSupersession, "approved status cannot contain Supersession");
+    expect(!hasRejectionNotes, "approved status cannot contain Rejection Notes");
+  } else if (status === "applied") {
+    expect(hasApproval, "applied proposal needs an approved or policy_auto Decision");
+    expect(!hasRejection, "applied proposal cannot contain a rejected Decision");
+    expect(
+      finalApplied,
+      "applied status requires the final Apply Attempt to be applied",
+    );
+    expect(!hasSupersession, "applied status cannot contain Supersession");
+    expect(!hasRejectionNotes, "applied status cannot contain Rejection Notes");
+  } else if (status === "rejected") {
+    expect(
+      hasRejection && !hasApproval,
+      "rejected status requires only a rejected Decision",
+    );
+    expect(attempts.length === 0, "rejected status cannot contain an Apply Attempt");
+    expect(!hasSupersession, "rejected status cannot contain Supersession");
+    expect(hasRejectionNotes, "rejected status requires Rejection Notes");
+  } else if (status === "superseded") {
+    expect(
+      hasApproval && !hasRejection && finalApplied,
+      "superseded status requires a valid applied history",
+    );
+    expect(hasSupersession, "superseded status requires a non-empty Supersession");
+    expect(!hasRejectionNotes, "superseded status cannot contain Rejection Notes");
+  } else if (status === "archived") {
+    const archivedRejected = hasRejection && !hasApproval && attempts.length === 0 && hasRejectionNotes && !hasSupersession;
+    const archivedSuperseded = hasApproval && !hasRejection && finalApplied && hasSupersession && !hasRejectionNotes;
+    expect(
+      archivedRejected || archivedSuperseded,
+      "archived status requires a valid rejected or superseded history",
     );
   }
+}
+
+function hasAppliedAttempt(sections) {
+  return yamlListRecords(sections.get("Apply Attempts"), "attempt").some(
+    (record) => scalarField(record.text, "result") === "applied",
+  );
+}
+
+function meaningfulSection(value, emptyLabels) {
+  if (!nonEmptyString(value)) return false;
+  const normalized = value.trim().replace(/[.]+$/u, "").trim().toLowerCase();
+  return !emptyLabels.includes(normalized);
+}
+
+function normalizeAuditToken(value) {
+  let token = value.trim().replace(/\s+#.*$/u, "").trim();
+  if (token.startsWith('"') && token.endsWith('"')) {
+    try {
+      return JSON.parse(token);
+    } catch {
+      return token;
+    }
+  }
+  if (token.startsWith("'") && token.endsWith("'")) {
+    token = token.slice(1, -1).replaceAll("''", "'");
+  }
+  return token;
+}
+
+function validatePolicyAutoPlan(plan, expect) {
+  const eligible =
+    plan.requestedPolicy === "auto" &&
+    plan.policy === "auto" &&
+    plan.semanticOperation === "add" &&
+    plan.risk === "low" &&
+    plan.currentFixStatus === "verified" &&
+    plan.privacy?.safe === true &&
+    plan.contextHealth?.autoAllowed === true &&
+    plan.operations.every((operation) => autoEligibleTarget(operation.target));
+  expect(eligible, "policy_auto Decision requires every auto eligibility gate");
+}
+
+function autoEligibleTarget(target) {
+  return (
+    target === ".agent-context/PROJECT_CONTEXT_INDEX.md" ||
+    target === ".agent-context/PROJECT_PROFILE.md" ||
+    /^\.agent-context\/checklists\/[^/]+\.md$/u.test(target)
+  );
 }
 
 function parseLabeledJson(section, subheading, expect) {
@@ -444,12 +596,17 @@ function yamlListRecords(section = "", key) {
 }
 
 function scalarField(record, key) {
-  return new RegExp(`^\\s*${escapeRegExp(key)}:\\s*(.*?)\\s*$`, "mu").exec(record)?.[1];
+  return new RegExp(
+    `^[ \\t]*${escapeRegExp(key)}:[ \\t]*([^\\r\\n]*?)[ \\t]*$`,
+    "mu",
+  ).exec(record)?.[1];
 }
 
 function yamlHashMap(record, key) {
   const lines = record.split(/\r?\n/u);
-  const startIndex = lines.findIndex((line) => new RegExp(`^\\s*${escapeRegExp(key)}:\\s*$`, "u").test(line));
+  const inlineEmpty = new RegExp(`^[ \\t]*${escapeRegExp(key)}:[ \\t]*\\{\\}[ \\t]*$`, "u");
+  if (lines.some((line) => inlineEmpty.test(line))) return {};
+  const startIndex = lines.findIndex((line) => new RegExp(`^[ \\t]*${escapeRegExp(key)}:[ \\t]*$`, "u").test(line));
   if (startIndex === -1) return undefined;
   const baseIndent = lines[startIndex].length - lines[startIndex].trimStart().length;
   const result = {};
@@ -463,6 +620,18 @@ function yamlHashMap(record, key) {
     result[entry[1]] = entry[2] === "null" ? null : entry[2];
   }
   return result;
+}
+
+function validAuditHashMap(value, { allowNull, allowedTargets }) {
+  return (
+    isRecord(value) &&
+    Object.entries(value).every(
+      ([target, hash]) =>
+        safeWorkspacePath(target) &&
+        allowedTargets.has(target) &&
+        ((allowNull && hash === null) || (typeof hash === "string" && HASH_PATTERN.test(hash))),
+    )
+  );
 }
 
 function sameHashMap(actual, expected) {
@@ -491,7 +660,11 @@ function nonNegativeInteger(value) {
 }
 
 function validTimestamp(value) {
-  return typeof value === "string" && !Number.isNaN(Date.parse(value));
+  return (
+    typeof value === "string" &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(value) &&
+    !Number.isNaN(Date.parse(value))
+  );
 }
 
 function safeWorkspacePath(target) {
@@ -509,7 +682,6 @@ function supportedWorkspaceTarget(target) {
     target === ".agent-context/PROJECT_CONTEXT_INDEX.md" ||
     target === ".agent-context/PROJECT_PROFILE.md" ||
     /^\.agent-context\/checklists\/[^/]+\.md$/u.test(target) ||
-    /^\.agent-context\/proposals\/[^/]+\.md$/u.test(target) ||
     /^\.agent-context\/reports\/[^/]+\.md$/u.test(target) ||
     target.startsWith(".agent-context/archive/")
   );

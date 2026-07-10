@@ -41,8 +41,9 @@ Do not fabricate missing hashes, approvals, or application success.
 3. Store a migration proposal with operation migration.
 4. Show ambiguity and privacy findings.
 5. Obtain human approval for the exact plan_hash.
-6. Back up only changed context files under
-   archive/migrations/<timestamp>/.
+6. Choose one workspace-relative migration ID. For every changed existing file
+   `.agent-context/<relative-path>`, create a byte-identical backup at
+   `archive/migrations/<migration-id>/<relative-path>` in the same plan.
 7. Recheck hashes, apply through the same staged transaction, and write
    schema_version 1.
 8. Set last_migrated_with_kit_version and append the migration Apply Attempt.
@@ -53,7 +54,9 @@ Stop without writing if:
 - rules would become ambiguous or duplicated
 - proposal frontmatter cannot be parsed
 - unknown security-sensitive configuration exists
+- a future schema is present
 - the approved target changed
+- any changed existing file lacks its exact backup mapping
 - backup creation fails
 - legacy and v1 state are mixed
 

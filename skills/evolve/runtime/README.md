@@ -57,8 +57,9 @@ const attempt = await applyPatchPlan(plan, {
 ~~~
 
 The exact hash may authorize approval-only v1 targets or high-risk operations.
-It never bypasses the verified-current-fix, topology, path, or mechanical
-privacy safety gates.
+It never bypasses the verified-current-fix, complete-current-config, schema,
+topology, path, migration-backup, or mechanical privacy safety gates. Proposal
+aggregates are never kernel targets, even after exact approval.
 
 ## Result contract
 
@@ -76,15 +77,28 @@ never creates a receipt directory.
 
 ## Safety boundary
 
-Without external approval, `auto` additionally requires workspace
-`.agent-context/config.yml` to declare `schema_version: 1` and
-`context_write_policy: auto`. It accepts only low-risk, verified,
+Every non-migration call requires workspace `.agent-context/config.yml` to pass
+the same complete v1 parser and validator used by repository verification. A
+future schema remains read-only. Every proposed `config.yml` replacement must
+also be a complete valid v1 envelope.
+
+Without external approval, `auto` additionally requires that live config to
+declare `context_write_policy: auto`. It accepts only low-risk, verified,
 privacy-declared, context-health-eligible writes to the active index, profile,
 or checklists whose basename is present in `config.enabled_domains`, and only
-when `semanticOperation` is `add`. It rejects
-traversal, symlink escape, stale hashes, duplicate targets,
-config/archive/proposal targets, obvious credentials, private keys, and
-user-home absolute paths.
+when `semanticOperation` is `add`. It rejects traversal, symlink escape, stale
+hashes, duplicate targets, config/archive/report targets, obvious credentials,
+private keys, and user-home absolute paths. Proposal targets are rejected for
+both automatic and approved plans.
+
+Every archive target is create-only. Exact approval can create a new archived
+snapshot but cannot rewrite existing history.
+
+An approved `migration` accepts only a legacy-v0 source. Each updated existing
+file must have byte-identical content in one matching
+`.agent-context/archive/migrations/<migration-id>/...` create operation, and
+the same transaction must produce a complete valid v1 config. Future or
+malformed v1 schemas cannot enter this path.
 
 All file targets are preflighted before staged replacements begin. If a later
 replacement fails, earlier replacements are rolled back where possible. A

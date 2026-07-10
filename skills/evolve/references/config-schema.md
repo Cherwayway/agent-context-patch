@@ -3,6 +3,16 @@
 .agent-context/config.yml is the truth source for workspace write policy,
 enabled domain packs, health thresholds, and schema compatibility.
 
+The runtime and repository verifier use the same production parser and
+validator. A current config must contain this complete envelope; missing or
+unsupported fields do not create a partially enabled mode. Quoted scalars and
+inline or block domain lists are equivalent, while duplicate domains and
+unknown fields are rejected.
+
+PowerShell and Bash Bootstrap cannot assume Node is present, so their native
+validators implement this same envelope and are held to shared black-box
+fixtures. A file that merely says `schema_version: 1` is invalid, not current.
+
 ## Required shape
 
 ~~~yaml
@@ -51,6 +61,11 @@ privacy:
 - single_proposal intentionally has no hard ceiling.
 - all five privacy outcomes are required and false. They are invariants, not
   opt-outs.
+
+Every non-migration kernel call requires a complete valid v1 config, including
+human-approved calls. A future schema is read-only. A migration must replace or
+create `config.yml` with a complete valid v1 envelope in its approved
+transaction.
 
 Changing config, enabling auto, changing a domain, or weakening a threshold is
 approval-only. The kernel cannot auto-write config.yml.

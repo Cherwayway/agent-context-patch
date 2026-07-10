@@ -45,6 +45,13 @@ relevant reference only when evolving context.
   and user-global promotion always require human approval.
 - Approval covers one immutable PatchPlan and its plan_hash. Changed targets
   require a new plan and new approval.
+- The proposal aggregate itself is never a PatchPlan target. Decision and
+  Apply Attempt writes stay outside the kernel transaction.
+- Every non-migration kernel call requires a complete current v1 config.
+  Future schemas remain read-only; legacy migration requires exact backups for
+  every changed existing file in the same approved transaction.
+- Archive targets are create-only history. Approval can add a new snapshot but
+  cannot rewrite an existing archive file.
 - A workspace proposal persists the complete JSON PatchPlan. Its target_files,
   frontmatter plan_hash, Decision Log hashes, and Apply Attempt hashes must
   agree with that plan.
@@ -67,6 +74,8 @@ Initialize or refresh the current workspace:
    a separate scope.
 2. If config.yml has no schema_version, read references/legacy-migration.md and
    remain read-only until a migration proposal is approved.
+   If it claims v1 but fails the complete config envelope, stop as invalid
+   rather than materializing missing templates.
 3. Inspect source-of-truth files and mark uncertainties rather than guessing.
 4. Detect candidate domains with evidence, confidence, and uncertainties.
 5. Show one InitPlan containing proposed enabled domains, active files, exact

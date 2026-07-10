@@ -59,17 +59,26 @@ context growth as success by itself.
    separate `approved` and `applied` states.
 7. Every apply requires `currentFixStatus: verified`; approval cannot bypass
    verification, supported topology, path, or privacy guards.
-8. Any target content, operation, policy result, or context-delta change
+8. The proposal aggregate is never a PatchPlan target. Its Decision Log and
+   Apply Attempts stay outside the Commit Kernel boundary.
+9. A non-migration commit requires one complete, valid v1 workspace config.
+   Future schemas remain read-only; a legacy migration must create exact
+   workspace-local backups in the same transaction.
+10. Bootstrap also validates the complete v1 config envelope without requiring
+    Node. Invalid current-looking config is blocked before any template write.
+11. Archive content is append-only history: every archive target is
+    create-only, including after exact approval.
+12. Any target content, operation, policy result, or context-delta change
    invalidates the approved plan hash.
-9. Domain detection is semantic and temporary; activation is approved and
+13. Domain detection is semantic and temporary; activation is approved and
    persisted only in `config.enabled_domains`.
-10. Replace before add. Overlap or conflict forces a cleanup proposal instead of
+14. Replace before add. Overlap or conflict forces a cleanup proposal instead of
    automatic accumulation.
-11. Quantity triggers context review; authority and retention value decide what
+15. Quantity triggers context review; authority and retention value decide what
     should change. Context is never truncated automatically.
-12. Persist evidence pointers and summaries, not raw conversations or complete
+16. Persist evidence pointers and summaries, not raw conversations or complete
     logs. Use workspace-relative paths.
-13. Existing instructions and legacy context are never silently overwritten.
+17. Existing instructions and legacy context are never silently overwritten.
 
 ## Repository Reading Map
 

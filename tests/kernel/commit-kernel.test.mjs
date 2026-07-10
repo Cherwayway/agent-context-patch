@@ -126,6 +126,45 @@ test("auto fails closed unless v1 workspace config explicitly enables it", async
   }
 });
 
+test("auto accepts a complete v1 config with quoted policy and inline domains", async (t) => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "agent-context-kernel-"));
+  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+  await writeWorkspaceConfig(workspaceRoot, {
+    policy: "auto",
+    enabledDomains: ["coding", "prd"],
+    quotedPolicy: true,
+    inlineDomains: true,
+  });
+  const content = "# Coding checklist\n";
+  const plan = withPlanHash({
+    schemaVersion: 1,
+    planId: "plan-auto-quoted-config",
+    proposalId: "proposal-auto-quoted-config",
+    workspaceRoot,
+    policy: "auto",
+    risk: "low",
+    currentFixStatus: "verified",
+    privacy: { safe: true },
+    contextHealth: { autoAllowed: true },
+    operations: [
+      {
+        type: "create",
+        target: ".agent-context/checklists/coding.md",
+        beforeHash: null,
+        content,
+      },
+    ],
+  });
+
+  const attempt = await applyPatchPlan(plan);
+
+  assert.equal(attempt.status, "applied");
+  assert.equal(
+    await readFile(join(workspaceRoot, ".agent-context", "checklists", "coding.md"), "utf8"),
+    content,
+  );
+});
+
 test("auto rejects a checklist whose domain is not enabled", async (t) => {
   const workspaceRoot = await createAutoWorkspace(t, { enabledDomains: ["prd"] });
   const target = join(workspaceRoot, ".agent-context", "checklists", "coding.md");
@@ -432,6 +471,7 @@ test("propose policy returns an approval conflict without writing", async (t) =>
 test("propose policy applies after exact out-of-plan authorization", async (t) => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "agent-context-kernel-"));
   t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+  await writeWorkspaceConfig(workspaceRoot, { policy: "propose" });
   const target = join(workspaceRoot, ".agent-context", "PROJECT_PROFILE.md");
   const content = "approved profile\n";
   const plan = withPlanHash({
@@ -463,6 +503,63 @@ test("propose policy applies after exact out-of-plan authorization", async (t) =
   assert.equal(await readFile(target, "utf8"), content);
   assert.equal(JSON.stringify(attempt).includes(content), false);
   assert.equal(JSON.stringify(attempt).includes(workspaceRoot), false);
+});
+
+test("exact approval cannot write a non-migration plan in legacy, invalid, or future config", async (t) => {
+  const variants = [
+    {
+      name: "legacy",
+      config: "context_write_policy: propose\nenabled_domains: []\n",
+      reason: "legacy_workspace_read_only",
+    },
+    {
+      name: "invalid-v1",
+      config: "schema_version: 1\ncontext_write_policy: propose\nenabled_domains: []\n",
+      reason: "invalid_workspace_config",
+    },
+    {
+      name: "future",
+      config: workspaceConfigText({ schemaVersion: 2, policy: "propose" }),
+      reason: "future_schema_read_only",
+    },
+  ];
+
+  for (const variant of variants) {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), `agent-context-kernel-${variant.name}-`));
+    t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+    const contextRoot = join(workspaceRoot, ".agent-context");
+    await mkdir(contextRoot, { recursive: true });
+    await writeFile(join(contextRoot, "config.yml"), variant.config, "utf8");
+    const target = join(contextRoot, "PROJECT_PROFILE.md");
+    const before = "# Before\n";
+    await writeFile(target, before, "utf8");
+    const plan = withPlanHash({
+      schemaVersion: 1,
+      planId: `plan-approved-${variant.name}`,
+      proposalId: `proposal-approved-${variant.name}`,
+      workspaceRoot,
+      policy: "propose",
+      risk: "high",
+      semanticOperation: "update",
+      currentFixStatus: "verified",
+      privacy: { safe: true },
+      contextHealth: { autoAllowed: false },
+      operations: [
+        {
+          type: "update",
+          target: ".agent-context/PROJECT_PROFILE.md",
+          beforeHash: sha256Text(before),
+          content: "# After\n",
+        },
+      ],
+    });
+
+    const attempt = await applyPatchPlan(plan, { approvedPlanHash: plan.planHash });
+
+    assert.equal(attempt.status, "conflict");
+    assert.equal(attempt.reason, variant.reason);
+    assert.equal(await readFile(target, "utf8"), before);
+  }
 });
 
 test("an approval hash mismatch writes nothing", async (t) => {
@@ -527,23 +624,20 @@ test("exact approval cannot bypass an unverified current fix", async (t) => {
   await assert.rejects(readFile(target, "utf8"), { code: "ENOENT" });
 });
 
-test("exact approval can atomically apply high-risk config, archive, and proposal-history changes", async (t) => {
+test("exact approval can atomically apply high-risk config and archive changes", async (t) => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "agent-context-kernel-"));
   t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
-  const oldProposalHistory = "history: contains user details\n";
+  await writeWorkspaceConfig(workspaceRoot, { policy: "propose" });
+  const configTarget = join(workspaceRoot, ".agent-context", "config.yml");
+  const oldConfig = await readFile(configTarget, "utf8");
   const contents = [
-    "schema_version: 1\n",
+    workspaceConfigText({ policy: "propose", enabledDomains: ["coding"] }),
     "superseded context\n",
-    "history: redacted after human review\n",
   ];
   const targets = [
     ".agent-context/config.yml",
     ".agent-context/archive/superseded.md",
-    ".agent-context/proposals/history-redaction.md",
   ];
-  const proposalHistoryTarget = join(workspaceRoot, ...targets[2].split("/"));
-  await mkdir(dirname(proposalHistoryTarget), { recursive: true });
-  await writeFile(proposalHistoryTarget, oldProposalHistory, "utf8");
   const plan = withPlanHash({
     schemaVersion: 1,
     planId: "plan-approved-high-risk",
@@ -556,9 +650,9 @@ test("exact approval can atomically apply high-risk config, archive, and proposa
     privacy: { safe: true },
     contextHealth: { autoAllowed: false },
     operations: targets.map((target, index) => ({
-      type: index === 2 ? "update" : "create",
+      type: index === 0 ? "update" : "create",
       target,
-      beforeHash: index === 2 ? sha256Text(oldProposalHistory) : null,
+      beforeHash: index === 0 ? sha256Text(oldConfig) : null,
       content: contents[index],
     })),
   });
@@ -577,6 +671,108 @@ test("exact approval can atomically apply high-risk config, archive, and proposa
   assert.equal(JSON.stringify(attempt).includes(workspaceRoot), false);
 });
 
+test("archive targets are permanently create-only, even with exact approval", async (t) => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "agent-context-kernel-"));
+  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+  await writeWorkspaceConfig(workspaceRoot, { policy: "propose" });
+  const archiveTarget = join(workspaceRoot, ".agent-context", "archive", "immutable.md");
+  const archiveBeforeText = "immutable archive evidence\r\n";
+  const archiveBefore = Buffer.from(archiveBeforeText, "utf8");
+  await mkdir(dirname(archiveTarget), { recursive: true });
+  await writeFile(archiveTarget, archiveBefore);
+  const plan = withPlanHash({
+    schemaVersion: 1,
+    planId: "plan-approved-archive-update",
+    proposalId: "proposal-approved-archive-update",
+    workspaceRoot,
+    policy: "propose",
+    risk: "high",
+    semanticOperation: "rewrite",
+    currentFixStatus: "verified",
+    privacy: { safe: true },
+    contextHealth: { autoAllowed: false },
+    operations: [
+      {
+        type: "update",
+        target: ".agent-context/archive/immutable.md",
+        beforeHash: sha256Text(archiveBeforeText),
+        content: "archive rewrite must be rejected\n",
+      },
+    ],
+  });
+
+  const attempt = await applyPatchPlan(plan, { approvedPlanHash: plan.planHash });
+
+  assert.equal(attempt.status, "failed");
+  assert.equal(attempt.reason, "archive_create_only");
+  assert.deepEqual(await readFile(archiveTarget), archiveBefore);
+});
+
+test("exact approval permanently rejects proposal aggregate targets", async (t) => {
+  const workspaceRoot = await createAutoWorkspace(t);
+  const target = ".agent-context/proposals/history-redaction.md";
+  const plan = withPlanHash({
+    schemaVersion: 1,
+    planId: "plan-proposal-target-forbidden",
+    proposalId: "proposal-target-forbidden",
+    workspaceRoot,
+    policy: "propose",
+    risk: "high",
+    semanticOperation: "rewrite",
+    currentFixStatus: "verified",
+    privacy: { safe: true },
+    contextHealth: { autoAllowed: false },
+    operations: [
+      {
+        type: "create",
+        target,
+        beforeHash: null,
+        content: "proposal history must stay outside the kernel\n",
+      },
+    ],
+  });
+
+  const attempt = await applyPatchPlan(plan, { approvedPlanHash: plan.planHash });
+
+  assert.equal(attempt.status, "failed");
+  assert.equal(attempt.reason, "target_not_supported");
+  await assert.rejects(readFile(join(workspaceRoot, ...target.split("/")), "utf8"), {
+    code: "ENOENT",
+  });
+});
+
+test("every config.yml post-content must be a complete valid v1 envelope", async (t) => {
+  const workspaceRoot = await createAutoWorkspace(t);
+  const target = join(workspaceRoot, ".agent-context", "config.yml");
+  const before = await readFile(target, "utf8");
+  const plan = withPlanHash({
+    schemaVersion: 1,
+    planId: "plan-invalid-config-content",
+    proposalId: "proposal-invalid-config-content",
+    workspaceRoot,
+    policy: "propose",
+    risk: "high",
+    semanticOperation: "update",
+    currentFixStatus: "verified",
+    privacy: { safe: true },
+    contextHealth: { autoAllowed: false },
+    operations: [
+      {
+        type: "update",
+        target: ".agent-context/config.yml",
+        beforeHash: sha256Text(before),
+        content: "schema_version: 1\ncontext_write_policy: propose\nenabled_domains: []\n",
+      },
+    ],
+  });
+
+  const attempt = await applyPatchPlan(plan, { approvedPlanHash: plan.planHash });
+
+  assert.equal(attempt.status, "failed");
+  assert.equal(attempt.reason, "invalid_config_content");
+  assert.equal(await readFile(target, "utf8"), before);
+});
+
 test("exact approval atomically completes a legacy-to-v1 migration", async (t) => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "agent-context-kernel-"));
   t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
@@ -585,17 +781,16 @@ test("exact approval atomically completes a legacy-to-v1 migration", async (t) =
   const profileTarget = join(contextRoot, "PROJECT_PROFILE.md");
   const legacyConfig = "context_write_policy: propose\n";
   const legacyProfile = "# Legacy Profile\n";
-  const v1Config = [
-    "schema_version: 1",
-    "context_write_policy: propose",
-    "enabled_domains:",
-    "  - coding",
-    "",
-  ].join("\n");
+  const v1Config = workspaceConfigText({
+    policy: "propose",
+    enabledDomains: ["coding"],
+    lastMigratedWithKitVersion: "0.2.0",
+  });
   const v1Profile = "# Project Profile\n\nMigrated from legacy_v0.\n";
-  const backupConfigTarget = ".agent-context/archive/migrations/legacy-v0/config.yml";
+  const migrationId = "2026-07-11-legacy-v0";
+  const backupConfigTarget = `.agent-context/archive/migrations/${migrationId}/config.yml`;
   const backupProfileTarget =
-    ".agent-context/archive/migrations/legacy-v0/PROJECT_PROFILE.md";
+    `.agent-context/archive/migrations/${migrationId}/PROJECT_PROFILE.md`;
   await mkdir(contextRoot, { recursive: true });
   await writeFile(configTarget, legacyConfig, "utf8");
   await writeFile(profileTarget, legacyProfile, "utf8");
@@ -675,6 +870,124 @@ test("exact approval atomically completes a legacy-to-v1 migration", async (t) =
   );
   assert.equal(JSON.stringify(attempt).includes(v1Profile), false);
   assert.equal(JSON.stringify(attempt).includes(workspaceRoot), false);
+});
+
+test("migration fails closed when any updated legacy file lacks an exact byte backup", async (t) => {
+  const variants = [
+    { name: "missing", includeProfileBackup: false },
+    { name: "mismatched", includeProfileBackup: true, profileBackupContent: "wrong bytes\n" },
+  ];
+
+  for (const variant of variants) {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), `agent-context-migration-${variant.name}-`));
+    t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+    const contextRoot = join(workspaceRoot, ".agent-context");
+    const configTarget = join(contextRoot, "config.yml");
+    const profileTarget = join(contextRoot, "PROJECT_PROFILE.md");
+    const legacyConfig = "context_write_policy: propose\n";
+    const legacyProfile = "# Legacy Profile\r\n";
+    await mkdir(contextRoot, { recursive: true });
+    await writeFile(configTarget, legacyConfig, "utf8");
+    await writeFile(profileTarget, legacyProfile, "utf8");
+    const plan = makeMigrationPlan({
+      workspaceRoot,
+      migrationId: `migration-backup-${variant.name}`,
+      legacyConfig,
+      legacyProfile,
+      includeProfileBackup: variant.includeProfileBackup,
+      profileBackupContent: variant.profileBackupContent,
+    });
+
+    const attempt = await applyPatchPlan(plan, { approvedPlanHash: plan.planHash });
+
+    assert.equal(attempt.status, "failed");
+    assert.equal(attempt.reason, "invalid_migration_backup");
+    assert.equal(await readFile(configTarget, "utf8"), legacyConfig);
+    assert.equal(await readFile(profileTarget, "utf8"), legacyProfile);
+  }
+});
+
+test("migration cannot rewrite an existing archive as an unbacked shortcut", async (t) => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "agent-context-migration-archive-"));
+  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+  const contextRoot = join(workspaceRoot, ".agent-context");
+  const legacyConfig = "context_write_policy: propose\n";
+  const legacyProfile = "# Legacy Profile\n";
+  const archiveTarget = join(contextRoot, "archive", "legacy-note.md");
+  const archiveBefore = "legacy archive evidence\n";
+  await mkdir(dirname(archiveTarget), { recursive: true });
+  await writeFile(join(contextRoot, "config.yml"), legacyConfig, "utf8");
+  await writeFile(join(contextRoot, "PROJECT_PROFILE.md"), legacyProfile, "utf8");
+  await writeFile(archiveTarget, archiveBefore, "utf8");
+  const base = makeMigrationPlan({
+    workspaceRoot,
+    migrationId: "migration-archive-immutable",
+    legacyConfig,
+    legacyProfile,
+  });
+  const { planHash: _ignoredPlanHash, ...unhashed } = base;
+  const plan = withPlanHash({
+    ...unhashed,
+    operations: [
+      ...base.operations,
+      {
+        type: "update",
+        target: ".agent-context/archive/legacy-note.md",
+        beforeHash: sha256Text(archiveBefore),
+        content: "rewritten without an archive-safe mapping\n",
+      },
+    ],
+  });
+
+  const attempt = await applyPatchPlan(plan, { approvedPlanHash: plan.planHash });
+
+  assert.equal(attempt.status, "failed");
+  assert.equal(attempt.reason, "invalid_migration_backup");
+  assert.equal(await readFile(archiveTarget, "utf8"), archiveBefore);
+});
+
+test("migration accepts only legacy_v0 and rejects malformed, current, or future config", async (t) => {
+  const variants = [
+    {
+      name: "malformed",
+      sourceConfig:
+        "schema_version: 1\nschema_version: 1\ncontext_write_policy: propose\n",
+      reason: "migration_source_not_legacy",
+    },
+    {
+      name: "current",
+      sourceConfig: workspaceConfigText({ policy: "propose" }),
+      reason: "migration_source_not_legacy",
+    },
+    {
+      name: "future",
+      sourceConfig: workspaceConfigText({ schemaVersion: 2, policy: "propose" }),
+      reason: "future_schema_read_only",
+    },
+  ];
+
+  for (const variant of variants) {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), `agent-context-migration-${variant.name}-`));
+    t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+    const contextRoot = join(workspaceRoot, ".agent-context");
+    const profile = "# Existing Profile\n";
+    await mkdir(contextRoot, { recursive: true });
+    await writeFile(join(contextRoot, "config.yml"), variant.sourceConfig, "utf8");
+    await writeFile(join(contextRoot, "PROJECT_PROFILE.md"), profile, "utf8");
+    const plan = makeMigrationPlan({
+      workspaceRoot,
+      migrationId: `migration-source-${variant.name}`,
+      legacyConfig: variant.sourceConfig,
+      legacyProfile: profile,
+    });
+
+    const attempt = await applyPatchPlan(plan, { approvedPlanHash: plan.planHash });
+
+    assert.equal(attempt.status, "conflict");
+    assert.equal(attempt.reason, variant.reason);
+    assert.equal(await readFile(join(contextRoot, "config.yml"), "utf8"), variant.sourceConfig);
+    assert.equal(await readFile(join(contextRoot, "PROJECT_PROFILE.md"), "utf8"), profile);
+  }
 });
 
 test("exact approval cannot bypass privacy guards", async (t) => {
@@ -1092,7 +1405,7 @@ test("mechanical privacy hazards block auto without echoing content", async (t) 
   }
 });
 
-test("auto cannot write config, archive, or other approval-only targets", async (t) => {
+test("auto cannot write approval-only targets and proposals are never kernel targets", async (t) => {
   const workspaceRoot = await createAutoWorkspace(t);
   const configPath = join(workspaceRoot, ".agent-context", "config.yml");
   const originalConfig = await readFile(configPath, "utf8");
@@ -1125,7 +1438,12 @@ test("auto cannot write config, archive, or other approval-only targets", async 
 
     const attempt = await applyPatchPlan(plan);
     assert.equal(attempt.status, "failed");
-    assert.equal(attempt.reason, "auto_target_forbidden");
+    assert.equal(
+      attempt.reason,
+      target.startsWith(".agent-context/proposals/")
+        ? "target_not_supported"
+        : "auto_target_forbidden",
+    );
     const absoluteTarget = join(workspaceRoot, ...target.split("/"));
     if (target === ".agent-context/config.yml") {
       assert.equal(await readFile(absoluteTarget, "utf8"), originalConfig);
@@ -1319,6 +1637,7 @@ test("a failed commit releases the workspace lock", async (t) => {
 test("kernel-reserved commit paths remain forbidden after exact approval", async (t) => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "agent-context-kernel-"));
   t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+  await writeWorkspaceConfig(workspaceRoot, { policy: "propose" });
   const target = ".agent-context/.commit-user-content";
   const plan = withPlanHash({
     schemaVersion: 1,
@@ -1352,6 +1671,7 @@ test("kernel-reserved commit paths remain forbidden after exact approval", async
 test("exact approval cannot write outside the v1 context topology", async (t) => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "agent-context-kernel-"));
   t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+  await writeWorkspaceConfig(workspaceRoot, { policy: "propose" });
   const target = ".agent-context/custom.md";
   const plan = withPlanHash({
     schemaVersion: 1,
@@ -1437,21 +1757,112 @@ async function createAutoWorkspace(t, { enabledDomains = ["coding"] } = {}) {
 
 async function writeWorkspaceConfig(
   workspaceRoot,
-  { schemaVersion = 1, policy = "auto", enabledDomains = [] } = {},
+  options = {},
 ) {
-  const domainLines =
-    enabledDomains.length === 0
-      ? ["enabled_domains: []"]
-      : ["enabled_domains:", ...enabledDomains.map((domain) => `  - ${domain}`)];
-  const lines = [
-    `schema_version: ${schemaVersion}`,
-    `context_write_policy: ${policy}`,
-    ...domainLines,
-    "",
-  ];
   const contextRoot = join(workspaceRoot, ".agent-context");
   await mkdir(contextRoot, { recursive: true });
-  await writeFile(join(contextRoot, "config.yml"), lines.join("\n"), "utf8");
+  await writeFile(join(contextRoot, "config.yml"), workspaceConfigText(options), "utf8");
+}
+
+function workspaceConfigText({
+  schemaVersion = 1,
+  policy = "auto",
+  enabledDomains = [],
+  quotedPolicy = false,
+  inlineDomains = false,
+  lastMigratedWithKitVersion = null,
+} = {}) {
+  const policyValue = quotedPolicy ? JSON.stringify(policy) : policy;
+  const domainLines = inlineDomains
+    ? [`enabled_domains: [${enabledDomains.map((domain) => JSON.stringify(domain)).join(", ")}]`]
+    : enabledDomains.length === 0
+      ? ["enabled_domains: []"]
+      : ["enabled_domains:", ...enabledDomains.map((domain) => `  - ${domain}`)];
+  return [
+    `schema_version: ${schemaVersion}`,
+    'created_with_kit_version: "0.2.0"',
+    `last_migrated_with_kit_version: ${
+      lastMigratedWithKitVersion === null ? "null" : JSON.stringify(lastMigratedWithKitVersion)
+    }`,
+    `context_write_policy: ${policyValue}`,
+    ...domainLines,
+    "budgets:",
+    "  active_context:",
+    "    unit: lines",
+    "    warn: 500",
+    "    block_auto: 800",
+    "  single_proposal:",
+    "    unit: lines",
+    "    warn: 220",
+    "  pending_proposals:",
+    "    unit: count",
+    "    warn: 8",
+    "    block_auto: 12",
+    "privacy:",
+    "  raw_conversation_stored: false",
+    "  full_logs_stored: false",
+    "  secrets_stored: false",
+    "  customer_data_stored: false",
+    "  absolute_user_paths_stored: false",
+    "",
+  ].join("\n");
+}
+
+function makeMigrationPlan({
+  workspaceRoot,
+  migrationId,
+  legacyConfig,
+  legacyProfile,
+  includeProfileBackup = true,
+  profileBackupContent = legacyProfile,
+}) {
+  const prefix = `.agent-context/archive/migrations/${migrationId}`;
+  const operations = [
+    {
+      type: "create",
+      target: `${prefix}/config.yml`,
+      beforeHash: null,
+      content: legacyConfig,
+    },
+  ];
+  if (includeProfileBackup) {
+    operations.push({
+      type: "create",
+      target: `${prefix}/PROJECT_PROFILE.md`,
+      beforeHash: null,
+      content: profileBackupContent,
+    });
+  }
+  operations.push(
+    {
+      type: "update",
+      target: ".agent-context/config.yml",
+      beforeHash: sha256Text(legacyConfig),
+      content: workspaceConfigText({
+        policy: "propose",
+        lastMigratedWithKitVersion: "0.2.0",
+      }),
+    },
+    {
+      type: "update",
+      target: ".agent-context/PROJECT_PROFILE.md",
+      beforeHash: sha256Text(legacyProfile),
+      content: "# Migrated Profile\n",
+    },
+  );
+  return withPlanHash({
+    schemaVersion: 1,
+    planId: `plan-${migrationId}`,
+    proposalId: `proposal-${migrationId}`,
+    workspaceRoot,
+    policy: "propose",
+    risk: "high",
+    semanticOperation: "migration",
+    currentFixStatus: "verified",
+    privacy: { safe: true },
+    contextHealth: { autoAllowed: false },
+    operations,
+  });
 }
 
 function withPlanHash(plan) {
