@@ -1,13 +1,10 @@
 # Reports
 
-Store `$evolve weekly` reports and context health summaries here.
+Store compact weekly and context-health reports here.
 
-Weekly reports should include:
+Reports are rebuildable views over current context and proposal aggregates. They
+are not active sources of truth and ordinary tasks must not load them by
+default.
 
-1. Recurring Mistakes
-2. Approved Improvements
-3. Pending Proposals
-4. Deprecated / Redundant Context
-5. Recommended Context Patches
-6. Next Week Watchlist
-
+A report should cover recurring signals, applied improvements, proposal triage,
+stale or redundant context, recommended cleanup, and next review priorities.

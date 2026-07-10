@@ -1,0 +1,3 @@
+* text=auto
+*.sh text eol=lf
+**/.agent-context/** text eol=lf

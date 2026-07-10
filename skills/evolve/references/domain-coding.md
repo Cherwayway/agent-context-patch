@@ -1,40 +1,45 @@
 # Domain Pack: Coding
 
-Use this pack for implementation, debugging, review, CI, refactoring, and
-release tasks.
+Use for implementation, debugging, review, CI, refactoring, and release work.
 
-## Triggers
+## Detection Guidance
 
-- Build, lint, test, or typecheck failure.
-- User says the agent changed the wrong file or over-engineered.
-- PR review rejects the change.
-- Agent skipped required project context.
-- Repeated mistakes around commands, architecture, or conventions.
+Candidate evidence includes source and test directories, a package/build
+manifest, CI configuration, or verified build and test commands. Do not enable
+from a repository name alone.
 
 ## Checks
 
-- Did the requirement exist in a file or approved issue/spec when needed?
-- Did the agent read project instructions and relevant docs?
-- Were edits scoped to the requested behavior?
-- Were tests or narrow validation run?
-- Was any generated or historical evidence edited improperly?
+- Read project instructions and current source-of-truth docs.
+- Confirm the requirement source for non-trivial scope.
+- Keep edits within the requested behavior and architecture boundary.
+- Run the narrowest useful verification, then the required broader checks.
+- Preserve generated or historical evidence unless the task owns it.
 
 ## Evidence Examples
 
-- `npm test` failed with a summarized error.
-- `AGENTS.md` required a command that was skipped.
-- User corrected the expected architecture boundary.
-- PR review noted a missing test.
+- workspace-relative failing test pointer plus command and exit code
+- current project instruction that required a skipped command
+- user correction to an architecture boundary
+- review finding with a source pointer
 
 ## What Not To Memorize
 
-- A one-off bug detail with no recurring lesson.
-- Temporary network or package registry failure.
-- Local-only path unless the project depends on it.
-- Unverified guesses about architecture.
+- one-off bug detail with no recurring lesson
+- temporary network or registry failure
+- local path unless the project contract depends on it
+- unverified architecture guess
 
 ## Cleanup Rules
 
-Archive coding rules that reference deleted directories, old build tools, or
-commands no longer present in the repo.
+Propose cleanup when a rule names deleted paths, old build tools, retired
+commands, or an architecture contradicted by current sources.
 
+## Materialized Checklist
+
+- Read active project instructions and relevant context before editing.
+- Confirm the requirement and affected boundary.
+- Keep the patch scoped.
+- Run narrow verification and required project checks.
+- Report exact verification evidence.
+- Use replace-before-add for any reusable failure lesson.

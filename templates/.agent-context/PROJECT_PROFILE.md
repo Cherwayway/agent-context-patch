@@ -1,7 +1,7 @@
 # Project Profile
 
-This file contains durable project context for agents. Keep it factual,
-compact, and current. Mark uncertainty explicitly.
+Keep only durable, active workspace facts and rules here. Make uncertainty
+explicit and replace stale context instead of appending history.
 
 ## Product / Project
 
@@ -12,26 +12,25 @@ compact, and current. Mark uncertainty explicitly.
 
 ## Workspace
 
-- Workspace root:
-- Repositories:
+- Workspace root (use `.` or a logical name; never persist a user-home absolute
+  path):
+- Included repositories or document sets:
 - Related external systems:
 
-## Domains
+## Enabled Domains
 
-Detected domains:
+Derived from config.yml; config remains the only truth source.
 
-- coding
-
-Update this list when `$evolve init` detects PRD, SEO, or other active domains.
+- None until an InitPlan is approved.
 
 ## Technical Context
 
-- Main languages:
-- Frameworks:
+- Main languages or formats:
+- Frameworks or tools:
 - Package managers:
 - Build commands:
 - Test commands:
-- Lint/typecheck commands:
+- Lint or typecheck commands:
 
 ## Important Paths
 
@@ -41,22 +40,22 @@ Update this list when `$evolve init` detects PRD, SEO, or other active domains.
 - Scripts:
 - Config:
 
-## Working Rules
+## Active Working Rules
 
-- Prefer source-of-truth files over chat history.
-- Record reusable lessons as proposals before editing long-term context.
-- Keep one-off requirements out of durable context.
+- None until verified against current workspace sources.
 
 ## Known Risks
 
-- Unknown until initialized by an agent.
+- Unknown until initialized.
 
 ## Current Uncertainties
 
-- Initial profile has not been verified against project files yet.
+- Initial profile has not been verified against workspace sources.
 
-## Context Read History
+## Verification State
 
-Agents may append compact entries here after `$evolve init` or major context
-refreshes.
+- Last verified at: never
+- Verified against: none
 
+Update this single state after init or a material context review. Do not append a
+context-read history.

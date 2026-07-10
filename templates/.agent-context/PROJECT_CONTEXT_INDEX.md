@@ -1,33 +1,39 @@
 # Project Context Index
 
-This index tells agents where to find durable project context. Prefer these
-files over chat history when planning recurring work.
+This file routes agents to short, current workspace context. Prefer current
+workspace sources over chat history.
 
-## Core Files
+## Default Read Set
 
-- `PROJECT_PROFILE.md`: stable project facts, architecture, commands, risks,
-  and known uncertainties.
-- `config.yml`: evolution style, write policy, enabled domains, and budgets.
-- `checklists/`: executable review and validation checklists.
-- `proposals/`: pending, approved, rejected, and applied context changes.
-- `mistakes/`: high-recurrence mistake cases worth preserving.
-- `reports/`: weekly summaries and context health reports.
-- `archive/`: deprecated or superseded context.
+- PROJECT_PROFILE.md: verified project facts, active rules, risks, and current
+  uncertainties.
+- checklists/<enabled-domain>.md: read only when the domain is listed in
+  config.yml and relevant to the current task.
+
+Read config.yml when initializing, evolving, or reviewing context. It is the
+only truth source for enabled domains and write policy.
+
+## On-Demand History
+
+- proposals/: evolution aggregates with evidence, decisions, and apply attempts.
+- reports/: rebuildable weekly and context-health views.
+- archive/: inactive or superseded context and migration backups.
+
+Do not load these directories by default. There is no separate mistakes or
+receipts store.
 
 ## Read Rules
 
-- Read this index before writing proposals or changing project context.
-- Read `PROJECT_PROFILE.md` before making project-level claims.
-- Read relevant checklists before verification-sensitive work.
-- Do not treat archived context as active unless a task explicitly asks for
-  historical background.
+- Verify profile claims against current sources when they affect the task.
+- Treat current code, tests, formal specs, and ADRs as authoritative for current
+  state; treat explicit approved user decisions as authoritative for future
+  intent.
+- Read only the relevant enabled checklist.
+- Never follow archived context unless historical background is requested.
 
 ## Context Health
 
-Run `$evolve review-context` when:
-
-- Context contradicts current code or docs.
-- Pending proposals exceed 10.
-- Rules become vague, duplicated, or too long.
-- A repeated mistake has been fixed by a better workflow.
-
+Run $evolve review-context when active rules are stale, vague, duplicated,
+conflicting, or obscured by examples; when a domain changes; or when a configured
+threshold is crossed. Thresholds schedule review and block auto. They never
+authorize deletion.

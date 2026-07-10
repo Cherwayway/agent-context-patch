@@ -1,7 +1,12 @@
 # Archive
 
-Store deprecated or superseded context here.
+Store superseded or deprecated context and migration backups here.
 
-Archived context is not active. Agents should not follow it unless explicitly
-asked for historical background.
+Archive is inactive history. Ordinary tasks must not load or follow it. Preserve
+links to the proposal that replaced or archived active context when available.
 
+Migration backups belong under:
+
+~~~text
+archive/migrations/<timestamp>/
+~~~

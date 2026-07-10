@@ -1,36 +1,61 @@
 # Contributing
 
-Agent Context Patch is intentionally small. Contributions should improve the
-mistake-to-context loop without turning every task into a heavyweight process.
+Agent Context Patch is intentionally small. Contributions should deepen the
+mistake-to-context loop without encoding project semantics in deterministic
+modules.
+
+## Start Here
+
+Read:
+
+1. `CONTEXT.md` for the domain language and module seams.
+2. `docs/adr/0001-agent-first-context-evolution.md` for accepted decisions.
+3. The relevant `skills/evolve/references/` file.
+
+Do not add a second source of truth for proposal lifecycle, write policy, domain
+activation, or receipts.
+
+## Module Discipline
+
+- Agent instructions own semantic judgment.
+- The Commit Kernel owns only deterministic commit safety.
+- Bootstrap owns deterministic install file operations.
+- PowerShell/Bash and Codex/Claude are adapters at real seams.
+- Tests cross public interfaces and verify observable behavior.
+
+Do not create a new seam until a second real adapter exists.
 
 ## Domain Packs
 
-New domain packs must include:
+New built-in domain packs must include:
 
-- Trigger conditions.
-- Checks.
-- Evidence examples.
-- What not to memorize.
-- Cleanup rules.
+- detection guidance and evidence examples;
+- checks;
+- what not to memorize;
+- cleanup rules;
+- checklist materialization guidance.
 
-Domain packs should be usable as guidance, not as rigid process engines. Keep
-them short enough for an agent to load during real work.
+Detection does not equal activation. A pack should become built-in only after
+the pattern proves reusable across workspaces; project-specific guidance can
+remain a workspace checklist.
 
-## Context Rules
+## Context And Privacy Rules
 
-Do not add guidance that encourages agents to silently modify long-term context
-without user approval. The default policy is proposal-first.
+- Fix and verify the current task before long-term context.
+- Replace before add.
+- Never use quantity alone to delete context.
+- Never encourage silent instruction, migration, domain, or promotion writes.
+- Store evidence pointers and summaries, not raw conversations or full logs.
+- Never store secrets, customer data, production credentials, or unnecessary
+  personal information in fixtures, proposals, reports, or archives.
 
-Do not store secrets, customer data, production credentials, or unnecessary
-private conversation text in examples, proposals, reports, or fixtures.
+## Verification
 
-## Testing
-
-Run:
+Run the single public gate:
 
 ```bash
 npm test
 ```
 
-The validation script checks the scaffold and demo harness. Add focused tests
-when you add a new adapter, schema, or domain pack.
+Add behavior-focused tests when changing a public seam. Keep Windows and Ubuntu
+adapters covered by the same contract.
