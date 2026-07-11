@@ -5,6 +5,8 @@ semantic versions for the Kit independently from the Workspace Schema version.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-11
+
 ### Added
 
 - A lightweight iteration standard driven by privacy-minimized Feedback
