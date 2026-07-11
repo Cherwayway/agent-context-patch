@@ -1,44 +1,88 @@
 # Cleanup Policy
 
-Agents must manage context drift. Adding context without cleanup eventually
-makes the agent worse.
+Use cleanup to make active context more accurate and higher leverage, not merely
+shorter.
 
-## Cleanup Triggers
+## Replace before add
 
-Run `$evolve review-context` when:
+Before adding an active rule, compare it with current rules:
 
-- Current code contradicts existing context.
-- A user says existing context is wrong or outdated.
-- Pending proposals exceed 10.
-- A context file exceeds its budget.
-- Two rules say the same thing.
-- A rule is too broad to guide behavior.
-- A mistake record is no longer relevant.
+- no matching responsibility: propose add
+- same meaning: retain one rule and add evidence to the proposal history
+- partial overlap: propose tighten, merge, or rewrite
+- conflict: propose supersede
+- lower-authority lesson: keep the proposal but do not activate it
+- historical example: archive the example and retain the executable rule
 
-## Deprecation Proposal
+Auto is not allowed when overlap, replacement, or semantic removal is involved.
 
-Cleanup should usually be proposed, not silently applied.
+## Authority
 
-Include:
+Use authority to resolve conflicting claims:
 
-```yaml
-deprecation_reason:
-replacement_context:
-evidence:
-```
+1. explicit approved user decision for desired future state
+2. current code, tests, formal spec, or ADR for current state
+3. verified approved active context
+4. repeated observation
+5. single observation, inference, or heuristic
 
-Previously approved context may be overwritten directly only when the user's
-write policy allows it or when the user explicitly asks for direct updates. In
-all cases, notify the user.
+The current source still wins when an older approved instruction claims a fact
+that is no longer true. Keep current facts separate from future intent.
 
-## Do Not Memorize
+## Retention value
 
-Do not preserve:
+Judge retention value as high, medium, or low with evidence. Consider:
 
-- One-time requirements.
-- Temporary workarounds.
-- Unverified guesses.
-- Emotional feedback without a reusable lesson.
-- Details from deprecated architecture.
-- Secrets, credentials, customer data, or private personal data.
+- severity if forgotten
+- recurrence
+- number of tasks affected
+- specificity and actionability
+- agreement with current sources
+- coverage by a stronger rule
+- whether it is only an example
+- active-context cost
 
+Do not compute a mechanical score.
+
+## Cleanup triggers
+
+Generate a cleanup proposal when:
+
+- current code or an approved source contradicts context
+- a path, command, architecture, or domain is no longer current
+- rules duplicate, overlap, or conflict
+- a rule is too broad or vague to guide action
+- examples obscure the executable principle
+- lower-authority context hides higher-authority guidance
+- a domain is being disabled
+- a new proposal can replace or tighten existing context
+- a configured warn or block_auto threshold is crossed
+
+## Cleanup proposal
+
+For every affected rule, include:
+
+- exact rule and source proposal when known
+- current purpose and evidence
+- authority and retention value
+- overlap, conflict, or staleness evidence
+- proposed operation and replacement
+- behavior lost if approved
+- net active-context change
+
+Allowed semantic actions are tighten, merge, rewrite, supersede,
+demote_to_checklist, archive_example, and archive_rule. Any operation that
+changes or removes active context requires human approval, including under
+auto.
+
+Never delete proposal audit history. Move inactive context to archive and link
+its replacement proposal when appropriate.
+
+## Do not retain as active context
+
+- one-time requirements
+- temporary workarounds with no reusable constraint
+- unverified guesses
+- emotional feedback without a reusable lesson
+- details from rejected or obsolete architecture
+- secrets, credentials, customer data, or private personal data

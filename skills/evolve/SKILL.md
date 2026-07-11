@@ -1,140 +1,206 @@
 ---
 name: evolve
-description: Turn agent mistakes, failed verification, repeated corrections, and stale project context into durable, reviewable context improvements.
+description: Turn verified failures, repeated corrections, and stale workspace context into reviewable context patches without letting active context grow unchecked.
 ---
 
 # Evolve
 
-Use this skill when a task reveals a reusable lesson for future work. The skill
-does not replace normal execution. Fix the current task first, then turn the
-lesson into durable project context.
+Use this skill when current work exposes a lesson that is likely to prevent a
+future mistake. Fix and verify the current task first. Do not invoke it for a
+one-off detail that has no recurring value.
 
-Do not invoke this skill for simple one-off tasks unless they expose a repeated
-mistake or stale context.
+Agent Context Patch is agent-first:
+
+- The agent understands the project, judges evidence, chooses wording, and
+  proposes semantic changes.
+- The deterministic commit kernel validates the plan envelope, paths, policy,
+  hashes, conflicts, and application. The agent owns lifecycle logging. The
+  kernel never judges project meaning or edits proposal prose.
+- The basic propose flow works without Node. Auto requires the Node kernel; if
+  it is unavailable, report the reason and use propose.
+
+Read references/protocol-v1.md for the normative v1 contract.
+
+## Context loading
+
+For normal project work, load only:
+
+1. .agent-context/PROJECT_CONTEXT_INDEX.md
+2. .agent-context/PROJECT_PROFILE.md
+3. the relevant checklist for a domain enabled in config.yml
+
+Do not load proposals, reports, or archive by default. Read config.yml and the
+relevant reference only when evolving context.
+
+## Hard invariants
+
+- Never let evolution delay repair of the current task.
+- Never apply a proposal until current_fix_status is verified.
+- Workspace is the only active context scope in v1.
+- User-global is valid only for a manually approved promotion proposal; the
+  workspace kernel cannot apply it.
+- Supported write policies are propose and auto. Auto is an explicit
+  workspace opt-in, not an agent inference.
+- Deletion, cleanup, migration, domain activation, instruction-file changes,
+  and user-global promotion always require human approval.
+- Approval covers one immutable PatchPlan and its plan_hash. Changed targets
+  require a new plan and new approval.
+- The proposal aggregate itself is never a PatchPlan target. Decision and
+  Apply Attempt writes stay outside the kernel transaction.
+- Every non-migration kernel call requires a complete current v1 config.
+  Future schemas remain read-only; legacy migration requires exact backups for
+  every changed existing file in the same approved transaction.
+- Archive targets are create-only history. Approval can add a new snapshot but
+  cannot rewrite an existing archive file.
+- A workspace proposal persists the complete JSON PatchPlan. Its target_files,
+  frontmatter plan_hash, Decision Log hashes, and Apply Attempt hashes must
+  agree with that plan.
+- PatchPlan semanticOperation must equal proposal frontmatter operation. Auto
+  is possible only for semanticOperation add.
+- Approval and application are separate internal states even though
+  $evolve approve is the single public command.
+- Active context changes use replace-before-add. Never append a rule before
+  checking for duplication, overlap, conflict, or a better replacement.
+- Evidence is pointer-first and summary-first. Never persist secrets, raw
+  conversations, complete logs, customer data, or unnecessary absolute paths.
 
 ## Commands
 
-### `$evolve init`
+### $evolve init
 
-Initialize or refresh `.agent-context/` for the current workspace.
+Initialize or refresh the current workspace:
 
-Steps:
+1. Resolve the workspace root; a Git repository is one possible workspace, not
+   a separate scope.
+2. If config.yml has no schema_version, read references/legacy-migration.md and
+   remain read-only until a migration proposal is approved.
+   If it claims v1 but fails the complete config envelope, stop as invalid
+   rather than materializing missing templates.
+3. Inspect source-of-truth files and mark uncertainties rather than guessing.
+4. Detect candidate domains with evidence, confidence, and uncertainties.
+5. Show one InitPlan containing proposed enabled domains, active files, exact
+   patches, and context impact.
+6. Apply the approved plan. Store only enabled_domains in config.yml; detected
+   candidates are temporary plan data.
+7. Materialize checklists only for approved enabled domains. A custom
+   workspace checklist may be proposed when no pack fits.
+8. Report created, changed, skipped, and unresolved items.
 
-1. Detect workspace root. If no Git repo or known workspace exists, use the
-   current directory.
-2. Inspect the project at the depth needed to produce useful context. Do not
-   guess. Mark uncertainty explicitly.
-3. Create or update:
-   - `.agent-context/PROJECT_CONTEXT_INDEX.md`
-   - `.agent-context/PROJECT_PROFILE.md`
-   - `.agent-context/config.yml`
-   - `.agent-context/checklists/`
-   - `.agent-context/proposals/`
-   - `.agent-context/reports/`
-   - `.agent-context/mistakes/`
-   - `.agent-context/archive/`
-4. Detect relevant domain packs. Multiple domains may apply.
-5. Output created/updated files, `contextRead`, detected domains, current
-   uncertainties, and the recommended next step.
+Auto cannot enable or disable domains.
 
-### `$evolve after-failure`
+### $evolve after-failure
 
-Run after a user correction, failed test, failed build, failed review, repeated
-mistake, missing context read, or stale context discovery.
+Run after a correction, failed verification, repeated mistake, missed context
+read, or stale-context discovery:
 
-Steps:
+1. Repair the current issue and verify it when possible.
+2. Decide whether the lesson is reusable. If not, stop after the repair.
+3. Compare it with active context using replace-before-add.
+4. Create one evidence-backed proposal aggregate in proposals/.
+5. Use pending_current_fix while repair is not verified; otherwise use
+   proposed.
+6. Keep evidence as workspace-relative pointers and short result summaries.
+7. Evaluate authority, retention value, privacy, and the net active-context
+   change.
+8. For a workspace proposal, persist the full JSON PatchPlan under Proposed
+   Patch and compute plan_hash from its canonical JSON.
+9. Apply only through the policy and lifecycle below.
 
-1. State that you will fix the current issue first.
-2. Repair the current task and verify when possible.
-3. Create a proposal under `.agent-context/proposals/`.
-4. Set proposal status to `pending_current_fix` if the current fix is still in
-   progress, otherwise `proposed`.
-5. Include evidence. Proposals without evidence should not be created.
-6. Do not merge the patch into long-term context until approved or allowed by
-   `context_write_policy`.
+### $evolve approve
 
-Suggested first sentence after a clear failure:
+This is the only public approval/application entry point:
 
-```text
-I will fix the current issue first. After that I will write an evidence-backed context proposal so this class of mistake is less likely to repeat.
-```
+1. Parse the four-tilde JSON block under Proposed Patch / PatchPlan JSON.
+   Reject prose-only or partial patch descriptions.
+2. Recompute canonical JSON SHA-256 and require it to equal frontmatter
+   plan_hash. Require target_files to equal the operation targets and every
+   existing Decision/Apply hash to equal the same value. Require
+   semanticOperation to equal frontmatter operation.
+3. Show the complete target contents, operations, before hashes, policy result,
+   context delta, and plan_hash.
+4. Obtain explicit approval of that exact hash unless the proposal is eligible
+   for auto.
+5. Persist a Decision Log entry and status approved. If this write fails, stop
+   before calling the kernel.
+6. Recheck policy, paths, privacy, budgets, and before hashes.
+7. Add runtime-only absolute workspaceRoot and planHash, then call
+   applyPatchPlan(plan, {approvedPlanHash}). Approval stays outside the hashed
+   plan and must match plan_hash exactly.
+8. Let the kernel transaction update only the context targets and return its
+   raw status, reason, and per-target hash operations.
+9. Map that result to an Apply Attempt, add the attempt timestamp and a
+   content-free error summary, then append it immediately. On success set
+   status to applied; on conflict, failure, or rollback keep status approved.
+10. If audit writeback fails, report audit_write_pending and retry it. Do not
+   create a separate receipt or claim lifecycle completion.
 
-### `$evolve approve`
+If a target changes before any decision or attempt, replace the plan and
+recompute its hash. After audit history exists, create a superseding proposal
+instead; one aggregate never mixes hashes from multiple plans.
+Without the kernel, propose mode may apply the exact human-approved patch, but
+must still record hashes and the result.
 
-Approve one or more proposals.
+A user-global promotion has no workspace PatchPlan before an adapter resolves
+its real target. Store only a sanitized candidate hash, keep status proposed,
+and defer exact approval to the adapter plan. Never send it to the workspace
+kernel.
 
-Default behavior:
+### $evolve review-context
 
-1. Read the selected proposal files.
-2. Show the context patch that will be applied.
-3. Apply only after user approval, unless `context_write_policy` allows direct
-   application.
-4. Update the proposal status and decision record.
-5. Preserve rejected proposals with a rejection reason when provided.
+Review active context against current sources. Use
+references/cleanup-policy.md and references/context-budget.md.
 
-### `$evolve review-context`
+- Rank authority separately from retention value.
+- Detect stale, duplicated, conflicting, vague, or over-specific rules.
+- Prefer tighten, merge, rewrite, supersede, or archive over another append.
+- Produce an exact cleanup proposal with what behavior would be lost and the
+  net context change.
+- Require human approval for every semantic removal or replacement.
 
-Review existing context for:
+Thresholds trigger review and block auto; they never authorize truncation.
 
-- Conflicts with current code or docs.
-- Outdated assumptions.
-- Overlong files.
-- Vague or non-actionable rules.
-- Too many pending proposals.
-- Mistakes that can be archived.
-- Domain packs that were misdetected or no longer apply.
+### $evolve weekly
 
-When cleanup is needed, write a proposal with `scope` and `deprecation_reason`.
+Write a compact derived report in reports/ covering:
 
-### `$evolve weekly`
+1. recurring signals and verification status
+2. applied improvements
+3. proposal triage
+4. stale, redundant, or conflicting active context
+5. recommended patches and cleanup
+6. next review priorities
 
-Create a compact report under `.agent-context/reports/`.
+Reports are rebuildable views, not sources of truth, and are not part of the
+default context read.
 
-Report sections:
+## Policy evaluation
 
-1. Recurring Mistakes
-2. Approved Improvements
-3. Pending Proposals
-4. Deprecated / Redundant Context
-5. Recommended Context Patches
-6. Next Week Watchlist
+Read context_write_policy from config.yml:
 
-## Proposal Rules
+- propose: create and show proposals; change active context only after approval.
+- auto: use the same lifecycle without a human decision only when every
+  low-risk auto gate in references/protocol-v1.md passes.
 
-Read `references/proposal-schema.md` before writing proposal files.
+If an auto gate fails, keep the proposal and report:
 
-One failure should normally produce one proposal, even if the proposal includes
-multiple target context patches. Keep proposals reviewable.
+~~~yaml
+requested_policy: auto
+effective_policy: propose
+reason: <machine-readable-reason>
+~~~
 
-If more than 10 proposals are pending, run `$evolve review-context` before
-creating another proposal.
-
-## Context Write Policy
-
-Read `.agent-context/config.yml` when present.
-
-Supported policies:
-
-- `propose`: write proposals only. This is the default.
-- `notify`: apply allowed changes and notify the user.
-- `auto`: apply allowed changes automatically. Use only when the user has
-  explicitly opted in.
-
-Global instructions should default to `propose` even if project context is more
-permissive.
-
-## Privacy
-
-Never store secrets, customer data, production credentials, private keys, or
-unnecessary private conversation text in context files. Keep user corrections
-short and paraphrased when possible.
+The agent or kernel must not weaken a failed gate.
 
 ## References
 
-- `references/proposal-schema.md`
-- `references/context-budget.md`
-- `references/cleanup-policy.md`
-- `references/domain-coding.md`
-- `references/domain-prd.md`
-- `references/domain-seo.md`
-
+- references/protocol-v1.md
+- references/config-schema.md
+- references/proposal-schema.md
+- references/legacy-migration.md
+- references/domain-packs.md
+- references/context-budget.md
+- references/cleanup-policy.md
+- references/privacy.md
+- references/domain-coding.md
+- references/domain-prd.md
+- references/domain-seo.md

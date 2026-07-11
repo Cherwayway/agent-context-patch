@@ -1,39 +1,44 @@
 # Domain Pack: SEO
 
-Use this pack for SEO strategy, topic pages, landing pages, metadata, content
-briefs, internal linking, and SERP-driven workflows.
+Use for SEO strategy, topic and landing pages, metadata, briefs, internal
+linking, and SERP-driven work.
 
-## Triggers
+## Detection Guidance
 
-- User says search intent or target keyword was misunderstood.
-- Agent ignored known site structure or internal linking rules.
-- Generated copy repeats a banned pattern.
-- SERP or competitor evidence contradicts the plan.
-- The same SEO checklist is repeatedly re-explained.
+Candidate evidence includes active SEO briefs, site taxonomy, keyword research,
+metadata workflows, or repeated search-intent work. Date time-sensitive
+evidence.
 
 ## Checks
 
-- Is search intent explicit?
-- Are primary and secondary keywords separated?
-- Are title, description, H1, structure, and internal links covered?
-- Is evidence current when SERP freshness matters?
-- Are claims supported and not invented?
+- State search intent and evidence date.
+- Separate primary and secondary keywords.
+- Cover title, description, H1, structure, and internal links when relevant.
+- Refresh evidence when SERP freshness matters.
+- Support claims and avoid invented traffic or ranking data.
 
 ## Evidence Examples
 
-- User correction about keyword intent.
-- SERP comparison summary.
-- Existing site page that should have been used as a pattern.
+- dated user correction to keyword intent
+- short SERP comparison with source pointers
+- existing site page used as an approved pattern
 
 ## What Not To Memorize
 
-- Time-sensitive SERP observations without date.
-- Unsupported traffic claims.
-- One-off campaign language.
-- Client-private data.
+- undated time-sensitive SERP observations
+- unsupported traffic claims
+- one-off campaign language
+- customer-private data
 
 ## Cleanup Rules
 
-Archive SEO context tied to outdated campaigns, old SERP snapshots, or retired
-site sections.
+Propose cleanup for retired site sections, outdated campaigns, stale SERP
+snapshots, and rules contradicted by the current site structure.
 
+## Materialized Checklist
+
+- State search intent and evidence date.
+- Separate primary and secondary keywords.
+- Check metadata, headings, structure, and internal links.
+- Refresh time-sensitive evidence.
+- Avoid unsupported claims and private customer details.

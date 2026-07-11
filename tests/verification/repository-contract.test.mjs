@@ -1,0 +1,136 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+import { validateConfigDocument } from "./config-contract.mjs";
+import { validateProposalDocument } from "./proposal-contract.mjs";
+import { parseMarkdownFrontmatter, parseYamlSubset } from "./yaml-subset.mjs";
+
+const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
+
+test("package, skill manifest, and context schema versions agree", () => {
+  const packageJson = readJson("package.json");
+  const manifest = readJson("skills/evolve/manifest.json");
+  const config = parseYamlSubset(read("templates/.agent-context/config.yml"), "template config");
+
+  assert.equal(packageJson.version, "0.2.0");
+  assert.equal(packageJson.engines?.node, ">=20");
+  assert.equal(manifest.kit, "agent-context-patch");
+  assert.equal(manifest.version, packageJson.version);
+  assert.equal(manifest.schemaVersion, 1);
+  assert.equal(config.schema_version, manifest.schemaVersion);
+  assert.equal(config.created_with_kit_version, packageJson.version);
+  assert.equal(config.last_migrated_with_kit_version, null);
+});
+
+test("workspace template has one active topology and no pre-enabled domain materialization", () => {
+  for (const path of [
+    "PROJECT_CONTEXT_INDEX.md",
+    "PROJECT_PROFILE.md",
+    "config.yml",
+    "checklists/README.md",
+    "proposals/README.md",
+    "reports/README.md",
+    "archive/README.md",
+  ]) {
+    assert.ok(existsSync(resolveTemplate(path)), `missing template path: ${path}`);
+  }
+
+  for (const obsoletePath of ["mistakes", "receipts"]) {
+    assert.equal(
+      containsFiles(resolveTemplate(obsoletePath)),
+      false,
+      `template contains obsolete files under: ${obsoletePath}`,
+    );
+  }
+  for (const domainFile of ["coding.md", "prd.md", "seo.md"]) {
+    assert.equal(
+      existsSync(resolveTemplate(`checklists/${domainFile}`)),
+      false,
+      `template prematurely materializes domain checklist: ${domainFile}`,
+    );
+  }
+});
+
+test("template config expresses the v1 policy and health thresholds", () => {
+  const path = "templates/.agent-context/config.yml";
+  assert.deepEqual(validateConfigDocument(read(path), path), []);
+});
+
+test("the applied demo proposal is a valid v1 evolution aggregate", () => {
+  const proposalPath =
+    "demos/fake-js-repo/.agent-context/proposals/2026-07-09-greeting-contract.md";
+  const source = read(proposalPath);
+  const { data } = parseMarkdownFrontmatter(source, proposalPath);
+
+  assert.equal(data.status, "applied", "demo must exercise the applied audit path");
+  assert.deepEqual(validateProposalDocument(source, proposalPath), []);
+});
+
+test("the demo Apply Attempt hashes describe its actual two-file transition", () => {
+  const proposal = read(
+    "demos/fake-js-repo/.agent-context/proposals/2026-07-09-greeting-contract.md",
+  );
+  const transitions = [
+    {
+      target: ".agent-context/PROJECT_PROFILE.md",
+      repositoryPath: "demos/fake-js-repo/.agent-context/PROJECT_PROFILE.md",
+      addedLine: "- Greeting output must preserve caller-provided names.\n",
+    },
+    {
+      target: ".agent-context/checklists/coding.md",
+      repositoryPath: "demos/fake-js-repo/.agent-context/checklists/coding.md",
+      addedLine: "- Preserve caller-provided names in greeting output.\n",
+    },
+  ];
+
+  for (const { target, repositoryPath, addedLine } of transitions) {
+    const after = readFileSync(join(repositoryRoot, repositoryPath));
+    const addition = Buffer.from(addedLine, "utf8");
+    const additionAt = after.indexOf(addition);
+    assert.notEqual(additionAt, -1, `${repositoryPath} is missing its demonstrated addition`);
+    const before = Buffer.concat([
+      after.subarray(0, additionAt),
+      after.subarray(additionAt + addition.length),
+    ]);
+    assert.match(
+      proposal,
+      new RegExp(`${escapeRegExp(target)}:\\s+${sha256(before)}`, "u"),
+      `proposal before_hash does not reconstruct ${target}`,
+    );
+    assert.match(
+      proposal,
+      new RegExp(`${escapeRegExp(target)}:\\s+${sha256(after)}`, "u"),
+      `proposal after_hash does not match ${target}`,
+    );
+  }
+});
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function read(relativePath) {
+  return readFileSync(join(repositoryRoot, relativePath), "utf8");
+}
+
+function readJson(relativePath) {
+  return JSON.parse(read(relativePath));
+}
+
+function resolveTemplate(relativePath) {
+  return join(repositoryRoot, "templates", ".agent-context", relativePath);
+}
+
+function containsFiles(path) {
+  if (!existsSync(path)) return false;
+  if (statSync(path).isFile()) return true;
+  return readdirSync(path).some((entry) => containsFiles(join(path, entry)));
+}

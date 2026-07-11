@@ -1,0 +1,23 @@
+schema_version: 1
+created_with_kit_version: "0.2.0"
+last_migrated_with_kit_version: null
+context_write_policy: propose
+enabled_domains: []
+budgets:
+  active_context:
+    unit: lines
+    warn: 6000
+    block_auto: 9000
+  single_proposal:
+    unit: lines
+    warn: 220
+  pending_proposals:
+    unit: lines
+    warn: 8
+    block_auto: 12
+privacy:
+  raw_conversation_stored: false
+  full_logs_stored: false
+  secrets_stored: false
+  customer_data_stored: false
+  absolute_user_paths_stored: false

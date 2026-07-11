@@ -1,50 +1,142 @@
 # Agent Context Patch
 
-把 agent 犯过的错误，变成以后可复用的项目上下文。
+把 Agent 反复犯过的错误，变成短小、持久、可审阅的 workspace context。
 
-Agent Context Patch 是一个轻量的 agent 自进化协议，面向 Codex、Claude Code 和其他
-AI coding agent。它不把所有任务都复杂化，而是在 agent 出错、返工、验证失败
-或发现上下文过期时，帮助 agent 先修当前问题，再沉淀可审批的项目经验。
+Agent Context Patch 采用 Agent-first：旗舰 Agent 负责理解项目、判断经验是否值得沉淀、
+生成 context patch。`auto` 必须使用很薄的 deterministic Commit Kernel；人工精确批准也可以
+通过它提交，但没有 Node 时仍可使用 `propose`。
 
 默认循环：
 
-1. 发现错误、失败、重复纠正或过期上下文。
-2. 先修当前任务。
-3. 生成带证据的 evolution proposal。
-4. 由用户批准是否合并 context patch。
-5. 持续清理过时、重复、无用的上下文。
+1. 发现可复用的失败、纠正、过期规则或工作流经验。
+2. 先修复并验证当前任务。
+3. 检查 Active Context，优先替换而不是追加。
+4. 生成带证据和精确 PatchPlan 的 proposal。
+5. 用户批准，或由 `auto` 通过 Commit Kernel 应用低风险计划。
+6. 持续提出语义清理 proposal，让 context 保持当前和有用。
 
 ## 快速安装
 
-把这句话交给你的 agent：
+把下面这段话交给 Agent：
 
 ```text
-Install agent-context-patch from https://github.com/<org>/agent-context-patch.
-Run dry-run first, show planned changes, then ask before applying.
-After install, run $evolve init for this workspace.
+Install Agent Context Patch from https://github.com/Cherwayway/agent-context-patch.
+Use AGENT_INSTALL.md. Run Bootstrap dry-run first, show the exact plan hash and
+the separate AGENTS.md or CLAUDE.md patch, then ask before applying. After the
+install, run $evolve init for this workspace.
 ```
 
-本地开发时可以运行：
+默认安装位置：
+
+- `$evolve` skill 和可选 Node Commit Kernel 安装在 Agent 的 user-level skill 目录；
+- 短 guidance fragment 与 `.agent-context/` 安装在 workspace；
+- global trigger 只允许显式 opt-in。
+
+Bootstrap 永远不会自动合并已有 `AGENTS.md` / `CLAUDE.md`；Agent 必须单独展示
+语义 patch 并请求批准。
+
+## 本地 Bootstrap 开发
+
+PowerShell：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File install/install.ps1 -Mode DryRun
-powershell -ExecutionPolicy Bypass -File install/install.ps1 -Mode Workspace -WorkspacePath .
+powershell -ExecutionPolicy Bypass -File install/install.ps1 `
+  -Mode DryRun -WorkspacePath .
+
+# 审阅输出的 plan hash 后：
+powershell -ExecutionPolicy Bypass -File install/install.ps1 `
+  -Mode Apply -WorkspacePath . -ApprovedPlanHash <approved-hash>
 ```
 
-## 核心入口
+Bash：
 
-- `$evolve init`：初始化 workspace context。
-- `$evolve after-failure`：失败或返工后生成 proposal。
-- `$evolve approve`：批准并合并 proposal。
-- `$evolve review-context`：检查冲突、过期、冗余 context。
-- `$evolve weekly`：生成周报和待审批 patch。
+```bash
+bash install/install.sh --mode dry-run --workspace .
+bash install/install.sh --mode apply --workspace . \
+  --approved-plan-hash <approved-hash>
+```
 
-## 适用范围
+## Workspace Context
 
-适合重度 AI coding、AI PRD、AI SEO、项目长期迭代用户。简单的一次性任务不应
-进入 loop，只有未来大概率复用的经验才值得沉淀。
+V1 只在 workspace 内写 Active Context：
 
-## 默认安全边界
+```text
+.agent-context/
+  PROJECT_CONTEXT_INDEX.md
+  PROJECT_PROFILE.md
+  config.yml
+  checklists/
+  proposals/
+  reports/
+  archive/
+```
 
-默认策略是 `propose`：agent 可以生成 proposal，但不静默修改全局
-`AGENTS.md` / `CLAUDE.md`。用户可以按自己的信任程度改成 `notify` 或 `auto`。
+普通任务默认只读取 index、profile 和相关 enabled checklist。Proposal 自己保存
+Decision Log 与 Apply Attempts；report 是派生视图；archive 默认不读取；不再建立独立
+`mistakes/` 或 `receipts/` 真相源。
+
+## 核心命令
+
+- `$evolve init`：检查 workspace，报告 `contextRead`，检测 domain 候选，并展示
+  可审阅 InitPlan；只有批准后才启用 domain。
+- `$evolve after-failure`：先修复当前任务，再执行 replace-before-add 并生成一个
+  带证据 proposal；发现重叠或冲突时转为 cleanup proposal。
+- `$evolve approve`：展示精确 PatchPlan，批准绑定 plan hash；内部区分
+  `approved` 与 `applied`，文件变化会让批准失效。
+- `$evolve review-context`：按冲突、过期、重复、authority 与 retention value
+  生成语义清理 proposal；不按数量自动删除。
+- `$evolve weekly`：生成派生健康报告，不反向覆盖 Active Context。
+
+## 写入策略
+
+默认：
+
+```yaml
+context_write_policy: propose
+```
+
+只支持两档：
+
+- `propose`：生成计划，等待精确批准；
+- `auto`：workspace 显式 opt-in，仅通过 Node Commit Kernel 应用合格的低风险
+  create/update 计划。Kernel 会重读 workspace config；只有已启用 domain 的 checklist
+  才可能自动写入。
+
+Node 或 kernel 不可用时，`auto` 必须明确降级为 `propose`。删除、archive、
+supersede、migration、instruction 文件、domain activation 和 user-global promotion
+永远需要人工批准。
+
+## Context Health
+
+- 新规则必须先执行 replace-before-add；
+- authority 决定冲突时哪份证据优先；
+- retention value 决定规则是否仍值得占据 Active Context；
+- 数量和 budget 只触发 review、阻断 `auto`，永远不自动截断；
+- cleanup proposal 必须展示删除后损失、替代规则和 context 净变化。
+
+## Evidence Privacy
+
+Evidence 优先保存指针和摘要：使用 workspace-relative 路径、命令、exit code 与 hash，
+简短转述用户纠正；不持久化原始聊天、完整日志、secret、credential、客户数据或无关
+个人信息。晋升 user-global 前必须去除 workspace 特定内容。
+
+## Legacy Workspace
+
+无 `schema_version` 的 `.agent-context/` 是只读 `legacy_v0`。V1 可以读取，但迁移
+必须通过 MigrationPlan、备份、精确批准和 ApplyAttempt。Bootstrap 不会用新模板覆盖
+legacy context。
+
+## 架构与开发
+
+领域词汇见 [CONTEXT.md](CONTEXT.md)，架构决策见
+[ADR-0001](docs/adr/0001-agent-first-context-evolution.md)，决策与验证证据的映射见
+[v1 verification matrix](docs/v1-verification-matrix.md)。
+
+统一验证入口：
+
+```bash
+npm test
+```
+
+验证会执行真实 demo、协议 fixtures、Commit Kernel 文件结果、Bootstrap
+dry-run/apply/idempotency、仓库卫生和平台契约；CI 在 Windows 与 Ubuntu 运行同一入口。

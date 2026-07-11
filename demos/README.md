@@ -1,14 +1,16 @@
 # Demo Harness
 
-The demos are lightweight fixtures that prove the v1 evolution flow:
+The demos exercise the v1 Agent Context Patch journey through observable
+artifacts:
 
-1. Initialize workspace context.
-2. Simulate a failure.
-3. Create an evidence-backed proposal.
-4. Apply an approved context patch.
-5. Confirm future runs can read the new context.
+1. Initialize versioned workspace context.
+2. Run and verify the current project behavior.
+3. Record one evidence-backed proposal aggregate.
+4. Bind a Decision to an exact PatchPlan.
+5. Record a successful ApplyAttempt.
+6. Confirm the next run can read the resulting Active Context.
 
-Run:
+Run the repository verification interface from the repository root:
 
 ```bash
 npm test
@@ -16,6 +18,9 @@ npm test
 
 ## Demos
 
-- `markdown-smoke`: smallest possible workspace context fixture.
-- `fake-js-repo`: coding-oriented fixture with an applied proposal.
+- `markdown-smoke`: a non-code workspace with no package-manager requirement.
+- `fake-js-repo`: a coding workspace with a verified greeting contract and an
+  applied proposal aggregate.
 
+Static files are fixtures, not proof by themselves. The root verification gate
+must execute the fake project test and validate the v1 records.
