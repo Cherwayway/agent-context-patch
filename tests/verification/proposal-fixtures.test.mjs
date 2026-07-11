@@ -422,7 +422,7 @@ for (const [fixture, expectedFailure] of [
 }
 
 function read(name) {
-  return readFileSync(join(fixtureRoot, name), "utf8");
+  return readFileSync(join(fixtureRoot, name), "utf8").replaceAll("\r\n", "\n");
 }
 
 function assertRejected(source, expectedFailure) {

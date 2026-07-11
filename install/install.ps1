@@ -58,7 +58,14 @@ function Get-Sha256Text([string]$Text) {
 }
 
 function Get-Sha256File([string]$Path) {
-  return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+  $sha = [Security.Cryptography.SHA256]::Create()
+  $stream = [IO.File]::OpenRead($Path)
+  try {
+    return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
+  } finally {
+    $stream.Dispose()
+    $sha.Dispose()
+  }
 }
 
 function Get-FirstReparsePoint([string]$Root) {
