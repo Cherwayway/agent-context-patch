@@ -1,5 +1,6 @@
-const KIT_VERSION = "0.2.0";
 const DOMAIN_PATTERN = /^[a-z0-9][a-z0-9-]*$/u;
+const SEMVER_PATTERN =
+  /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const TOP_LEVEL_KEYS = [
   "schema_version",
   "created_with_kit_version",
@@ -37,13 +38,15 @@ export function inspectV1ConfigDocument(source, label = "config") {
   expectExactKeys(value, TOP_LEVEL_KEYS, "config", expect);
   expect(value.schema_version === 1, "schema_version must be 1");
   expect(
-    value.created_with_kit_version === KIT_VERSION,
-    `created_with_kit_version must identify kit version ${KIT_VERSION}`,
+    typeof value.created_with_kit_version === "string" &&
+      SEMVER_PATTERN.test(value.created_with_kit_version),
+    "created_with_kit_version must be a valid semantic version",
   );
   expect(
     value.last_migrated_with_kit_version === null ||
-      value.last_migrated_with_kit_version === KIT_VERSION,
-    `last_migrated_with_kit_version must be null or ${KIT_VERSION}`,
+      (typeof value.last_migrated_with_kit_version === "string" &&
+        SEMVER_PATTERN.test(value.last_migrated_with_kit_version)),
+    "last_migrated_with_kit_version must be null or a valid semantic version",
   );
   expect(
     value.context_write_policy === "propose" || value.context_write_policy === "auto",

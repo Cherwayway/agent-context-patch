@@ -22,11 +22,17 @@ The loop is:
 Ask your Agent:
 
 ```text
-Install Agent Context Patch from https://github.com/Cherwayway/agent-context-patch.
-Use AGENT_INSTALL.md. Run Bootstrap dry-run first, show the exact plan hash and
-the separate AGENTS.md or CLAUDE.md patch, then ask before applying. After the
-install, run $evolve init for this workspace.
+Install the latest stable Agent Context Patch from
+https://github.com/Cherwayway/agent-context-patch/releases/latest. Resolve it to
+one GitHub-enforced immutable tag and source commit, download that exact
+Release, and verify its published checksum before running its AGENT_INSTALL.md.
+Run Bootstrap dry-run first, show the exact plan hash and the separate AGENTS.md
+or CLAUDE.md patch, then ask before applying. After the install, run $evolve
+init for this workspace.
 ```
+
+Stable installs use GitHub-enforced immutable Releases. The moving `main`
+branch is a development source, not a normal install source.
 
 Default placement:
 
@@ -65,6 +71,51 @@ Pass an Agent-resolved skill target with `-SkillTargetPath` or
 `--skill-target`. Pass the existing instruction file path to include a
 `GuidancePatchRequired` action in the reviewed plan; Bootstrap still will not
 edit that file.
+
+## Local Upgrade Verification
+
+After independently verifying and unpacking an immutable candidate Release,
+run its Bootstrap against the installed user-level skill:
+
+PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass `
+  -File <candidate-release>\install\install.ps1 `
+  -Mode UpdateDryRun `
+  -SkillTargetPath <installed-user-skill-target>
+
+# After reviewing and approving the exact plan hash:
+powershell -ExecutionPolicy Bypass `
+  -File <candidate-release>\install\install.ps1 `
+  -Mode UpdateApply `
+  -SkillTargetPath <installed-user-skill-target> `
+  -ApprovedPlanHash <approved-hash>
+```
+
+Bash:
+
+```bash
+bash <candidate-release>/install/install.sh \
+  --mode update-dry-run \
+  --skill-target <installed-user-skill-target>
+
+# After reviewing and approving the exact plan hash:
+bash <candidate-release>/install/install.sh \
+  --mode update-apply \
+  --skill-target <installed-user-skill-target> \
+  --approved-plan-hash <approved-hash>
+```
+
+The candidate script determines the update source. Update modes do not inspect
+or write workspace context, edit instruction files, or authorize schema
+migration. They bind the exact installed and candidate managed trees to the
+approved plan, back up the prior skill, verify the replacement, and restore the
+prior version on failure.
+
+The v0.2.0 skill predates `$evolve update`. Its first upgrade uses this candidate
+Bootstrap sequence as a one-time compatibility handoff; later checks use the
+single public `$evolve update` command.
 
 ## Workspace Context
 
@@ -116,6 +167,15 @@ archive changes always require approval.
 Create a derived report of recurring lessons, proposal health, cleanup
 candidates, applied improvements, and watch items. Reports never overwrite
 Active Context.
+
+`$evolve update`
+
+Explicitly check the latest stable immutable Release, verify its checksum, tag,
+and source commit, then show the complete UpdatePlan and exact plan hash before
+any user-level skill replacement. A successful update takes effect in a new
+Agent task. There is no background check, telemetry, or silent upgrade.
+For prompt external notice, subscribe to this repository's GitHub Release
+notifications; run `$evolve update` when you choose to check or upgrade.
 
 ## Write Policies
 
