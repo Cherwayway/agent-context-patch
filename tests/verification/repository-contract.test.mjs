@@ -16,7 +16,7 @@ test("package, skill manifest, and context schema versions agree", () => {
   const manifest = readJson("skills/evolve/manifest.json");
   const config = parseYamlSubset(read("templates/.agent-context/config.yml"), "template config");
 
-  assert.equal(packageJson.version, "0.3.0");
+  assert.equal(packageJson.version, "0.3.1");
   assert.equal(packageJson.engines?.node, ">=20");
   assert.equal(manifest.kit, "agent-context-patch");
   assert.equal(manifest.version, packageJson.version);
@@ -88,6 +88,36 @@ test("the public update surface is release-based, explicit, and workspace-indepe
 test("template config expresses the v1 policy and health thresholds", () => {
   const path = "templates/.agent-context/config.yml";
   assert.deepEqual(validateConfigDocument(read(path), path), []);
+});
+
+test("personal dogfooding is an installed reference and this repository follows Schema 1", () => {
+  const playbookPath = "skills/evolve/references/personal-dogfooding.zh-CN.md";
+  const playbook = read(playbookPath);
+  const skill = read("skills/evolve/SKILL.md");
+  const profile = read(".agent-context/PROJECT_PROFILE.md");
+
+  assert.match(skill, /references\/personal-dogfooding\.zh-CN\.md/u);
+  for (const token of [
+    "Default Personal Loop",
+    "$evolve after-failure",
+    "Weekly Review",
+    "Promotion Gate",
+    "Success Check",
+  ]) {
+    assert.ok(playbook.includes(token), `${playbookPath} is missing: ${token}`);
+  }
+
+  assert.deepEqual(
+    validateConfigDocument(read(".agent-context/config.yml"), ".agent-context/config.yml"),
+    [],
+  );
+  assert.match(profile, /early personal dogfooding/u);
+  assert.match(profile, /personal-dogfooding\.zh-CN\.md/u);
+  assert.equal(
+    containsFiles(join(repositoryRoot, ".agent-context", "mistakes")),
+    false,
+    "dogfood context revived the obsolete mistakes store",
+  );
 });
 
 test("the applied demo proposal is a valid v1 evolution aggregate", () => {

@@ -176,6 +176,14 @@ Write a compact derived report in reports/ covering:
 Reports are rebuildable views, not sources of truth, and are not part of the
 default context read.
 
+### Personal multi-repository dogfooding
+
+When the user explicitly wants to establish or review their own long-running
+use of this kit across repositories, read the experimental owner-dogfood guide
+`references/personal-dogfooding.zh-CN.md`. Keep each repository workspace-first,
+promote only evidence-backed patterns, and do not turn the review cadence into
+mandatory ceremony when no real signal exists.
+
 ### $evolve update
 
 This is the only public Kit update entry point. Run it only when the user asks:
@@ -245,6 +253,7 @@ The agent or kernel must not weaken a failed gate.
 - references/context-budget.md
 - references/cleanup-policy.md
 - references/privacy.md
+- references/personal-dogfooding.zh-CN.md
 - references/domain-coding.md
 - references/domain-prd.md
 - references/domain-seo.md
