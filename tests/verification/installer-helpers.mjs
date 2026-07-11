@@ -186,7 +186,7 @@ export function assertV1ConfigBootstrapContract({ repositoryRoot, runDryRun, run
     {
       name: "invalid created kit version",
       config: templateConfig.replace(
-        'created_with_kit_version: "0.3.0"',
+        'created_with_kit_version: "0.3.1"',
         'created_with_kit_version: "v0.2.0"',
       ),
     },
@@ -200,8 +200,8 @@ export function assertV1ConfigBootstrapContract({ repositoryRoot, runDryRun, run
     {
       name: "created kit version with decoded trailing newline",
       config: templateConfig.replace(
-        'created_with_kit_version: "0.3.0"',
-        'created_with_kit_version: "0.3.0\\n"',
+        'created_with_kit_version: "0.3.1"',
+        'created_with_kit_version: "0.3.1\\n"',
       ),
     },
   ];

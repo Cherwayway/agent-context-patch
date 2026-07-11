@@ -5,6 +5,16 @@ semantic versions for the Kit independently from the Workspace Schema version.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-11
+
+### Added
+
+- An on-demand personal multi-repository dogfooding Playbook that keeps daily
+  use workspace-first, defines a lightweight weekly review, and requires real
+  evidence before promotion into user-global guidance or Kit behavior.
+- A Schema 1 dogfood workspace for this repository and verification that the
+  installed Skill keeps the Playbook available without adding a new command.
+
 ## [0.3.0] - 2026-07-11
 
 ### Added
