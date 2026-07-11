@@ -183,6 +183,27 @@ export function assertV1ConfigBootstrapContract({ repositoryRoot, runDryRun, run
       name: "duplicate inline domain",
       config: templateConfig.replace("enabled_domains: []", "enabled_domains: [coding, 'coding']"),
     },
+    {
+      name: "invalid created kit version",
+      config: templateConfig.replace(
+        'created_with_kit_version: "0.3.0"',
+        'created_with_kit_version: "v0.2.0"',
+      ),
+    },
+    {
+      name: "invalid migrated kit version",
+      config: templateConfig.replace(
+        "last_migrated_with_kit_version: null",
+        'last_migrated_with_kit_version: "0.2"',
+      ),
+    },
+    {
+      name: "created kit version with decoded trailing newline",
+      config: templateConfig.replace(
+        'created_with_kit_version: "0.3.0"',
+        'created_with_kit_version: "0.3.0\\n"',
+      ),
+    },
   ];
 
   for (const scenario of invalidScenarios) {
@@ -217,8 +238,8 @@ export function assertV1ConfigBootstrapContract({ repositoryRoot, runDryRun, run
     const configPath = join(contextRoot, "config.yml");
     const validQuotedInlineConfig = [
       "schema_version: 1",
-      "created_with_kit_version: '0.2.0'",
-      'last_migrated_with_kit_version: "0.2.0" # current migration writer',
+      "created_with_kit_version: '0.1.0'",
+      'last_migrated_with_kit_version: "0.1.1-beta.2+build.7" # historical migration writer',
       'context_write_policy: "propose"',
       'enabled_domains: ["coding", \'prd\']',
       "budgets:",

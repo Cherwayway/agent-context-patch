@@ -45,8 +45,11 @@ if [[ "$MODE" == "workspace" ]]; then
   echo "Mode workspace was replaced by dry-run/apply. Dry-run first, approve the plan hash, then use --mode apply --approved-plan-hash <hash>." >&2
   exit 1
 fi
-if [[ "$MODE" != "dry-run" && "$MODE" != "apply" ]]; then
-  echo "Supported modes: dry-run, apply" >&2
+IS_UPDATE_MODE=false
+if [[ "$MODE" == "update-dry-run" || "$MODE" == "update-apply" ]]; then
+  IS_UPDATE_MODE=true
+elif [[ "$MODE" != "dry-run" && "$MODE" != "apply" ]]; then
+  echo "Supported modes: dry-run, apply, update-dry-run, update-apply" >&2
   exit 1
 fi
 
@@ -54,8 +57,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 TEMPLATE_ROOT="$REPO_ROOT/templates/.agent-context"
 SKILL_SOURCE_ROOT="$REPO_ROOT/skills/evolve"
-WORKSPACE="$(cd "$WORKSPACE" && pwd -P)"
-TARGET_ROOT="$WORKSPACE/.agent-context"
 
 absolute_input_path() {
   local value="$1"
@@ -67,6 +68,13 @@ absolute_input_path() {
     printf '%s/%s' "$(pwd -P)" "$value"
   fi
 }
+
+if [[ "$IS_UPDATE_MODE" == true ]]; then
+  WORKSPACE="$(absolute_input_path "$WORKSPACE")"
+else
+  WORKSPACE="$(cd "$WORKSPACE" && pwd -P)"
+fi
+TARGET_ROOT="$WORKSPACE/.agent-context"
 
 SKILL_TARGET="$(absolute_input_path "$SKILL_TARGET")"
 INSTRUCTION_TARGET="$(absolute_input_path "$INSTRUCTION_TARGET")"
@@ -326,6 +334,38 @@ inspect_v1_config() {
     function check_scalar(path, expected_type, expected_value) {
       return kind[path] == expected_type && value[path] == expected_value
     }
+    function valid_semver_identifiers(identifiers, reject_numeric_leading_zero, parts, count, i) {
+      if (identifiers == "") return 0
+      count = split(identifiers, parts, "[.]")
+      for (i = 1; i <= count; i++) {
+        if (parts[i] == "" || parts[i] !~ /^[0-9A-Za-z-]+$/) return 0
+        if (reject_numeric_leading_zero && parts[i] ~ /^[0-9]+$/ &&
+            length(parts[i]) > 1 && substr(parts[i], 1, 1) == "0") return 0
+      }
+      return 1
+    }
+    function is_semver(version, core, marker, metadata, parts, count, i) {
+      core = version
+      marker = index(core, "+")
+      if (marker > 0) {
+        metadata = substr(core, marker + 1)
+        if (!valid_semver_identifiers(metadata, 0)) return 0
+        core = substr(core, 1, marker - 1)
+      }
+      marker = index(core, "-")
+      if (marker > 0) {
+        metadata = substr(core, marker + 1)
+        if (!valid_semver_identifiers(metadata, 1)) return 0
+        core = substr(core, 1, marker - 1)
+      }
+      count = split(core, parts, "[.]")
+      if (count != 3) return 0
+      for (i = 1; i <= count; i++) {
+        if (parts[i] !~ /^[0-9]+$/ ||
+            (length(parts[i]) > 1 && substr(parts[i], 1, 1) == "0")) return 0
+      }
+      return 1
+    }
 
     {
       raw = $0
@@ -452,9 +492,11 @@ inspect_v1_config() {
         exit
       }
       if (!check_scalar("schema_version", "integer", 1) ||
-          !check_scalar("created_with_kit_version", "string", "0.2.0") ||
+          kind["created_with_kit_version"] != "string" ||
+          !is_semver(value["created_with_kit_version"]) ||
           !(kind["last_migrated_with_kit_version"] == "null" ||
-            check_scalar("last_migrated_with_kit_version", "string", "0.2.0")) ||
+            (kind["last_migrated_with_kit_version"] == "string" &&
+             is_semver(value["last_migrated_with_kit_version"]))) ||
           !(check_scalar("context_write_policy", "string", "propose") ||
             check_scalar("context_write_policy", "string", "auto"))) {
         print "invalid:config-header-invalid"
@@ -499,6 +541,597 @@ inspect_v1_config() {
     }
   ' "$1"
 }
+
+valid_semver_identifiers() {
+  local value="$1"
+  local reject_numeric_leading_zero="$2"
+  local identifier
+  local identifiers=()
+
+  [[ -n "$value" && "$value" != .* && "$value" != *. && "$value" != *..* ]] || return 1
+  IFS='.' read -r -a identifiers <<< "$value"
+  for identifier in "${identifiers[@]}"; do
+    [[ "$identifier" =~ ^[0-9A-Za-z-]+$ ]] || return 1
+    if [[ "$reject_numeric_leading_zero" == true &&
+      "$identifier" =~ ^[0-9]+$ && ${#identifier} -gt 1 && "$identifier" == 0* ]]; then
+      return 1
+    fi
+  done
+}
+
+is_semver() {
+  local version="$1"
+  local without_build="$version"
+  local build=""
+  local core
+  local prerelease=""
+  local part
+  local core_parts=()
+
+  if [[ "$without_build" == *+* ]]; then
+    build="${without_build#*+}"
+    without_build="${without_build%%+*}"
+    [[ "$build" != *+* ]] || return 1
+    valid_semver_identifiers "$build" false || return 1
+  fi
+  if [[ "$without_build" == *-* ]]; then
+    prerelease="${without_build#*-}"
+    core="${without_build%%-*}"
+    valid_semver_identifiers "$prerelease" true || return 1
+  else
+    core="$without_build"
+  fi
+
+  [[ "$core" != .* && "$core" != *. && "$core" != *..* ]] || return 1
+  IFS='.' read -r -a core_parts <<< "$core"
+  [[ ${#core_parts[@]} -eq 3 ]] || return 1
+  for part in "${core_parts[@]}"; do
+    [[ "$part" =~ ^[0-9]+$ ]] || return 1
+    [[ ${#part} -eq 1 || "$part" != 0* ]] || return 1
+  done
+}
+
+compare_numeric_semver_identifier() {
+  local left="$1"
+  local right="$2"
+  local LC_ALL=C
+
+  if [[ ${#left} -lt ${#right} ]]; then
+    NUMERIC_SEMVER_COMPARISON=-1
+  elif [[ ${#left} -gt ${#right} ]]; then
+    NUMERIC_SEMVER_COMPARISON=1
+  elif [[ "$left" == "$right" ]]; then
+    NUMERIC_SEMVER_COMPARISON=0
+  elif [[ "$left" < "$right" ]]; then
+    NUMERIC_SEMVER_COMPARISON=-1
+  else
+    NUMERIC_SEMVER_COMPARISON=1
+  fi
+}
+
+compare_semver() {
+  local left_without_build="${1%%+*}"
+  local right_without_build="${2%%+*}"
+  local left_core="$left_without_build"
+  local right_core="$right_without_build"
+  local left_prerelease=""
+  local right_prerelease=""
+  local left_identifier
+  local right_identifier
+  local left_numeric
+  local right_numeric
+  local comparison
+  local index
+  local count
+  local LC_ALL=C
+  local left_core_parts=()
+  local right_core_parts=()
+  local left_prerelease_parts=()
+  local right_prerelease_parts=()
+
+  if [[ "$left_without_build" == *-* ]]; then
+    left_core="${left_without_build%%-*}"
+    left_prerelease="${left_without_build#*-}"
+  fi
+  if [[ "$right_without_build" == *-* ]]; then
+    right_core="${right_without_build%%-*}"
+    right_prerelease="${right_without_build#*-}"
+  fi
+  IFS='.' read -r -a left_core_parts <<< "$left_core"
+  IFS='.' read -r -a right_core_parts <<< "$right_core"
+  for index in 0 1 2; do
+    compare_numeric_semver_identifier "${left_core_parts[$index]}" "${right_core_parts[$index]}"
+    if [[ $NUMERIC_SEMVER_COMPARISON -ne 0 ]]; then
+      SEMVER_COMPARISON=$NUMERIC_SEMVER_COMPARISON
+      return
+    fi
+  done
+
+  if [[ -z "$left_prerelease" && -z "$right_prerelease" ]]; then
+    SEMVER_COMPARISON=0
+    return
+  elif [[ -z "$left_prerelease" ]]; then
+    SEMVER_COMPARISON=1
+    return
+  elif [[ -z "$right_prerelease" ]]; then
+    SEMVER_COMPARISON=-1
+    return
+  fi
+
+  IFS='.' read -r -a left_prerelease_parts <<< "$left_prerelease"
+  IFS='.' read -r -a right_prerelease_parts <<< "$right_prerelease"
+  count=${#left_prerelease_parts[@]}
+  if [[ ${#right_prerelease_parts[@]} -gt $count ]]; then
+    count=${#right_prerelease_parts[@]}
+  fi
+  for ((index = 0; index < count; index++)); do
+    if [[ $index -ge ${#left_prerelease_parts[@]} ]]; then
+      SEMVER_COMPARISON=-1
+      return
+    elif [[ $index -ge ${#right_prerelease_parts[@]} ]]; then
+      SEMVER_COMPARISON=1
+      return
+    fi
+    left_identifier="${left_prerelease_parts[$index]}"
+    right_identifier="${right_prerelease_parts[$index]}"
+    if [[ "$left_identifier" == "$right_identifier" ]]; then
+      continue
+    fi
+    left_numeric=false
+    right_numeric=false
+    [[ "$left_identifier" =~ ^[0-9]+$ ]] && left_numeric=true
+    [[ "$right_identifier" =~ ^[0-9]+$ ]] && right_numeric=true
+    if [[ "$left_numeric" == true && "$right_numeric" == true ]]; then
+      compare_numeric_semver_identifier "$left_identifier" "$right_identifier"
+      comparison=$NUMERIC_SEMVER_COMPARISON
+    elif [[ "$left_numeric" == true ]]; then
+      comparison=-1
+    elif [[ "$right_numeric" == true ]]; then
+      comparison=1
+    elif [[ "$left_identifier" < "$right_identifier" ]]; then
+      comparison=-1
+    else
+      comparison=1
+    fi
+    SEMVER_COMPARISON=$comparison
+    return
+  done
+  SEMVER_COMPARISON=0
+}
+
+update_manifest_version() {
+  local skill_root="$1"
+  local manifest_path="$skill_root/manifest.json"
+  local version
+
+  if [[ ! -f "$manifest_path" ]]; then
+    echo "Skill manifest is missing: $manifest_path" >&2
+    return 1
+  fi
+  if ! version="$(parse_json_manifest_version "$manifest_path")"; then
+    echo "Skill manifest is invalid JSON: $manifest_path" >&2
+    return 1
+  fi
+  if ! is_semver "$version"; then
+    echo "Skill manifest version is not valid SemVer: $manifest_path" >&2
+    return 1
+  fi
+  printf '%s' "$version"
+}
+
+parse_json_manifest_version() {
+  awk '
+    function fail() { exit 2 }
+    function skip_ws() {
+      while (position <= length(document) && substr(document, position, 1) ~ /[ \t\r\n]/) position++
+    }
+    function hex_value(character, offset) {
+      character = tolower(character)
+      if (character >= "0" && character <= "9") return character + 0
+      offset = index("abcdef", character)
+      if (offset > 0) return offset + 9
+      fail()
+    }
+    function decode_unicode(hex, value, index_) {
+      value = 0
+      for (index_ = 1; index_ <= 4; index_++) value = value * 16 + hex_value(substr(hex, index_, 1))
+      if (value >= 32 && value <= 126) return sprintf("%c", value)
+      return "?"
+    }
+    function parse_string(result, character, escape, hex) {
+      if (substr(document, position, 1) != "\"") fail()
+      position++
+      result = ""
+      parsed_string_had_escape = 0
+      while (position <= length(document)) {
+        character = substr(document, position, 1)
+        if (character == "\"") {
+          position++
+          parsed_string = result
+          return
+        }
+        if (character == "\\") {
+          parsed_string_had_escape = 1
+          position++
+          if (position > length(document)) fail()
+          escape = substr(document, position, 1)
+          if (escape == "\"" || escape == "\\" || escape == "/") result = result escape
+          else if (escape == "b") result = result sprintf("%c", 8)
+          else if (escape == "f") result = result sprintf("%c", 12)
+          else if (escape == "n") result = result "\n"
+          else if (escape == "r") result = result "\r"
+          else if (escape == "t") result = result "\t"
+          else if (escape == "u") {
+            hex = substr(document, position + 1, 4)
+            if (length(hex) != 4 || hex !~ /^[0-9A-Fa-f]{4}$/) fail()
+            result = result decode_unicode(hex)
+            position += 4
+          } else fail()
+        } else {
+          if (character ~ /[[:cntrl:]]/) fail()
+          result = result character
+        }
+        position++
+      }
+      fail()
+    }
+    function parse_number(remaining) {
+      remaining = substr(document, position)
+      if (!match(remaining, /^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?/)) fail()
+      position += RLENGTH
+    }
+    function parse_array(depth) {
+      if (depth > 64) fail()
+      position++
+      skip_ws()
+      if (substr(document, position, 1) == "]") { position++; return }
+      while (1) {
+        parse_value(depth + 1)
+        skip_ws()
+        if (substr(document, position, 1) == "]") { position++; return }
+        if (substr(document, position, 1) != ",") fail()
+        position++
+        skip_ws()
+      }
+    }
+    function parse_object(is_root, depth, key, key_had_escape, kind) {
+      if (depth > 64) fail()
+      if (substr(document, position, 1) != "{") fail()
+      position++
+      skip_ws()
+      if (substr(document, position, 1) == "}") { position++; return }
+      while (1) {
+        parse_string()
+        key = parsed_string
+        key_had_escape = parsed_string_had_escape
+        skip_ws()
+        if (substr(document, position, 1) != ":") fail()
+        position++
+        skip_ws()
+        kind = parse_value(depth + 1)
+        if (is_root && key == "version") {
+          version_count++
+          if (key_had_escape || kind != "string" || parsed_string_had_escape) fail()
+          manifest_version = parsed_string
+        }
+        skip_ws()
+        if (substr(document, position, 1) == "}") { position++; return }
+        if (substr(document, position, 1) != ",") fail()
+        position++
+        skip_ws()
+      }
+    }
+    function parse_value(depth, character, remaining) {
+      skip_ws()
+      character = substr(document, position, 1)
+      if (character == "\"") { parse_string(); return "string" }
+      if (character == "{") { parse_object(0, depth); return "object" }
+      if (character == "[") { parse_array(depth); return "array" }
+      remaining = substr(document, position)
+      if (substr(remaining, 1, 4) == "true") { position += 4; return "boolean" }
+      if (substr(remaining, 1, 5) == "false") { position += 5; return "boolean" }
+      if (substr(remaining, 1, 4) == "null") { position += 4; return "null" }
+      parse_number()
+      return "number"
+    }
+    { document = document (NR == 1 ? "" : "\n") $0 }
+    END {
+      position = 1
+      skip_ws()
+      parse_object(1, 0)
+      skip_ws()
+      if (position <= length(document) || version_count != 1) fail()
+      print manifest_version
+    }
+  ' "$1"
+}
+
+tree_fingerprint() {
+  local root="$1"
+  local fingerprint_input
+  local source
+  local relative
+  local result
+
+  if [[ ! -d "$root" ]]; then
+    echo "Tree root is not a directory: $root" >&2
+    return 1
+  fi
+  fingerprint_input="$(mktemp "${TMPDIR:-/tmp}/agent-context-tree.XXXXXX")"
+  while IFS= read -r -d '' source; do
+    [[ "$source" == "$root" ]] && continue
+    relative="${source#"$root"/}"
+    printf 'D:%s:%s\n' "${#relative}" "$relative" >> "$fingerprint_input"
+  done < <(find "$root" -type d -print0 | LC_ALL=C sort -z)
+  while IFS= read -r -d '' source; do
+    relative="${source#"$root"/}"
+    printf 'F:%s:%s:%s\n' "${#relative}" "$relative" "$(sha256_file "$source")" >> "$fingerprint_input"
+  done < <(find "$root" -type f -print0 | LC_ALL=C sort -z)
+  result="$(sha256_stdin < "$fingerprint_input")"
+  rm -f "$fingerprint_input"
+  printf '%s' "$result"
+}
+
+copy_tree_snapshot() {
+  local source_root="$1"
+  local destination_root="$2"
+
+  if [[ -e "$destination_root" || -L "$destination_root" ]]; then
+    echo "Snapshot destination already exists: $destination_root" >&2
+    return 1
+  fi
+  mkdir "$destination_root" || return 1
+  cp -a "$source_root/." "$destination_root/"
+}
+
+if [[ "$IS_UPDATE_MODE" == true ]]; then
+  if [[ -z "$SKILL_TARGET" ]]; then
+    echo "update-dry-run/update-apply require --skill-target." >&2
+    exit 1
+  fi
+  if [[ -n "$INSTRUCTION_TARGET" ]]; then
+    echo "update-dry-run/update-apply only update --skill-target; do not pass --instruction-file." >&2
+    exit 1
+  fi
+  if [[ ! -d "$SKILL_SOURCE_ROOT" ]]; then
+    echo "Candidate release skill is missing: $SKILL_SOURCE_ROOT" >&2
+    exit 1
+  fi
+  if [[ ! -d "$SKILL_TARGET" ]]; then
+    echo "Installed skill target is missing: $SKILL_TARGET" >&2
+    exit 1
+  fi
+
+  SOURCE_SYMLINK="$(first_symlink "$SKILL_SOURCE_ROOT")"
+  TARGET_SYMLINK="$(first_symlink "$SKILL_TARGET")"
+  if [[ -n "$SOURCE_SYMLINK" ]]; then
+    add_action "Conflict" "skill-update" "$SOURCE_SYMLINK" "$SKILL_TARGET" "candidate-symlink-not-followed"
+  elif [[ -n "$TARGET_SYMLINK" ]]; then
+    add_action "Conflict" "skill-update" "$SKILL_SOURCE_ROOT" "$TARGET_SYMLINK" "target-symlink-not-followed"
+  fi
+
+  if ! SOURCE_VERSION="$(update_manifest_version "$SKILL_SOURCE_ROOT")"; then
+    exit 1
+  fi
+  if ! TARGET_VERSION="$(update_manifest_version "$SKILL_TARGET")"; then
+    exit 1
+  fi
+  SOURCE_TREE_HASH="$(tree_fingerprint "$SKILL_SOURCE_ROOT")"
+  TARGET_TREE_HASH="$(tree_fingerprint "$SKILL_TARGET")"
+  SKILL_NAME="$(basename "$SKILL_TARGET")"
+  SKILL_PARENT="$(dirname "$SKILL_TARGET")"
+  BACKUP_ROOT="$SKILL_PARENT/.agent-context-patch-backups"
+  BACKUP_PATH="$BACKUP_ROOT/$SKILL_NAME-$TARGET_VERSION-before-$SOURCE_VERSION"
+  BACKUP_ROOT_SYMLINK=""
+  BACKUP_ROOT_INVALID=false
+  if [[ -e "$BACKUP_ROOT" || -L "$BACKUP_ROOT" ]]; then
+    BACKUP_ROOT_SYMLINK="$(first_symlink "$BACKUP_ROOT")"
+    [[ ! -d "$BACKUP_ROOT" ]] && BACKUP_ROOT_INVALID=true
+  fi
+
+  if [[ -n "$BACKUP_ROOT_SYMLINK" ]]; then
+    add_action "Conflict" "skill-update" "$SKILL_TARGET" "$BACKUP_ROOT_SYMLINK" "backup-root-symlink-not-followed"
+  elif [[ "$BACKUP_ROOT_INVALID" == true ]]; then
+    add_action "Conflict" "skill-update" "$SKILL_TARGET" "$BACKUP_ROOT" "backup-root-not-directory"
+  fi
+
+  if [[ -z "$SOURCE_SYMLINK" && -z "$TARGET_SYMLINK" && -z "$BACKUP_ROOT_SYMLINK" && "$BACKUP_ROOT_INVALID" == false ]]; then
+    if [[ "$SOURCE_VERSION" == "$TARGET_VERSION" && "$SOURCE_TREE_HASH" == "$TARGET_TREE_HASH" ]]; then
+      add_action "NoUpdate" "skill-update" "$SKILL_SOURCE_ROOT" "$SKILL_TARGET" "installed=$TARGET_VERSION;source=$SOURCE_VERSION;tree-sha256=$SOURCE_TREE_HASH"
+    elif [[ "$SOURCE_VERSION" == "$TARGET_VERSION" ]]; then
+      add_action "Conflict" "skill-update" "$SKILL_SOURCE_ROOT" "$SKILL_TARGET" "same-version-tree-differs;version=$SOURCE_VERSION;source-tree-sha256=$SOURCE_TREE_HASH;target-tree-sha256=$TARGET_TREE_HASH"
+    else
+      compare_semver "$SOURCE_VERSION" "$TARGET_VERSION"
+      if [[ $SEMVER_COMPARISON -le 0 ]]; then
+        add_action "DowngradeRequired" "skill-update" "$SKILL_SOURCE_ROOT" "$SKILL_TARGET" "installed=$TARGET_VERSION;source=$SOURCE_VERSION;newer-release-required"
+      elif [[ -e "$BACKUP_PATH" || -L "$BACKUP_PATH" ]]; then
+        add_action "Conflict" "skill-update" "$SKILL_SOURCE_ROOT" "$BACKUP_PATH" "backup-already-exists;installed=$TARGET_VERSION;source=$SOURCE_VERSION"
+      else
+        add_action "UpgradeSkill" "skill-update" "$SKILL_SOURCE_ROOT" "$SKILL_TARGET" "installed=$TARGET_VERSION;source=$SOURCE_VERSION;source-tree-sha256=$SOURCE_TREE_HASH;target-tree-sha256=$TARGET_TREE_HASH"
+      fi
+    fi
+  fi
+
+  UPDATE_PLAN_TMP="$(mktemp "${TMPDIR:-/tmp}/agent-context-update-plan.XXXXXX")"
+  trap 'rm -f "$UPDATE_PLAN_TMP"' EXIT
+  {
+    printf 'operation=skill-update\n'
+    printf 'source=%s\n' "$SKILL_SOURCE_ROOT"
+    printf 'target=%s\n' "$SKILL_TARGET"
+    printf 'backup=%s\n' "$BACKUP_PATH"
+    printf 'sourceVersion=%s\n' "$SOURCE_VERSION"
+    printf 'targetVersion=%s\n' "$TARGET_VERSION"
+    printf 'sourceTreeHash=%s\n' "$SOURCE_TREE_HASH"
+    printf 'targetTreeHash=%s\n' "$TARGET_TREE_HASH"
+    for ((i = 0; i < ${#ACTION_STATES[@]}; i++)); do
+      printf '%s|%s|%s|%s|%s\n' \
+        "${ACTION_STATES[$i]}" \
+        "${ACTION_KINDS[$i]}" \
+        "${ACTION_SOURCES[$i]}" \
+        "${ACTION_TARGETS[$i]}" \
+        "${ACTION_DETAILS[$i]}"
+    done | LC_ALL=C sort
+  } > "$UPDATE_PLAN_TMP"
+  UPDATE_PLAN_HASH="$(sha256_stdin < "$UPDATE_PLAN_TMP")"
+
+  UPDATE_BLOCKED=false
+  UPGRADE_ACTION=false
+  for state in "${ACTION_STATES[@]}"; do
+    if [[ "$state" == "Conflict" || "$state" == "DowngradeRequired" ]]; then
+      UPDATE_BLOCKED=true
+    elif [[ "$state" == "UpgradeSkill" ]]; then
+      UPGRADE_ACTION=true
+    fi
+  done
+
+  echo "Agent Context Patch Bootstrap"
+  echo "Mode: $MODE"
+  echo "Skill source: $SKILL_SOURCE_ROOT"
+  echo "Skill target: $SKILL_TARGET"
+  echo "Backup path: $BACKUP_PATH"
+  echo
+  echo "Plan:"
+  for ((i = 0; i < ${#ACTION_STATES[@]}; i++)); do
+    suffix=""
+    [[ -n "${ACTION_DETAILS[$i]}" ]] && suffix=" (${ACTION_DETAILS[$i]})"
+    echo "${ACTION_STATES[$i]}: ${ACTION_TARGETS[$i]}$suffix"
+  done
+  echo "Plan hash: $UPDATE_PLAN_HASH"
+  if [[ "$UPDATE_BLOCKED" == true ]]; then
+    echo "Plan status: blocked"
+  else
+    echo "Plan status: ready"
+  fi
+
+  if [[ "$MODE" == "update-dry-run" ]]; then
+    echo "Dry run complete. No files were written."
+    [[ "$UPDATE_BLOCKED" == true ]] && exit 2
+    exit 0
+  fi
+  if [[ -z "$APPROVED_PLAN_HASH" ]]; then
+    echo "update-apply requires --approved-plan-hash from the reviewed update-dry-run." >&2
+    exit 1
+  fi
+  NORMALIZED_APPROVED_HASH="$(printf '%s' "$APPROVED_PLAN_HASH" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$NORMALIZED_APPROVED_HASH" != "$UPDATE_PLAN_HASH" ]]; then
+    echo "Approved update plan hash does not match the current source and target trees. Re-run update-dry-run and review the new plan." >&2
+    exit 1
+  fi
+  if [[ "$UPDATE_BLOCKED" == true ]]; then
+    echo "The approved update plan is blocked by a conflict." >&2
+    exit 2
+  fi
+  if [[ "$UPGRADE_ACTION" == false ]]; then
+    echo
+    echo "Update receipt:"
+    echo "Status: no-update"
+    echo "Plan hash: $UPDATE_PLAN_HASH"
+    echo "Installed version: $TARGET_VERSION"
+    echo "Previous version: $TARGET_VERSION"
+    echo "Restart required: false"
+    exit 0
+  fi
+
+  STAGE_PATH="$SKILL_PARENT/.agent-context-patch-stage-$RANDOM$RANDOM$$"
+  ORIGINAL_MOVED=false
+  CANDIDATE_ACTIVATED=false
+  UPDATE_FAILURE=""
+  CURRENT_BACKUP_ROOT_SYMLINK=""
+  if [[ -e "$BACKUP_ROOT" || -L "$BACKUP_ROOT" ]]; then
+    CURRENT_BACKUP_ROOT_SYMLINK="$(first_symlink "$BACKUP_ROOT")"
+  fi
+  if ! copy_tree_snapshot "$SKILL_SOURCE_ROOT" "$STAGE_PATH"; then
+    UPDATE_FAILURE="Could not stage the candidate release."
+  elif [[ "$(tree_fingerprint "$SKILL_SOURCE_ROOT")" != "$SOURCE_TREE_HASH" ]]; then
+    UPDATE_FAILURE="Candidate release changed after planning."
+  elif [[ "$(tree_fingerprint "$STAGE_PATH")" != "$SOURCE_TREE_HASH" ]]; then
+    UPDATE_FAILURE="Staged skill does not match the planned candidate release."
+  elif [[ -n "$CURRENT_BACKUP_ROOT_SYMLINK" ]]; then
+    UPDATE_FAILURE="Skill backup root became a symlink after planning: $BACKUP_ROOT"
+  elif [[ -e "$BACKUP_ROOT" && ! -d "$BACKUP_ROOT" ]]; then
+    UPDATE_FAILURE="Skill backup root is not a directory: $BACKUP_ROOT"
+  elif [[ -e "$BACKUP_PATH" || -L "$BACKUP_PATH" ]]; then
+    UPDATE_FAILURE="Backup path appeared after planning: $BACKUP_PATH"
+  elif ! mkdir -p "$BACKUP_ROOT"; then
+    UPDATE_FAILURE="Could not create the skill backup directory."
+  elif ! mv "$SKILL_TARGET" "$BACKUP_PATH"; then
+    UPDATE_FAILURE="Could not move the installed skill to its backup."
+  else
+    ORIGINAL_MOVED=true
+    if [[ "$(tree_fingerprint "$BACKUP_PATH")" != "$TARGET_TREE_HASH" ]]; then
+      UPDATE_FAILURE="Backup does not match the planned installed skill."
+    elif [[ "${ACP_BOOTSTRAP_TEST_FAULT:-}" == "after-skill-backup" ||
+      "${ACP_BOOTSTRAP_TEST_FAULT:-}" == "during-skill-restore" ]]; then
+      UPDATE_FAILURE="Injected verification failure after skill backup."
+    elif [[ "${ACP_BOOTSTRAP_TEST_FAULT:-}" == "target-appeared-before-activation" ]]; then
+      if mkdir "$SKILL_TARGET" && printf 'foreign target must survive\n' > "$SKILL_TARGET/foreign-target.txt"; then
+        UPDATE_FAILURE="Injected unexpected skill target before activation."
+      else
+        UPDATE_FAILURE="Could not inject the unexpected skill target."
+      fi
+    elif ! mv "$STAGE_PATH" "$SKILL_TARGET"; then
+      UPDATE_FAILURE="Could not activate the staged skill."
+    else
+      CANDIDATE_ACTIVATED=true
+      if [[ "$(tree_fingerprint "$SKILL_TARGET")" != "$SOURCE_TREE_HASH" ]]; then
+        UPDATE_FAILURE="Installed skill does not match the planned candidate release."
+      fi
+    fi
+  fi
+
+  if [[ -n "$UPDATE_FAILURE" ]]; then
+    RESTORE_STATUS="not-needed"
+    RESTORE_FAILURE=""
+    if [[ "$ORIGINAL_MOVED" == true ]]; then
+      RESTORE_STATUS="failed"
+      if [[ "${ACP_BOOTSTRAP_TEST_FAULT:-}" == "during-skill-restore" ]]; then
+        RESTORE_FAILURE="Injected failure during automatic restore."
+      else
+        if [[ -e "$SKILL_TARGET" || -L "$SKILL_TARGET" ]]; then
+          if [[ "$CANDIDATE_ACTIVATED" != true ]]; then
+            RESTORE_FAILURE="Unexpected skill target appeared before activation; it was preserved."
+          elif [[ -n "$(first_symlink "$SKILL_TARGET")" ]]; then
+            RESTORE_FAILURE="Activated skill target contains a symlink; it was preserved."
+          elif [[ "$(tree_fingerprint "$SKILL_TARGET")" != "$SOURCE_TREE_HASH" ]]; then
+            RESTORE_FAILURE="Activated skill target changed after activation; it was preserved."
+          elif ! rm -rf -- "$SKILL_TARGET"; then
+            RESTORE_FAILURE="Could not remove the failed replacement."
+          fi
+        fi
+        if [[ -z "$RESTORE_FAILURE" ]]; then
+          if [[ ! -d "$BACKUP_PATH" ]]; then
+            RESTORE_FAILURE="Recovery copy is missing: $BACKUP_PATH"
+          elif mv "$BACKUP_PATH" "$SKILL_TARGET"; then
+            RESTORE_STATUS="restored"
+          else
+            RESTORE_FAILURE="Could not move the recovery copy back into place."
+          fi
+        fi
+      fi
+    fi
+    if [[ -e "$STAGE_PATH" || -L "$STAGE_PATH" ]]; then
+      rm -rf -- "$STAGE_PATH"
+    fi
+    if [[ "$RESTORE_STATUS" == "not-needed" ]]; then
+      echo "Skill update failed before the installed skill was replaced: $UPDATE_FAILURE" >&2
+    elif [[ "$RESTORE_STATUS" == "restored" ]]; then
+      echo "Skill update failed and the previous installation was restored: $UPDATE_FAILURE" >&2
+    else
+      echo "Skill update failed; automatic restore also failed. Recovery copy: $BACKUP_PATH. Update failure: $UPDATE_FAILURE Restore failure: $RESTORE_FAILURE" >&2
+    fi
+    exit 1
+  fi
+
+  echo
+  echo "Update receipt:"
+  echo "Status: applied"
+  echo "Plan hash: $UPDATE_PLAN_HASH"
+  echo "Installed version: $SOURCE_VERSION"
+  echo "Previous version: $TARGET_VERSION"
+  echo "Backup path: $BACKUP_PATH"
+  echo "Restart required: true"
+  exit 0
+fi
 
 add_tree_plan() {
   local source_root="$1"

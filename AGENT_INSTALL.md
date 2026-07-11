@@ -4,6 +4,20 @@ This guide is the Agent-facing installation interface for Agent Context Patch.
 The Agent understands the environment and proposes semantic instruction edits;
 Bootstrap executes only deterministic file operations.
 
+## Stable Release Source
+
+For a normal install, begin at the
+[latest stable GitHub Release](https://github.com/Cherwayway/agent-context-patch/releases/latest),
+resolve it to its immutable tag and source commit, and download that exact
+Release plus its published integrity metadata. Require GitHub to report the
+published Release as immutable, verify the archive checksum, and require the
+Release tag and target commit plus the unpacked skill manifest version to agree
+before executing its Bootstrap.
+
+Do not use the moving `main` branch as a stable install source. A local checkout
+or development snapshot is acceptable only when the user explicitly chooses a
+development install and reviews that exact source.
+
 ## Defaults
 
 - Install `skills/evolve/` in the current Agent's user-level skill directory.
@@ -114,9 +128,69 @@ that its target has not changed.
   fail closed with `InvalidConfig` before materializing any template when that
   envelope is incomplete, unsafe, duplicated, or contains unknown fields.
 - A future schema is read-only and requires a newer Bootstrap.
-- A different installed skill version requires a reviewed upgrade/backup plan.
+- A different installed skill version makes the normal install plan report
+  `UpgradeRequired`; use `$evolve update` for a reviewed upgrade/backup plan.
 - An unversioned existing skill is a conflict, not an overwrite target.
 - Existing `AGENTS.md` or `CLAUDE.md` always uses semantic patch review.
+
+## Update An Existing Installation
+
+`$evolve update` is the only public update command. It resolves and verifies an
+immutable Release locally, then invokes that candidate Release's Bootstrap.
+Bootstrap does not discover Releases or download network content.
+
+For a verified, unpacked candidate Release, the equivalent local Bootstrap
+sequence is:
+
+PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass `
+  -File <candidate-release>\install\install.ps1 `
+  -Mode UpdateDryRun `
+  -SkillTargetPath <installed-user-skill-target>
+
+# After reviewing the complete UpdatePlan and approving its exact plan hash:
+powershell -ExecutionPolicy Bypass `
+  -File <candidate-release>\install\install.ps1 `
+  -Mode UpdateApply `
+  -SkillTargetPath <installed-user-skill-target> `
+  -ApprovedPlanHash <approved-hash>
+```
+
+Bash:
+
+```bash
+bash <candidate-release>/install/install.sh \
+  --mode update-dry-run \
+  --skill-target <installed-user-skill-target>
+
+# After reviewing the complete UpdatePlan and approving its exact plan hash:
+bash <candidate-release>/install/install.sh \
+  --mode update-apply \
+  --skill-target <installed-user-skill-target> \
+  --approved-plan-hash <approved-hash>
+```
+
+The script location determines the candidate Release source, and the skill
+target is required. Update modes do not read or write a workspace. They show
+the exact installed and candidate managed-tree hashes plus the recovery path,
+back up the prior skill before replacement, verify the result, and restore the
+prior version on failure. They do not edit
+`AGENTS.md` / `CLAUDE.md` or authorize a workspace-schema migration. After a
+successful update, start a new Agent task so it discovers the new skill.
+
+### One-time handoff from v0.2.0
+
+The v0.2.0 skill predates `$evolve update`. When a newer stable Release exists,
+use its published upgrade note to download and verify that immutable candidate,
+then run the candidate Release Bootstrap through the UpdateDryRun/UpdateApply
+sequence above. This is a compatibility handoff, not a second steady-state Kit
+command. After the first upgrade, use `$evolve update`.
+
+There is no background version check, telemetry, or silent upgrade. Users can
+subscribe to GitHub Release notifications for external notice and invoke
+`$evolve update` when they choose to check or upgrade.
 
 ## Post-Install
 

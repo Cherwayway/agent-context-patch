@@ -1,6 +1,6 @@
 ---
 name: evolve
-description: Turn verified failures, repeated corrections, and stale workspace context into reviewable context patches without letting active context grow unchecked.
+description: Turn verified failures, repeated corrections, and stale workspace context into reviewable context patches without letting active context grow unchecked, or explicitly check and safely update the installed Kit.
 ---
 
 # Evolve
@@ -63,6 +63,9 @@ relevant reference only when evolving context.
   checking for duplication, overlap, conflict, or a better replacement.
 - Evidence is pointer-first and summary-first. Never persist secrets, raw
   conversations, complete logs, customer data, or unnecessary absolute paths.
+- Kit updates run only when the user invokes $evolve update. They never poll in
+  the background, emit telemetry, silently replace the installed skill, edit a
+  workspace, or authorize a workspace-schema migration.
 
 ## Commands
 
@@ -172,6 +175,47 @@ Write a compact derived report in reports/ covering:
 
 Reports are rebuildable views, not sources of truth, and are not part of the
 default context read.
+
+### $evolve update
+
+This is the only public Kit update entry point. Run it only when the user asks:
+
+1. Resolve the installed evolve skill path and read its manifest without
+   scanning workspaces.
+2. Query
+   https://github.com/Cherwayway/agent-context-patch/releases/latest, resolve
+   the latest stable Release to one GitHub-enforced immutable tag and source
+   commit, and compare its Kit Version with the installed version. Stop if the
+   Release is not marked immutable. If the check is unavailable, report that
+   and leave the current install usable. If the installed version is current
+   or newer, report that and stop; this command never downgrades an
+   installation.
+3. Download that exact Release and its published integrity metadata to a local
+   temporary directory. Verify the published archive checksum, the GitHub
+   Release tag and target commit, and the unpacked skill manifest version.
+   Require those identities to agree. Stop on missing metadata or any
+   mismatch.
+4. Execute the Bootstrap from the unpacked candidate Release in UpdateDryRun
+   mode against the resolved installed skill path. The candidate Release is
+   the update source; never run the installed Bootstrap as its own source.
+5. Show the complete UpdatePlan: installed and target versions, immutable tag
+   and commit, artifact checksum, exact installed and candidate managed-tree
+   hashes, whole-skill replacement scope, recovery copy, workspace-schema
+   impact, rollback behavior, and exact plan hash.
+6. Obtain explicit approval of that exact hash. A changed candidate, target,
+   or plan requires a new dry-run and new approval.
+7. Invoke the same candidate Release Bootstrap in UpdateApply mode with the
+   approved hash. Do not merge locally modified skill files or include an
+   instruction-file patch or workspace migration in this mechanical update.
+8. Report verification and recovery results. On failure, restore the prior
+   working skill when possible. If automatic restore fails, retain and report
+   the recovery copy; never claim success from an incomplete replacement.
+9. On success, report the installed version and tell the user to start a new
+   Agent task so the updated skill is loaded.
+
+Version discovery sends no workspace path, context, source code, conversation,
+or usage event. GitHub Release notifications are external; this skill provides
+no daemon, scheduled check, telemetry, or silent upgrade.
 
 ## Policy evaluation
 

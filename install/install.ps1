@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [ValidateSet("DryRun", "Apply", "Workspace")]
+  [ValidateSet("DryRun", "Apply", "Workspace", "UpdateDryRun", "UpdateApply")]
   [string]$Mode = "DryRun",
   [string]$WorkspacePath = (Get-Location).Path,
   [ValidateSet("Codex", "Claude", "Other")]
@@ -16,10 +16,16 @@ if ($Mode -eq "Workspace") {
   Write-Error "Mode Workspace was replaced by DryRun/Apply. Dry-run first, approve the plan hash, then use -Mode Apply -ApprovedPlanHash <hash>."
 }
 
+$isUpdateMode = $Mode -eq "UpdateDryRun" -or $Mode -eq "UpdateApply"
+
 $repoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $templateRoot = Join-Path $repoRoot "templates\.agent-context"
 $skillSourceRoot = Join-Path $repoRoot "skills\evolve"
-$workspace = (Resolve-Path -LiteralPath $WorkspacePath).Path
+$workspace = if ($isUpdateMode) {
+  [IO.Path]::GetFullPath($WorkspacePath)
+} else {
+  (Resolve-Path -LiteralPath $WorkspacePath).Path
+}
 $targetRoot = Join-Path $workspace ".agent-context"
 $skillTarget = if ($SkillTargetPath) {
   if ([IO.Path]::IsPathRooted($SkillTargetPath)) {
@@ -320,6 +326,67 @@ function ConvertFrom-V1YamlDocument([string]$Source) {
   return $entries
 }
 
+function Test-SemanticVersion([AllowEmptyString()][string]$Value) {
+  return $Value -cmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\z'
+}
+
+function Compare-NumericSemanticIdentifier([string]$Left, [string]$Right) {
+  if ($Left.Length -lt $Right.Length) { return -1 }
+  if ($Left.Length -gt $Right.Length) { return 1 }
+  return [string]::CompareOrdinal($Left, $Right)
+}
+
+function Get-SemanticVersionPrecedence([string]$Version) {
+  $withoutBuild = $Version
+  $buildIndex = $withoutBuild.IndexOf([char]"+")
+  if ($buildIndex -ge 0) { $withoutBuild = $withoutBuild.Substring(0, $buildIndex) }
+  $prereleaseIndex = $withoutBuild.IndexOf([char]"-")
+  $core = if ($prereleaseIndex -ge 0) {
+    $withoutBuild.Substring(0, $prereleaseIndex)
+  } else {
+    $withoutBuild
+  }
+  $prerelease = if ($prereleaseIndex -ge 0) {
+    @($withoutBuild.Substring($prereleaseIndex + 1).Split([char]"."))
+  } else {
+    @()
+  }
+  return [pscustomobject]@{ Core = @($core.Split([char]".")); Prerelease = $prerelease }
+}
+
+function Compare-SemanticVersion([string]$Left, [string]$Right) {
+  $leftVersion = Get-SemanticVersionPrecedence $Left
+  $rightVersion = Get-SemanticVersionPrecedence $Right
+  for ($index = 0; $index -lt 3; $index++) {
+    $comparison = Compare-NumericSemanticIdentifier $leftVersion.Core[$index] $rightVersion.Core[$index]
+    if ($comparison -ne 0) { return $comparison }
+  }
+  if ($leftVersion.Prerelease.Count -eq 0 -and $rightVersion.Prerelease.Count -eq 0) { return 0 }
+  if ($leftVersion.Prerelease.Count -eq 0) { return 1 }
+  if ($rightVersion.Prerelease.Count -eq 0) { return -1 }
+
+  $count = [Math]::Max($leftVersion.Prerelease.Count, $rightVersion.Prerelease.Count)
+  for ($index = 0; $index -lt $count; $index++) {
+    if ($index -ge $leftVersion.Prerelease.Count) { return -1 }
+    if ($index -ge $rightVersion.Prerelease.Count) { return 1 }
+    $leftIdentifier = $leftVersion.Prerelease[$index]
+    $rightIdentifier = $rightVersion.Prerelease[$index]
+    $leftNumeric = $leftIdentifier -cmatch '^[0-9]+\z'
+    $rightNumeric = $rightIdentifier -cmatch '^[0-9]+\z'
+    if ($leftNumeric -and $rightNumeric) {
+      $comparison = Compare-NumericSemanticIdentifier $leftIdentifier $rightIdentifier
+    } elseif ($leftNumeric) {
+      $comparison = -1
+    } elseif ($rightNumeric) {
+      $comparison = 1
+    } else {
+      $comparison = [string]::CompareOrdinal($leftIdentifier, $rightIdentifier)
+    }
+    if ($comparison -ne 0) { return $comparison }
+  }
+  return 0
+}
+
 function Test-V1ConfigDocument([string]$Source) {
   try {
     $entries = ConvertFrom-V1YamlDocument $Source
@@ -374,12 +441,12 @@ function Test-V1ConfigDocument([string]$Source) {
     return "schema-version-invalid"
   }
   if ($entries["created_with_kit_version"].Kind -cne "string" -or
-    $entries["created_with_kit_version"].Value -cne "0.2.0") {
+    -not (Test-SemanticVersion $entries["created_with_kit_version"].Value)) {
     return "created-kit-version-invalid"
   }
   $migratedVersion = $entries["last_migrated_with_kit_version"]
   if (-not (($migratedVersion.Kind -ceq "null") -or
-    ($migratedVersion.Kind -ceq "string" -and $migratedVersion.Value -ceq "0.2.0"))) {
+    ($migratedVersion.Kind -ceq "string" -and (Test-SemanticVersion $migratedVersion.Value)))) {
     return "migrated-kit-version-invalid"
   }
   $policy = $entries["context_write_policy"]
@@ -468,6 +535,349 @@ function Get-V1ConfigClassification([string]$Source) {
     return [pscustomobject]@{ Kind = "invalid"; Version = "1"; Reason = $reason }
   }
   return [pscustomobject]@{ Kind = "valid"; Version = "1"; Reason = "" }
+}
+
+function Get-TreeFingerprint([string]$Root) {
+  if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
+    throw "Tree root is not a directory: $Root"
+  }
+
+  $fullRoot = [IO.Path]::GetFullPath($Root).TrimEnd([char]"\", [char]"/")
+  $entries = [Collections.Generic.List[string]]::new()
+  Get-ChildItem -LiteralPath $fullRoot -Recurse -Directory -Force |
+    ForEach-Object {
+      $relative = $_.FullName.Substring($fullRoot.Length).TrimStart([char]"\", [char]"/").Replace("\", "/")
+      $entries.Add("D:$($relative.Length):$relative") | Out-Null
+    }
+  Get-ChildItem -LiteralPath $fullRoot -Recurse -File -Force |
+    ForEach-Object {
+      $relative = $_.FullName.Substring($fullRoot.Length).TrimStart([char]"\", [char]"/").Replace("\", "/")
+      $entries.Add("F:$($relative.Length):${relative}:$(Get-Sha256File $_.FullName)") | Out-Null
+    }
+  return Get-Sha256Text ([string]::Join("`n", @($entries | Sort-Object)))
+}
+
+function Copy-TreeSnapshot([string]$SourceRoot, [string]$DestinationRoot) {
+  if (Test-Path -LiteralPath $DestinationRoot) {
+    throw "Snapshot destination already exists: $DestinationRoot"
+  }
+  New-Item -ItemType Directory -Path $DestinationRoot | Out-Null
+
+  $fullSource = [IO.Path]::GetFullPath($SourceRoot).TrimEnd([char]"\", [char]"/")
+  Get-ChildItem -LiteralPath $fullSource -Recurse -Directory -Force |
+    Sort-Object FullName |
+    ForEach-Object {
+      $relative = $_.FullName.Substring($fullSource.Length).TrimStart([char]"\", [char]"/")
+      New-Item -ItemType Directory -Force -Path (Join-Path $DestinationRoot $relative) | Out-Null
+    }
+  Get-ChildItem -LiteralPath $fullSource -Recurse -File -Force |
+    Sort-Object FullName |
+    ForEach-Object {
+      $relative = $_.FullName.Substring($fullSource.Length).TrimStart([char]"\", [char]"/")
+      $destination = Join-Path $DestinationRoot $relative
+      New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+      [IO.File]::Copy($_.FullName, $destination, $false)
+    }
+}
+
+function Get-JsonRootPropertyTokens([string]$Source) {
+  $properties = [Collections.Generic.List[string]]::new()
+  $versionStringEscapeStates = [Collections.Generic.List[bool]]::new()
+  $depth = 0
+  $inString = $false
+  $escaped = $false
+  $stringHadEscape = $false
+  $pendingRootProperty = ""
+  $token = [Text.StringBuilder]::new()
+
+  for ($index = 0; $index -lt $Source.Length; $index++) {
+    $character = $Source[$index]
+    if ($inString) {
+      if ($escaped) {
+        $escaped = $false
+        continue
+      }
+      if ($character -ceq [char]"\") {
+        $escaped = $true
+        $stringHadEscape = $true
+        continue
+      }
+      if ($character -ceq [char]'"') {
+        $inString = $false
+        if ($depth -eq 1) {
+          $lookahead = $index + 1
+          while ($lookahead -lt $Source.Length -and [char]::IsWhiteSpace($Source[$lookahead])) {
+            $lookahead++
+          }
+          if ($lookahead -lt $Source.Length -and $Source[$lookahead] -ceq [char]':') {
+            $pendingRootProperty = if ($stringHadEscape) { "<escaped>" } else { $token.ToString() }
+            $properties.Add($pendingRootProperty) | Out-Null
+          } elseif ($pendingRootProperty -ceq "version") {
+            $versionStringEscapeStates.Add($stringHadEscape) | Out-Null
+            $pendingRootProperty = ""
+          }
+        }
+        continue
+      }
+      $token.Append($character) | Out-Null
+      continue
+    }
+
+    if ($character -ceq [char]'"') {
+      $inString = $true
+      $escaped = $false
+      $stringHadEscape = $false
+      $token.Clear() | Out-Null
+    } elseif ($character -ceq [char]'{' -or $character -ceq [char]'[') {
+      $depth++
+    } elseif ($character -ceq [char]'}' -or $character -ceq [char]']') {
+      if ($depth -eq 1) { $pendingRootProperty = "" }
+      $depth--
+    } elseif ($character -ceq [char]',' -and $depth -eq 1) {
+      $pendingRootProperty = ""
+    }
+  }
+  return [pscustomobject]@{
+    Properties = @($properties)
+    VersionStringEscapeStates = @($versionStringEscapeStates)
+  }
+}
+
+function Get-SkillManifestVersion([string]$SkillRoot) {
+  $manifestPath = Join-Path $SkillRoot "manifest.json"
+  if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+    throw "Skill manifest is missing: $manifestPath"
+  }
+  $manifestSource = Get-Content -Raw -LiteralPath $manifestPath
+  try {
+    $manifest = $manifestSource | ConvertFrom-Json
+  } catch {
+    throw "Skill manifest is invalid JSON: $manifestPath"
+  }
+  $rootTokens = Get-JsonRootPropertyTokens $manifestSource
+  $rootVersionTokens = @($rootTokens.Properties | Where-Object { $_ -ceq "version" })
+  $versionProperties = if ($manifest -is [pscustomobject]) {
+    @($manifest.PSObject.Properties | Where-Object { $_.Name -ceq "version" })
+  } else {
+    @()
+  }
+  if ($rootVersionTokens.Count -ne 1 -or $rootTokens.VersionStringEscapeStates.Count -ne 1 -or
+    $rootTokens.VersionStringEscapeStates[0] -or $versionProperties.Count -ne 1 -or
+    $versionProperties[0].Value -isnot [string]) {
+    throw "Skill manifest must be one JSON object with exactly one lowercase string version property: $manifestPath"
+  }
+  $version = $versionProperties[0].Value
+  if (-not (Test-SemanticVersion $version)) {
+    throw "Skill manifest version is not valid SemVer: $manifestPath"
+  }
+  return $version
+}
+
+if ($isUpdateMode) {
+  if (-not $skillTarget) {
+    Write-Error "UpdateDryRun/UpdateApply require -SkillTargetPath."
+  }
+  if ($instructionTarget) {
+    Write-Error "UpdateDryRun/UpdateApply only update SkillTargetPath; do not pass -InstructionFilePath."
+  }
+  if (-not (Test-Path -LiteralPath $skillSourceRoot -PathType Container)) {
+    Write-Error "Candidate release skill is missing: $skillSourceRoot"
+  }
+  if (-not (Test-Path -LiteralPath $skillTarget -PathType Container)) {
+    Write-Error "Installed skill target is missing: $skillTarget"
+  }
+
+  $sourceReparsePoint = Get-FirstReparsePoint $skillSourceRoot
+  $targetReparsePoint = Get-FirstReparsePoint $skillTarget
+  if ($sourceReparsePoint) {
+    Add-PlanAction "Conflict" "skill-update" $sourceReparsePoint $skillTarget "candidate-reparse-point-not-followed"
+  } elseif ($targetReparsePoint) {
+    Add-PlanAction "Conflict" "skill-update" $skillSourceRoot $targetReparsePoint "target-reparse-point-not-followed"
+  }
+
+  $sourceVersion = Get-SkillManifestVersion $skillSourceRoot
+  $targetVersion = Get-SkillManifestVersion $skillTarget
+  $sourceTreeHash = Get-TreeFingerprint $skillSourceRoot
+  $targetTreeHash = Get-TreeFingerprint $skillTarget
+  $skillName = Split-Path -Leaf $skillTarget.TrimEnd([char]"\", [char]"/")
+  $skillParent = Split-Path -Parent $skillTarget.TrimEnd([char]"\", [char]"/")
+  $backupRoot = Join-Path $skillParent ".agent-context-patch-backups"
+  $backupPath = Join-Path $backupRoot "$skillName-$targetVersion-before-$sourceVersion"
+  $backupRootReparsePoint = Get-FirstReparsePoint $backupRoot
+  $backupRootInvalidType = (Test-Path -LiteralPath $backupRoot) -and -not (Test-Path -LiteralPath $backupRoot -PathType Container)
+
+  if ($backupRootReparsePoint) {
+    Add-PlanAction "Conflict" "skill-update" $skillTarget $backupRootReparsePoint "backup-root-reparse-point-not-followed"
+  } elseif ($backupRootInvalidType) {
+    Add-PlanAction "Conflict" "skill-update" $skillTarget $backupRoot "backup-root-not-directory"
+  }
+
+  if (-not $sourceReparsePoint -and -not $targetReparsePoint -and -not $backupRootReparsePoint -and -not $backupRootInvalidType) {
+    if ($sourceVersion -ceq $targetVersion -and $sourceTreeHash -eq $targetTreeHash) {
+      Add-PlanAction "NoUpdate" "skill-update" $skillSourceRoot $skillTarget "installed=$targetVersion;source=$sourceVersion;tree-sha256=$sourceTreeHash"
+    } elseif ($sourceVersion -ceq $targetVersion) {
+      Add-PlanAction "Conflict" "skill-update" $skillSourceRoot $skillTarget "same-version-tree-differs;version=$sourceVersion;source-tree-sha256=$sourceTreeHash;target-tree-sha256=$targetTreeHash"
+    } elseif ((Compare-SemanticVersion $sourceVersion $targetVersion) -le 0) {
+      Add-PlanAction "DowngradeRequired" "skill-update" $skillSourceRoot $skillTarget "installed=$targetVersion;source=$sourceVersion;newer-release-required"
+    } elseif (Test-Path -LiteralPath $backupPath) {
+      Add-PlanAction "Conflict" "skill-update" $skillSourceRoot $backupPath "backup-already-exists;installed=$targetVersion;source=$sourceVersion"
+    } else {
+      Add-PlanAction "UpgradeSkill" "skill-update" $skillSourceRoot $skillTarget "installed=$targetVersion;source=$sourceVersion;source-tree-sha256=$sourceTreeHash;target-tree-sha256=$targetTreeHash"
+    }
+  }
+
+  $updatePlanLines = [Collections.Generic.List[string]]::new()
+  $updatePlanLines.Add("operation=skill-update")
+  $updatePlanLines.Add("source=$(ConvertTo-NormalPath $skillSourceRoot)")
+  $updatePlanLines.Add("target=$(ConvertTo-NormalPath $skillTarget)")
+  $updatePlanLines.Add("backup=$(ConvertTo-NormalPath $backupPath)")
+  $updatePlanLines.Add("sourceVersion=$sourceVersion")
+  $updatePlanLines.Add("targetVersion=$targetVersion")
+  $updatePlanLines.Add("sourceTreeHash=$sourceTreeHash")
+  $updatePlanLines.Add("targetTreeHash=$targetTreeHash")
+  $actions |
+    Sort-Object State, Kind, Target, Source, Detail |
+    ForEach-Object {
+      $updatePlanLines.Add("$($_.State)|$($_.Kind)|$(ConvertTo-NormalPath $_.Source)|$(ConvertTo-NormalPath $_.Target)|$($_.Detail)")
+    }
+  $updatePlanHash = Get-Sha256Text ([string]::Join("`n", $updatePlanLines))
+  $updateBlocked = @($actions | Where-Object { $_.State -in @("Conflict", "DowngradeRequired") }).Count -gt 0
+  $upgradeAction = $actions | Where-Object { $_.State -eq "UpgradeSkill" } | Select-Object -First 1
+
+  Write-Host "Agent Context Patch Bootstrap"
+  Write-Host "Mode: $Mode"
+  Write-Host "Skill source: $skillSourceRoot"
+  Write-Host "Skill target: $skillTarget"
+  Write-Host "Backup path: $backupPath"
+  Write-Host ""
+  Write-Host "Plan:"
+  foreach ($action in $actions) {
+    $suffix = if ($action.Detail) { " ($($action.Detail))" } else { "" }
+    Write-Host "$($action.State): $($action.Target)$suffix"
+  }
+  Write-Host "Plan hash: $updatePlanHash"
+  Write-Host "Plan status: $(if ($updateBlocked) { 'blocked' } else { 'ready' })"
+
+  if ($Mode -eq "UpdateDryRun") {
+    Write-Host "Dry run complete. No files were written."
+    exit $(if ($updateBlocked) { 2 } else { 0 })
+  }
+  if (-not $ApprovedPlanHash) {
+    Write-Error "UpdateApply requires -ApprovedPlanHash from the reviewed UpdateDryRun."
+  }
+  if ($ApprovedPlanHash.ToLowerInvariant() -ne $updatePlanHash) {
+    Write-Error "Approved update plan hash does not match the current source and target trees. Re-run UpdateDryRun and review the new plan."
+  }
+  if ($updateBlocked) {
+    Write-Error "The approved update plan is blocked by a conflict."
+  }
+  if (-not $upgradeAction) {
+    Write-Host ""
+    Write-Host "Update receipt:"
+    Write-Host "Status: no-update"
+    Write-Host "Plan hash: $updatePlanHash"
+    Write-Host "Installed version: $targetVersion"
+    Write-Host "Previous version: $targetVersion"
+    Write-Host "Restart required: false"
+    exit 0
+  }
+
+  $stagePath = Join-Path $skillParent ".agent-context-patch-stage-$([Guid]::NewGuid().ToString('N'))"
+  $originalMoved = $false
+  $candidateActivated = $false
+  try {
+    Copy-TreeSnapshot $skillSourceRoot $stagePath
+    if ((Get-TreeFingerprint $skillSourceRoot) -ne $sourceTreeHash) {
+      throw "Candidate release changed after planning."
+    }
+    if ((Get-TreeFingerprint $stagePath) -ne $sourceTreeHash) {
+      throw "Staged skill does not match the planned candidate release."
+    }
+    if (Get-FirstReparsePoint $backupRoot) {
+      throw "Skill backup root became a reparse point after planning: $backupRoot"
+    }
+    if ((Test-Path -LiteralPath $backupRoot) -and -not (Test-Path -LiteralPath $backupRoot -PathType Container)) {
+      throw "Skill backup root is not a directory: $backupRoot"
+    }
+    if (Test-Path -LiteralPath $backupPath) {
+      throw "Backup path appeared after planning: $backupPath"
+    }
+    New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
+    Move-Item -LiteralPath $skillTarget -Destination $backupPath
+    $originalMoved = $true
+    if ((Get-TreeFingerprint $backupPath) -ne $targetTreeHash) {
+      throw "Backup does not match the planned installed skill."
+    }
+    if ($env:ACP_BOOTSTRAP_TEST_FAULT -in @("after-skill-backup", "during-skill-restore")) {
+      throw "Injected verification failure after skill backup."
+    }
+    if ($env:ACP_BOOTSTRAP_TEST_FAULT -ceq "target-appeared-before-activation") {
+      New-Item -ItemType Directory -Path $skillTarget | Out-Null
+      [IO.File]::WriteAllText(
+        (Join-Path $skillTarget "foreign-target.txt"),
+        "foreign target must survive`n",
+        [Text.UTF8Encoding]::new($false)
+      )
+      throw "Injected unexpected skill target before activation."
+    }
+    Move-Item -LiteralPath $stagePath -Destination $skillTarget
+    $candidateActivated = $true
+    if ((Get-TreeFingerprint $skillTarget) -ne $sourceTreeHash) {
+      throw "Installed skill does not match the planned candidate release."
+    }
+  } catch {
+    $failure = $_.Exception.Message
+    $restored = $false
+    $restoreFailure = ""
+    if ($originalMoved) {
+      if ($env:ACP_BOOTSTRAP_TEST_FAULT -ceq "during-skill-restore") {
+        $restoreFailure = "Injected failure during automatic restore."
+      } else {
+        try {
+          if (Test-Path -LiteralPath $skillTarget) {
+            if (-not $candidateActivated) {
+              throw "Unexpected skill target appeared before activation; it was preserved."
+            }
+            if (Get-FirstReparsePoint $skillTarget) {
+              throw "Activated skill target contains a reparse point; it was preserved."
+            }
+            if ((Get-TreeFingerprint $skillTarget) -ne $sourceTreeHash) {
+              throw "Activated skill target changed after activation; it was preserved."
+            }
+            Remove-Item -LiteralPath $skillTarget -Recurse -Force
+          }
+          if (-not (Test-Path -LiteralPath $backupPath -PathType Container)) {
+            throw "Recovery copy is missing: $backupPath"
+          }
+          Move-Item -LiteralPath $backupPath -Destination $skillTarget
+          $restored = Test-Path -LiteralPath $skillTarget -PathType Container
+          if (-not $restored) { throw "Restored skill target is missing: $skillTarget" }
+        } catch {
+          $restoreFailure = $_.Exception.Message
+        }
+      }
+    }
+    if (Test-Path -LiteralPath $stagePath) {
+      Remove-Item -LiteralPath $stagePath -Recurse -Force
+    }
+    if (-not $originalMoved) {
+      Write-Error "Skill update failed before the installed skill was replaced: $failure"
+    } elseif ($restored) {
+      Write-Error "Skill update failed and the previous installation was restored: $failure"
+    } else {
+      Write-Error "Skill update failed; automatic restore also failed. Recovery copy: $backupPath. Update failure: $failure Restore failure: $restoreFailure"
+    }
+  }
+
+  Write-Host ""
+  Write-Host "Update receipt:"
+  Write-Host "Status: applied"
+  Write-Host "Plan hash: $updatePlanHash"
+  Write-Host "Installed version: $sourceVersion"
+  Write-Host "Previous version: $targetVersion"
+  Write-Host "Backup path: $backupPath"
+  Write-Host "Restart required: true"
+  exit 0
 }
 
 function Add-TreePlan([string]$SourceRoot, [string]$DestinationRoot, [string]$Kind) {

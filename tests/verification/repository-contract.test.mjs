@@ -16,7 +16,7 @@ test("package, skill manifest, and context schema versions agree", () => {
   const manifest = readJson("skills/evolve/manifest.json");
   const config = parseYamlSubset(read("templates/.agent-context/config.yml"), "template config");
 
-  assert.equal(packageJson.version, "0.2.0");
+  assert.equal(packageJson.version, "0.3.0");
   assert.equal(packageJson.engines?.node, ">=20");
   assert.equal(manifest.kit, "agent-context-patch");
   assert.equal(manifest.version, packageJson.version);
@@ -53,6 +53,36 @@ test("workspace template has one active topology and no pre-enabled domain mater
       `template prematurely materializes domain checklist: ${domainFile}`,
     );
   }
+});
+
+test("the public update surface is release-based, explicit, and workspace-independent", () => {
+  const readme = read("README.md");
+  const chineseReadme = read("README.zh-CN.md");
+  const installGuide = read("AGENT_INSTALL.md");
+  const skill = read("skills/evolve/SKILL.md");
+  const updatePolicy = read("docs/update-policy.md");
+  const powershellInstaller = read("install/install.ps1");
+  const bashInstaller = read("install/install.sh");
+
+  for (const document of [readme, chineseReadme, installGuide, skill]) {
+    assert.match(document, /releases\/latest/iu);
+    assert.match(document, /\$evolve update/iu);
+  }
+  assert.doesNotMatch(
+    readme,
+    /Install Agent Context Patch from https:\/\/github\.com\/Cherwayway\/agent-context-patch\.(?:\r?\n|\s)/u,
+    "stable install instructions still point at the moving repository root",
+  );
+  assert.match(powershellInstaller, /UpdateDryRun/iu);
+  assert.match(powershellInstaller, /UpdateApply/iu);
+  assert.match(bashInstaller, /update-dry-run/iu);
+  assert.match(bashInstaller, /update-apply/iu);
+  assert.match(skill, /never poll in\s+the background/iu);
+  assert.match(skill, /never.*workspace-schema migration/isu);
+  assert.match(updatePolicy, /GitHub-enforced immutable Release/iu);
+  assert.match(updatePolicy, /Create a draft/iu);
+  assert.match(installGuide, /One-time handoff from v0\.2\.0/iu);
+  assert.match(readme, /v0\.2\.0 skill predates `\$evolve update`/iu);
 });
 
 test("template config expresses the v1 policy and health thresholds", () => {

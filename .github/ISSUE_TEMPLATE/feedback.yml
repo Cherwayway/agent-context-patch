@@ -1,0 +1,117 @@
+name: Product feedback signal
+description: Report a reproducible Agent Context Patch outcome without sharing private workspace data.
+title: "[Feedback]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve the iteration loop. This repository may be public.
+        Do not include secrets, customer data, source code, raw conversations, full logs, or absolute workspace paths. Use short summaries and workspace-relative pointers only when necessary.
+
+  - type: dropdown
+    id: signal_type
+    attributes:
+      label: Signal type
+      description: Which stage failed or created friction?
+      options:
+        - Install or discovery
+        - Init or proposal quality
+        - Approval or apply
+        - Repeated mistake after an applied patch
+        - Context conflict, staleness, or noise
+        - Update, migration, or rollback
+        - Security or privacy
+        - Feature opportunity
+    validations:
+      required: true
+
+  - type: input
+    id: kit_version
+    attributes:
+      label: Kit Version
+      description: Use the installed semantic version, or "unknown".
+      placeholder: 0.2.0
+    validations:
+      required: true
+
+  - type: input
+    id: workspace_schema
+    attributes:
+      label: Workspace Schema
+      description: Use the workspace schema version, "legacy", "none", or "unknown".
+      placeholder: "1"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Agent and operating system only; omit usernames and paths.
+      placeholder: Codex, Windows 11
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_observed
+    attributes:
+      label: Expected and observed outcome
+      description: Explain the expected behavior and what happened instead.
+      placeholder: |
+        Expected:
+        Observed:
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Sanitized reproduction
+      description: Give the smallest repeatable sequence. Summarize evidence; do not paste conversations, source, or full logs.
+      placeholder: |
+        1. Started with...
+        2. Ran...
+        3. Observed...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: recurrence
+    attributes:
+      label: Recurrence
+      options:
+        - Observed once
+        - Reproducible in one workspace
+        - Repeated three or more times
+        - Seen in two or more independent workspaces
+    validations:
+      required: true
+
+  - type: dropdown
+    id: user_outcome
+    attributes:
+      label: Proposal outcome, if applicable
+      options:
+        - Not applicable
+        - Accepted as proposed
+        - Accepted after edits
+        - Rejected
+        - Applied but the mistake recurred
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional sanitized context
+      description: Optional constraints, impact, or relative evidence pointers that would help reproduce the signal.
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed secrets, customer data, source code, raw conversations, full logs, usernames, and absolute paths.
+          required: true
+    validations:
+      required: true

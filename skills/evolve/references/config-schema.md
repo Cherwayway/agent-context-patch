@@ -17,7 +17,7 @@ fixtures. A file that merely says `schema_version: 1` is invalid, not current.
 
 ~~~yaml
 schema_version: 1
-created_with_kit_version: "0.2.0"
+created_with_kit_version: "0.3.0"
 last_migrated_with_kit_version: null
 
 context_write_policy: propose

@@ -20,11 +20,16 @@ Agent Context Patch 采用 Agent-first：旗舰 Agent 负责理解项目、判�
 把下面这段话交给 Agent：
 
 ```text
-Install Agent Context Patch from https://github.com/Cherwayway/agent-context-patch.
-Use AGENT_INSTALL.md. Run Bootstrap dry-run first, show the exact plan hash and
-the separate AGENTS.md or CLAUDE.md patch, then ask before applying. After the
-install, run $evolve init for this workspace.
+Install the latest stable Agent Context Patch from
+https://github.com/Cherwayway/agent-context-patch/releases/latest. Resolve it to
+one GitHub-enforced immutable tag and source commit, download that exact
+Release, and verify its published checksum before running its AGENT_INSTALL.md.
+Run Bootstrap dry-run first, show the exact plan hash and the separate AGENTS.md
+or CLAUDE.md patch, then ask before applying. After the install, run $evolve
+init for this workspace.
 ```
+
+正式安装只使用由 GitHub 强制不可变的 Release；持续变化的 `main` 只作为开发源。
 
 默认安装位置：
 
@@ -56,6 +61,48 @@ bash install/install.sh --mode apply --workspace . \
   --approved-plan-hash <approved-hash>
 ```
 
+## 本地升级验证
+
+先独立校验并解压一个不可变的候选 Release，再从候选 Release 调用 Bootstrap，目标是
+已经安装的 user-level skill：
+
+PowerShell：
+
+```powershell
+powershell -ExecutionPolicy Bypass `
+  -File <candidate-release>\install\install.ps1 `
+  -Mode UpdateDryRun `
+  -SkillTargetPath <installed-user-skill-target>
+
+# 审阅完整 UpdatePlan，并批准精确 plan hash 后：
+powershell -ExecutionPolicy Bypass `
+  -File <candidate-release>\install\install.ps1 `
+  -Mode UpdateApply `
+  -SkillTargetPath <installed-user-skill-target> `
+  -ApprovedPlanHash <approved-hash>
+```
+
+Bash：
+
+```bash
+bash <candidate-release>/install/install.sh \
+  --mode update-dry-run \
+  --skill-target <installed-user-skill-target>
+
+# 审阅完整 UpdatePlan，并批准精确 plan hash 后：
+bash <candidate-release>/install/install.sh \
+  --mode update-apply \
+  --skill-target <installed-user-skill-target> \
+  --approved-plan-hash <approved-hash>
+```
+
+候选脚本的位置决定升级源。Update mode 不检查或写入 workspace context，不修改
+instruction 文件，也不批准 schema migration。它会把当前与候选 skill 的完整受管文件树
+绑定到获批计划，备份旧 skill、验证替换结果，并在失败时恢复旧版本。
+
+v0.2.0 skill 早于 `$evolve update` 出现，因此第一次升级把上述候选 Bootstrap 流程作为
+一次性兼容交接；之后统一使用唯一公开命令 `$evolve update`。
+
 ## Workspace Context
 
 V1 只在 workspace 内写 Active Context：
@@ -86,6 +133,11 @@ Decision Log 与 Apply Attempts；report 是派生视图；archive 默认不读�
 - `$evolve review-context`：按冲突、过期、重复、authority 与 retention value
   生成语义清理 proposal；不按数量自动删除。
 - `$evolve weekly`：生成派生健康报告，不反向覆盖 Active Context。
+- `$evolve update`：显式检查最新稳定的不可变 Release，校验 checksum、tag 和 source
+  commit，并在替换 user-level skill 前展示完整 UpdatePlan 与精确 plan hash。升级成功后
+  需要开启一个新的 Agent 任务加载新版；不会后台检查、上传遥测或静默升级。
+  如需及时的外部通知，请订阅本仓库的 GitHub Release 通知；需要检查或升级时再运行
+  `$evolve update`。
 
 ## 写入策略
 

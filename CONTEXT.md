@@ -29,11 +29,26 @@ context growth as success by itself.
 - **Retention Value**: whether a rule still earns space in Active Context.
 - **Legacy Workspace**: an unversioned `.agent-context/` tree. It is read-only
   until an approved migration is applied.
+- **Kit Version**: the semantic version of one Agent Context Patch
+  distribution. It identifies product behavior and is independent of durable
+  workspace compatibility.
+- **Workspace Schema**: the versioned compatibility contract for durable
+  workspace context. It changes only when existing context needs migration,
+  not whenever the Kit Version changes.
+- **Release**: an immutable, published distribution of exactly one Kit
+  Version. A development branch or moving source snapshot is not a Release.
+- **Upgrade Plan**: the exact, reviewable proposal for replacing one installed
+  Kit Version with another, including exact installed/candidate managed-tree
+  identities, replacement scope, and recovery expectations. Its approval does
+  not authorize a Workspace Schema migration.
+- **Feedback Signal**: a privacy-minimized, reproducible observation from real
+  use that can justify or evaluate an iteration. Raw conversations, full logs,
+  and untested ideas are not Feedback Signals.
 
 ## Deep Modules And Seams
 
 - `$evolve` is the Agent-facing interface for `init`, `after-failure`,
-  `approve`, `review-context`, and `weekly`.
+  `approve`, `review-context`, `weekly`, and `update`.
 - The **Commit Kernel** accepts a PatchPlan plus optional external approval and
   returns an ApplyAttempt. Approval carries the reviewed `planHash` outside the
   plan, avoiding a self-referential hash. The kernel owns path safety, policy
