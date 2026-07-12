@@ -5,6 +5,8 @@ semantic versions for the Kit independently from the Workspace Schema version.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-12
+
 ### Changed
 
 - New workspaces now default to `context_write_policy: auto`; existing
