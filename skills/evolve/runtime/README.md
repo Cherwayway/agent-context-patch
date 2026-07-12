@@ -83,7 +83,9 @@ future schema remains read-only. Every proposed `config.yml` replacement must
 also be a complete valid v1 envelope.
 
 Without external approval, `auto` additionally requires that live config to
-declare `context_write_policy: auto`. It accepts only low-risk, verified,
+declare `context_write_policy: auto`. New workspace templates declare this by
+default; the kernel never changes an existing policy. It accepts only low-risk,
+verified,
 privacy-declared, context-health-eligible writes to the active index, profile,
 or checklists whose basename is present in `config.enabled_domains`, and only
 when `semanticOperation` is `add`. It rejects traversal, symlink escape, stale

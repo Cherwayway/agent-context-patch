@@ -29,7 +29,9 @@ export function assertInstallerContract({ repositoryRoot, runDryRun, runApply })
     writeFileSync(existingProfile, profileSentinel, "utf8");
     writeFileSync(
       existingConfig,
-      readFileSync(join(repositoryRoot, "templates", ".agent-context", "config.yml")),
+      readFileSync(join(repositoryRoot, "templates", ".agent-context", "config.yml"), "utf8")
+        .replace("context_write_policy: auto", "context_write_policy: propose"),
+      "utf8",
     );
     writeFileSync(existingInstructions, instructionsSentinel, "utf8");
 
@@ -43,6 +45,11 @@ export function assertInstallerContract({ repositoryRoot, runDryRun, runApply })
       dryRun.stdout,
       /(?:skip|preserve)[^\r\n]*PROJECT_PROFILE\.md/iu,
       "dry-run did not report that the existing profile would be preserved",
+    );
+    assert.match(
+      dryRun.stdout,
+      /preserve[^\r\n]*config\.yml/iu,
+      "dry-run did not report that the existing propose policy would be preserved",
     );
     assert.match(
       dryRun.stdout,
@@ -81,7 +88,16 @@ export function assertInstallerContract({ repositoryRoot, runDryRun, runApply })
     assertCommandSucceeded(firstApply, "installer apply");
     assert.equal(readFileSync(existingProfile, "utf8"), profileSentinel);
     assert.equal(readFileSync(existingInstructions, "utf8"), instructionsSentinel);
-    assertTemplateInventoryInstalled(repositoryRoot, workspace, new Set(["PROJECT_PROFILE.md"]));
+    assert.match(
+      readFileSync(existingConfig, "utf8"),
+      /^context_write_policy: propose$/mu,
+      "installer silently expanded an existing workspace policy",
+    );
+    assertTemplateInventoryInstalled(
+      repositoryRoot,
+      workspace,
+      new Set(["PROJECT_PROFILE.md", "config.yml"]),
+    );
 
     const afterFirstApply = snapshotTree(workspace);
     const secondDryRun = runDryRun(workspace);
@@ -96,6 +112,22 @@ export function assertInstallerContract({ repositoryRoot, runDryRun, runApply })
       afterFirstApply,
       "reapplying the installer changed an initialized workspace",
     );
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+}
+
+export function assertFreshInstallerDefaultsToAuto({ runDryRun, runApply }) {
+  const workspace = mkdtempSync(join(tmpdir(), "agent-context-patch-fresh-install-"));
+  try {
+    const dryRun = runDryRun(workspace);
+    assertCommandSucceeded(dryRun, "fresh installer dry-run");
+    const apply = runApply(workspace, extractPlanHash(dryRun.stdout));
+    assertCommandSucceeded(apply, "fresh installer apply");
+
+    const config = readFileSync(join(workspace, ".agent-context", "config.yml"), "utf8");
+    assert.match(config, /^created_with_kit_version: "0\.4\.0"$/mu);
+    assert.match(config, /^context_write_policy: auto$/mu);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
@@ -171,8 +203,8 @@ export function assertV1ConfigBootstrapContract({ repositoryRoot, runDryRun, run
     {
       name: "duplicate config key",
       config: templateConfig.replace(
-        "context_write_policy: propose",
-        "context_write_policy: propose\ncontext_write_policy: auto",
+        "context_write_policy: auto",
+        "context_write_policy: auto\ncontext_write_policy: propose",
       ),
     },
     {
@@ -186,7 +218,7 @@ export function assertV1ConfigBootstrapContract({ repositoryRoot, runDryRun, run
     {
       name: "invalid created kit version",
       config: templateConfig.replace(
-        'created_with_kit_version: "0.3.1"',
+        'created_with_kit_version: "0.4.0"',
         'created_with_kit_version: "v0.2.0"',
       ),
     },
@@ -200,8 +232,8 @@ export function assertV1ConfigBootstrapContract({ repositoryRoot, runDryRun, run
     {
       name: "created kit version with decoded trailing newline",
       config: templateConfig.replace(
-        'created_with_kit_version: "0.3.1"',
-        'created_with_kit_version: "0.3.1\\n"',
+        'created_with_kit_version: "0.4.0"',
+        'created_with_kit_version: "0.4.0\\n"',
       ),
     },
   ];

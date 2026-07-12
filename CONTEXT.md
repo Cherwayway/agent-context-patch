@@ -12,13 +12,15 @@ context growth as success by itself.
   multi-repo directory, or a non-code folder.
 - **Active Context**: files ordinary tasks may read by default: the context
   index, project profile, and enabled checklists.
-- **Proposal**: the complete evolution aggregate for one lesson. It owns the
-  evidence, proposed patch, decision log, and apply attempts.
-- **PatchPlan**: the exact, immutable file operations proposed for approval. A
-  decision binds to its `planHash`. It persists workspace-relative targets;
+- **Proposal**: the internal evolution aggregate for one lesson. It owns the
+  evidence, exact patch, decision log, and apply attempts; it is not a default
+  user approval inbox.
+- **PatchPlan**: the exact, immutable file operations prepared for application.
+  A decision binds to its `planHash`. It persists workspace-relative targets;
   the absolute runtime workspace root is injected only at apply time.
-- **Decision**: an approval or rejection of one PatchPlan.
-- **ApplyAttempt**: the result of committing an approved PatchPlan, including
+- **Decision**: an automatic policy decision, approval, or rejection of one
+  PatchPlan.
+- **ApplyAttempt**: the result of committing an authorized PatchPlan, including
   relative targets and before/after hashes but not duplicated patch content.
 - **Promotion**: an approved proposal to generalize a workspace lesson into
   user-level guidance. User-global context is never an active v1 write scope.
@@ -65,12 +67,14 @@ context growth as success by itself.
 1. Repair and verify the current task before applying long-term context.
 2. V1 writes Active Context only inside the approved workspace
    `.agent-context/` root.
-3. `propose` is the default policy. `auto` requires explicit workspace config
-   opt-in and the Node Commit Kernel.
+3. New workspaces default to `auto`; eligible low-risk additions complete in
+   the current Agent turn through the Node Commit Kernel. Existing workspace
+   config remains authoritative.
 4. Missing kernel capability downgrades `auto` to `propose` explicitly.
 5. Delete, archive, supersede, migration, instruction-file, and promotion
    operations always require human approval.
-6. `$evolve approve` is one public action, while the implementation records
+6. `$evolve after-failure` completes eligible auto plans without another user
+   turn. `$evolve approve` is the exception path; both paths still record
    separate `approved` and `applied` states.
 7. Every apply requires `currentFixStatus: verified`; approval cannot bypass
    verification, supported topology, path, or privacy guards.
@@ -93,11 +97,14 @@ context growth as success by itself.
     should change. Context is never truncated automatically.
 16. Persist evidence pointers and summaries, not raw conversations or complete
     logs. Use workspace-relative paths.
-17. Existing instructions and legacy context are never silently overwritten.
+17. Existing instructions, explicit workspace policy, and legacy context are
+    never silently overwritten.
 
 ## Repository Reading Map
 
-- `docs/adr/0001-agent-first-context-evolution.md`: architectural decisions.
+- `docs/adr/0001-agent-first-context-evolution.md`: original architecture.
+- `docs/adr/0003-auto-first-low-risk-context.md`: current default write and
+  interaction behavior.
 - `docs/v1-verification-matrix.md`: decision-to-contract verification map.
 - `skills/evolve/SKILL.md`: Agent-facing behavior.
 - `skills/evolve/references/`: protocol, privacy, migration, domain, and cleanup

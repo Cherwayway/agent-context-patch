@@ -9,7 +9,8 @@ modules.
 Read:
 
 1. `CONTEXT.md` for the domain language and module seams.
-2. `docs/adr/0001-agent-first-context-evolution.md` for accepted decisions.
+2. `docs/adr/0001-agent-first-context-evolution.md` plus later superseding ADRs,
+   especially `docs/adr/0003-auto-first-low-risk-context.md`.
 3. The relevant `skills/evolve/references/` file.
 
 Do not add a second source of truth for proposal lifecycle, write policy, domain

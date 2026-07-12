@@ -19,7 +19,8 @@ adapters, or validation behavior.
 
 ## Verification
 
-- [ ] Does the proposal define what better behavior looks like?
+- [ ] Does the issue, ADR, or change record define what better behavior looks
+  like?
 - [ ] Were relevant demos, docs, adapters, and templates checked for drift?
 - [ ] Did `npm test` pass?
 - [ ] Was a real task or fixture used when structural validation is insufficient?

@@ -3,7 +3,7 @@
 ## Product / Project
 
 - Name: Fake JS Repo
-- Purpose: Demonstrate the $evolve after-failure and $evolve approve flow.
+- Purpose: Demonstrate the automatic $evolve after-failure flow.
 - Current status: Verified fixture.
 
 ## Enabled Domains

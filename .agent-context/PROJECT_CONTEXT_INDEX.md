@@ -15,8 +15,9 @@ only truth source for enabled domains and write policy.
 
 ## On-Demand Sources
 
-- `proposals/`: workspace-context evolution aggregates with evidence,
-  decisions, and apply attempts.
+- `proposals/`: internal workspace-context evolution aggregates with evidence,
+  decisions, and apply attempts; eligible auto records are not user approval
+  tasks.
 - `reports/`: rebuildable weekly and context-health views.
 - `archive/`: inactive or superseded context and migration backups.
 - `../skills/evolve/references/personal-dogfooding.zh-CN.md`: the canonical

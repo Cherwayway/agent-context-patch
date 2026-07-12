@@ -3,17 +3,17 @@
 把 Agent 反复犯过的错误，变成短小、持久、可审阅的 workspace context。
 
 Agent Context Patch 采用 Agent-first：旗舰 Agent 负责理解项目、判断经验是否值得沉淀、
-生成 context patch。`auto` 必须使用很薄的 deterministic Commit Kernel；人工精确批准也可以
-通过它提交，但没有 Node 时仍可使用 `propose`。
+生成 context patch。新 workspace 默认使用 `auto`，由很薄的 deterministic Commit Kernel
+负责安全提交；低风险本地改进在当前 Agent 回合直接完成，人工决策只留给安全例外。
 
 默认循环：
 
 1. 发现可复用的失败、纠正、过期规则或工作流经验。
 2. 先修复并验证当前任务。
 3. 检查 Active Context，优先替换而不是追加。
-4. 生成带证据和精确 PatchPlan 的 proposal。
-5. 用户批准，或由 `auto` 通过 Commit Kernel 应用低风险计划。
-6. 持续提出语义清理 proposal，让 context 保持当前和有用。
+4. 生成带证据和精确 PatchPlan 的内部审计记录。
+5. 由 `auto` 通过 Commit Kernel 立即应用合格的低风险计划，只返回一条无需操作的简短回执。
+6. 只有安全门禁要求例外决策时才询问用户，并持续提出语义清理 proposal。
 
 ## 快速安装
 
@@ -26,7 +26,8 @@ one GitHub-enforced immutable tag and source commit, download that exact
 Release, and verify its published checksum before running its AGENT_INSTALL.md.
 Run Bootstrap dry-run first, show the exact plan hash and the separate AGENTS.md
 or CLAUDE.md patch, then ask before applying. After the install, run $evolve
-init for this workspace.
+init automatically; apply eligible low-risk workspace context without another
+approval and ask only for approval-only init changes.
 ```
 
 正式安装只使用由 GitHub 强制不可变的 Release；持续变化的 `main` 只作为开发源。
@@ -124,12 +125,14 @@ Decision Log 与 Apply Attempts；report 是派生视图；archive 默认不读�
 
 ## 核心命令
 
-- `$evolve init`：检查 workspace，报告 `contextRead`，检测 domain 候选，并展示
-  可审阅 InitPlan；只有批准后才启用 domain。
-- `$evolve after-failure`：先修复当前任务，再执行 replace-before-add 并生成一个
-  带证据 proposal；发现重叠或冲突时转为 cleanup proposal。
-- `$evolve approve`：展示精确 PatchPlan，批准绑定 plan hash；内部区分
-  `approved` 与 `applied`，文件变化会让批准失效。
+- `$evolve init`：检查 workspace，报告 `contextRead`，自动应用合格的 profile/index
+  补充；只有 config 或 domain activation 需要变化时才请求一次决策。
+- `$evolve after-failure`：由 Agent 在发现可复用错误后自动运行；先修复当前任务，
+  再执行 replace-before-add、生成审计记录并立即应用合格的低风险补充。成功时只返回
+  一条非阻塞回执；重叠或冲突才转为 cleanup proposal。
+- `$evolve approve`：只处理需要人工决策的例外路径。先展示简短语义摘要和完整精确
+  PatchPlan；用户回复“应用”即可，不需要复制 plan hash。内部仍区分 `approved` 与
+  `applied`，文件变化会让授权失效。
 - `$evolve review-context`：按冲突、过期、重复、authority 与 retention value
   生成语义清理 proposal；不按数量自动删除。
 - `$evolve weekly`：生成派生健康报告，不反向覆盖 Active Context。
@@ -144,19 +147,22 @@ Decision Log 与 Apply Attempts；report 是派生视图；archive 默认不读�
 默认：
 
 ```yaml
-context_write_policy: propose
+context_write_policy: auto
 ```
 
 只支持两档：
 
-- `propose`：生成计划，等待精确批准；
-- `auto`：workspace 显式 opt-in，仅通过 Node Commit Kernel 应用合格的低风险
-  create/update 计划。Kernel 会重读 workspace config；只有已启用 domain 的 checklist
-  才可能自动写入。
+- `auto`：新 workspace 的默认写入策略；在当前 Agent 回合通过 Node Commit Kernel
+  应用合格的低风险 create/update 计划。Kernel 会重读 workspace config；只有已启用
+  domain 的 checklist 才可能自动写入。
+- `propose`：显式谨慎模式，也会为已有 workspace 保留；生成计划并等待精确批准。
 
 Node 或 kernel 不可用时，`auto` 必须明确降级为 `propose`。删除、archive、
 supersede、migration、instruction 文件、domain activation 和 user-global promotion
 永远需要人工批准。
+
+Bootstrap 和 Kit update 永远不会改写已有 workspace 的策略。自动应用成功后，Agent
+默认只报告经验摘要、proposal ID 和目标文件，不请求用户批准或回复。
 
 ## Context Health
 
@@ -180,8 +186,9 @@ legacy context。
 
 ## 架构与开发
 
-领域词汇见 [CONTEXT.md](CONTEXT.md)，架构决策见
-[ADR-0001](docs/adr/0001-agent-first-context-evolution.md)，决策与验证证据的映射见
+领域词汇见 [CONTEXT.md](CONTEXT.md)，原始架构决策见
+[ADR-0001](docs/adr/0001-agent-first-context-evolution.md)，auto-first 默认见
+[ADR-0003](docs/adr/0003-auto-first-low-risk-context.md)，决策与验证证据的映射见
 [v1 verification matrix](docs/v1-verification-matrix.md)。
 
 统一验证入口：

@@ -1,6 +1,6 @@
 ---
 name: evolve
-description: Turn verified failures, repeated corrections, and stale workspace context into reviewable context patches without letting active context grow unchecked, or explicitly check and safely update the installed Kit.
+description: Turn verified failures, repeated corrections, and stale workspace context into automatically applied low-risk workspace patches, with review reserved for safety exceptions, or explicitly check and safely update the installed Kit.
 ---
 
 # Evolve
@@ -12,12 +12,14 @@ one-off detail that has no recurring value.
 Agent Context Patch is agent-first:
 
 - The agent understands the project, judges evidence, chooses wording, and
-  proposes semantic changes.
+  prepares semantic changes.
 - The deterministic commit kernel validates the plan envelope, paths, policy,
   hashes, conflicts, and application. The agent owns lifecycle logging. The
   kernel never judges project meaning or edits proposal prose.
-- The basic propose flow works without Node. Auto requires the Node kernel; if
-  it is unavailable, report the reason and use propose.
+- `auto` is the default write policy for new workspaces. It requires the Node
+  kernel; if the kernel is unavailable, preserve the exact proposal, report
+  the reason, and use the approval path instead of pretending the patch was
+  applied.
 
 Read references/protocol-v1.md for the normative v1 contract.
 
@@ -39,8 +41,8 @@ relevant reference only when evolving context.
 - Workspace is the only active context scope in v1.
 - User-global is valid only for a manually approved promotion proposal; the
   workspace kernel cannot apply it.
-- Supported write policies are propose and auto. Auto is an explicit
-  workspace opt-in, not an agent inference.
+- Supported write policies are propose and auto. New workspaces default to
+  auto; an existing workspace's explicit config remains authoritative.
 - Deletion, cleanup, migration, domain activation, instruction-file changes,
   and user-global promotion always require human approval.
 - Approval covers one immutable PatchPlan and its plan_hash. Changed targets
@@ -57,8 +59,9 @@ relevant reference only when evolving context.
   agree with that plan.
 - PatchPlan semanticOperation must equal proposal frontmatter operation. Auto
   is possible only for semanticOperation add.
-- Approval and application are separate internal states even though
-  $evolve approve is the single public command.
+- Approval and application are separate internal states. Eligible auto plans
+  do not require a user decision; `$evolve approve` handles only the exception
+  path that requires one.
 - Active context changes use replace-before-add. Never append a rule before
   checking for duplication, overlap, conflict, or a better replacement.
 - Evidence is pointer-first and summary-first. Never persist secrets, raw
@@ -81,20 +84,24 @@ Initialize or refresh the current workspace:
    rather than materializing missing templates.
 3. Inspect source-of-truth files and mark uncertainties rather than guessing.
 4. Detect candidate domains with evidence, confidence, and uncertainties.
-5. Show one InitPlan containing proposed enabled domains, active files, exact
-   patches, and context impact.
-6. Apply the approved plan. Store only enabled_domains in config.yml; detected
-   candidates are temporary plan data.
-7. Materialize checklists only for approved enabled domains. A custom
-   workspace checklist may be proposed when no pack fits.
-8. Report created, changed, skipped, and unresolved items.
+5. Build one InitPlan containing candidate domains, active files, exact patches,
+   and context impact. Split safe Active Context additions from approval-only
+   config or domain changes.
+6. Apply every eligible auto addition immediately. Request one concise decision
+   only when the plan also changes config or enabled domains; the user never
+   needs to copy a plan hash.
+7. Store only approved enabled_domains in config.yml. Materialize checklists
+   only for enabled domains; detected candidates remain temporary plan data.
+8. Give one compact receipt for applied changes and list only unresolved safety
+   exceptions. Do not dump the full InitPlan unless the user asks.
 
 Auto cannot enable or disable domains.
 
 ### $evolve after-failure
 
-Run after a correction, failed verification, repeated mistake, missed context
-read, or stale-context discovery:
+Run autonomously after a correction, failed verification, repeated mistake,
+missed context read, or stale-context discovery. The user does not need to
+invoke this command manually:
 
 1. Repair the current issue and verify it when possible.
 2. Decide whether the lesson is reusable. If not, stop after the repair.
@@ -107,11 +114,20 @@ read, or stale-context discovery:
    change.
 8. For a workspace proposal, persist the full JSON PatchPlan under Proposed
    Patch and compute plan_hash from its canonical JSON.
-9. Apply only through the policy and lifecycle below.
+9. Evaluate policy and all auto gates. When eligible, persist a `policy_auto`
+   Decision and enter approved, add runtime-only `workspaceRoot` and `planHash`,
+   call `applyPatchPlan(plan)` without approval authorization, append the Apply
+   Attempt, and enter applied only after success.
+10. For a successful auto path, give one compact non-blocking receipt containing
+    the lesson, proposal ID, and targets. Do not request approval, wait for a
+    reply, or print the full PatchPlan or plan hash unless asked.
+11. If an auto gate fails, keep the exact proposal and report the single
+    blocking reason. Ask for a decision only when the operation is an allowed
+    approval-only exception.
 
 ### $evolve approve
 
-This is the only public approval/application entry point:
+This is the public exception path for a proposal that cannot use auto:
 
 1. Parse the four-tilde JSON block under Proposed Patch / PatchPlan JSON.
    Reject prose-only or partial patch descriptions.
@@ -119,10 +135,11 @@ This is the only public approval/application entry point:
    plan_hash. Require target_files to equal the operation targets and every
    existing Decision/Apply hash to equal the same value. Require
    semanticOperation to equal frontmatter operation.
-3. Show the complete target contents, operations, before hashes, policy result,
-   context delta, and plan_hash.
-4. Obtain explicit approval of that exact hash unless the proposal is eligible
-   for auto.
+3. Show a concise semantic summary followed by the complete immutable plan:
+   target contents, operations, before hashes, policy result, context delta,
+   and plan_hash. High-risk approval must be informed even though it is rare.
+4. Obtain explicit approval for the exact current plan. The user may simply
+   reply with approval; never require them to copy or repeat the hash.
 5. Persist a Decision Log entry and status approved. If this write fails, stop
    before calling the kernel.
 6. Recheck policy, paths, privacy, budgets, and before hashes.
@@ -227,13 +244,16 @@ no daemon, scheduled check, telemetry, or silent upgrade.
 
 ## Policy evaluation
 
-Read context_write_policy from config.yml:
+Read context_write_policy from config.yml. `auto` is the default write policy
+for newly initialized workspaces:
 
-- propose: create and show proposals; change active context only after approval.
-- auto: use the same lifecycle without a human decision only when every
-  low-risk auto gate in references/protocol-v1.md passes.
+- auto: complete the same audited lifecycle immediately without a human
+  decision when every low-risk gate in references/protocol-v1.md passes.
+- propose: an explicit cautious mode, or a preserved setting in an existing
+  workspace; create the exact record and wait for approval.
 
-If an auto gate fails, keep the proposal and report:
+If an auto gate fails, keep the proposal and its machine-readable policy result,
+but show the user only one concise exception by default:
 
 ~~~yaml
 requested_policy: auto
@@ -241,7 +261,8 @@ effective_policy: propose
 reason: <machine-readable-reason>
 ~~~
 
-The agent or kernel must not weaken a failed gate.
+The agent or kernel must not weaken a failed gate. A successful auto path must
+end with one non-blocking receipt and no request for user action.
 
 ## References
 

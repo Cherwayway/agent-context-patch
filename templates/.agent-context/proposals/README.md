@@ -1,8 +1,9 @@
 # Proposals
 
-Each proposal file is one complete evolution aggregate containing minimal
-evidence, the proposed patch, Decision Log, Apply Attempts, supersession, and
-rejection history.
+Each proposal file is one complete internal evolution aggregate containing
+minimal evidence, the exact patch, Decision Log, Apply Attempts, supersession,
+and rejection history. Eligible auto proposals are applied in the same Agent
+turn; this directory is not a default user approval inbox.
 
 Use:
 

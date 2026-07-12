@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   assertBootstrapRejectsDirectoryRedirects,
+  assertFreshInstallerDefaultsToAuto,
   assertInstallerContract,
   assertLegacyWorkspaceIsReadOnly,
   assertSkillAndGuidanceContract,
@@ -30,6 +31,33 @@ const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 const installer = join(repositoryRoot, "install", "install.sh");
 const bashAvailable = commandAvailable("bash");
 const directoryLinksAvailable = supportsDirectoryLinks();
+
+test(
+  "Bash gives a fresh workspace the auto-first config",
+  {
+    skip:
+      process.platform === "win32" || !bashAvailable
+        ? "Bash apply behavior runs on the Ubuntu CI job"
+        : false,
+  },
+  () => {
+    assertFreshInstallerDefaultsToAuto({
+      runDryRun(workspace) {
+        return invokeAt(installer, ["--mode", "dry-run", "--workspace", workspace]);
+      },
+      runApply(workspace, planHash) {
+        return invokeAt(installer, [
+          "--mode",
+          "apply",
+          "--workspace",
+          workspace,
+          "--approved-plan-hash",
+          planHash,
+        ]);
+      },
+    });
+  },
+);
 
 test("shell scripts are LF-normalized and Bash syntax is valid", (context) => {
   const attributes = readFileSync(join(repositoryRoot, ".gitattributes"), "utf8");

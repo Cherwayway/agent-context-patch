@@ -17,10 +17,10 @@ fixtures. A file that merely says `schema_version: 1` is invalid, not current.
 
 ~~~yaml
 schema_version: 1
-created_with_kit_version: "0.3.1"
+created_with_kit_version: "0.4.0"
 last_migrated_with_kit_version: null
 
-context_write_policy: propose
+context_write_policy: auto
 enabled_domains: []
 
 budgets:
@@ -51,8 +51,9 @@ privacy:
 - created_with_kit_version records the initializing kit.
 - last_migrated_with_kit_version is null until a migration succeeds, then
   records the kit that applied it.
-- context_write_policy is propose or auto. Auto must be explicitly selected by
-  the user and still passes every protocol gate.
+- context_write_policy is propose or auto. New workspaces default to auto, which
+  still passes every protocol gate. Existing workspaces retain their explicit
+  value across install and Kit update operations.
 - enabled_domains is the only domain activation truth source. Detection
   candidates never appear here before InitPlan approval.
 - unit is lines for active_context and single_proposal, and count for
@@ -67,8 +68,9 @@ human-approved calls. A future schema is read-only. A migration must replace or
 create `config.yml` with a complete valid v1 envelope in its approved
 transaction.
 
-Changing config, enabling auto, changing a domain, or weakening a threshold is
-approval-only. The kernel cannot auto-write config.yml.
+Changing config, switching an existing workspace from propose to auto, changing
+a domain, or weakening a threshold is approval-only. The kernel cannot
+auto-write config.yml.
 
 Do not add approval flags, evolution style, repo budgets, global budgets, or a
 second domain list. Approval is derived from the protocol and user-global

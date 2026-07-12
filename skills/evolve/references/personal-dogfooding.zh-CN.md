@@ -11,20 +11,20 @@
 - 把一次性要求与长期经验分开。
 - 主动删除已经过时、冲突或不再影响行为的 context。
 
-## 三个固定入口
+## 一个主动入口，两个按需动作
 
-个人日常使用只需要记住三种说法：
+个人日常只需要在首次进入长期仓库时主动初始化；之后的重复错误由 Agent 自动处理：
 
 ```text
 第一次进入长期维护的仓库：运行 $evolve init，先展示你确认过的项目事实和不确定项。
 
-发生返工或重复错误：先修好并验证当前问题，再运行 $evolve after-failure，只在有复发风险时生成 Proposal。
+发生返工或重复错误：Agent 先修好并验证当前问题，再自动运行 $evolve after-failure；只有存在复发风险才生成 Proposal。
 
 本周有真实 evolution 信号：运行 $evolve weekly，合并同根因问题，给出批准、拒绝、观察和清理建议。
 ```
 
-批准 Proposal 时使用 `$evolve approve`；发现 context 本身过时或膨胀时使用
-`$evolve review-context`。它们是处理动作，不需要成为每天的固定仪式。
+只有安全门禁要求人工决策时才使用 `$evolve approve`；发现 context 本身过时或膨胀时
+使用 `$evolve review-context`。它们是例外处理动作，不需要成为每天的固定仪式。
 
 ## Default Personal Loop
 
@@ -43,7 +43,8 @@
 
 ### 2. 当前任务出现失败或返工
 
-先修当前问题并验证，再运行 `$evolve after-failure`。
+先修当前问题并验证，再由 Agent 自动运行 `$evolve after-failure`。用户不需要记住命令、
+请求沉淀或再开一个回合批准低风险补充。
 
 只有满足至少一项时才创建 Proposal：
 
@@ -66,20 +67,21 @@ Proposal 必须包含具体证据。单纯觉得“以后也许有用”不算�
 
 不要把本地业务规则提升成用户全局规则，也不要把一个仓库的特殊需求提升成脚手架能力。
 
-### 4. 批准与应用
+### 4. 自动应用与例外批准
 
 本节不定义第二套生命周期。Proposal、Decision、PatchPlan、Apply Attempt 和
 `context_write_policy` 的唯一规则来自 `protocol-v1.md` 与 `proposal-schema.md`。
-个人使用默认保持 `context_write_policy: propose`：
+个人使用默认保持 `context_write_policy: auto`：
 
-- agent 生成 Proposal 和精确 patch。
-- 人确认它是否值得成为长期 context。
-- 应用后运行相关验证。
-- Proposal 记录最终状态与验证证据。
+- Agent 生成 Proposal 和精确 patch，Proposal 是审计记录而不是用户待办。
+- 符合全部 `auto` gate 后立即应用，无需用户批准或回复。
+- 应用后完成相关验证，并只发送一次非阻塞回执：经验摘要、Proposal ID 和目标文件。
+- 只有 cleanup、config、domain、migration、instruction 或 user-global 等例外路径才请求
+  一次明确决策。
 
-用户直接要求沉淀，只能证明这条规则具有 `user_decision` 权威；它不等于对未知
-PatchPlan 的预先批准。只有精确 PatchPlan 获批（或满足全部 `auto` gate）且
-Apply Attempt 成功后，Proposal 才能记录为 `applied`。
+用户直接要求沉淀，只能证明这条规则具有 `user_decision` 权威；它不等于绕过安全
+门禁。只有满足全部 `auto` gate，或例外路径的精确 PatchPlan 获批，并且 Apply Attempt
+成功后，Proposal 才能记录为 `applied`。
 
 ## Weekly Review
 
@@ -87,7 +89,7 @@ Apply Attempt 成功后，Proposal 才能记录为 `applied`。
 
 1. 汇总本周的用户纠正、验证失败、重复 workaround 和 stale context。
 2. 按根因合并重复信号，不按对话或任务数量重复建 Proposal。
-3. 审核 pending Proposal：批准、拒绝、继续观察或合并。
+3. 只审核被安全门禁拦下的 pending Proposal：批准、拒绝、继续观察或合并。
 4. 对每个问题选择：context、checklist、skill、功能、清理、暂不处理。
 5. 检查已应用改进是否仍然复发；无效则提出精确的回滚或重写 Proposal，获批后执行。
 6. 提出删除或归档候选；只有在精确计划获批后才处理过时、重复、过长且不再改变
@@ -139,8 +141,9 @@ Apply Attempt 成功后，Proposal 才能记录为 `applied`。
 场景：Agent 修改代码后再次漏跑仓库已经要求的验证命令，用户指出这是第二次返工。
 
 期望行为：先运行验证并修好当前任务；搜索 Active Context 是否已有同义或冲突规则；
-若没有足够规则，运行 `$evolve after-failure`，提出最小的 workspace checklist PatchPlan，
-等待精确批准。不得直接修改全局指令或脚手架。
+若没有足够规则，自动运行 `$evolve after-failure`，提出最小的 workspace checklist PatchPlan，
+符合全部 `auto` gate 后立即应用，无需用户批准或回复，并只发送一次非阻塞回执。
+不得直接修改全局指令或脚手架。
 
 ### Negative: 不应该沉淀
 
@@ -154,7 +157,7 @@ context。
 前 30 天只做真实使用记录，不急着泛化产品：
 
 - 选择 2 到 3 个经常使用的仓库运行 `$evolve init`。
-- 正常工作，只有遇到符合触发条件的问题才运行 `$evolve after-failure`。
-- 每周在各仓库运行一次 `$evolve weekly`，无信号则跳过。
+- 正常工作，只有遇到符合触发条件的问题才由 Agent 自动运行 `$evolve after-failure`。
+- 只有本周存在真实信号或用户主动要求复盘时才运行 `$evolve weekly`；无信号则跳过。
 - 30 天后检查哪些错误减少了、哪些 Proposal 没有价值、哪些流程过重。
 - 只有到这一步，才决定脚手架需要新增什么能力。

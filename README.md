@@ -4,18 +4,20 @@ Turn recurring Agent mistakes into small, durable, reviewable workspace
 context.
 
 Agent Context Patch is Agent-first: a capable Agent decides what a lesson means
-and drafts the context patch. A small deterministic Commit Kernel is required
-for `auto` and may also commit an exact human-approved plan; `propose` remains
-usable without it.
+and drafts the context patch. New workspaces default to `auto`, backed by a
+small deterministic Commit Kernel. Safe local improvements finish in the same
+Agent turn; human review is reserved for safety exceptions.
 
 The loop is:
 
 1. Detect a reusable failure, correction, stale rule, or workflow lesson.
 2. Fix and verify the current task first.
 3. Search Active Context and replace before adding.
-4. Write an evidence-backed proposal with an exact PatchPlan.
-5. Approve that plan or apply an eligible low-risk plan through `auto`.
-6. Keep Active Context current by proposing semantic cleanup.
+4. Write an evidence-backed internal audit record with an exact PatchPlan.
+5. Apply an eligible low-risk plan immediately through `auto` and return one
+   short receipt with no action required.
+6. Ask only when a safety gate requires an exceptional decision, and keep
+   Active Context current by proposing semantic cleanup.
 
 ## Quick Install
 
@@ -28,7 +30,8 @@ one GitHub-enforced immutable tag and source commit, download that exact
 Release, and verify its published checksum before running its AGENT_INSTALL.md.
 Run Bootstrap dry-run first, show the exact plan hash and the separate AGENTS.md
 or CLAUDE.md patch, then ask before applying. After the install, run $evolve
-init for this workspace.
+init automatically; apply eligible low-risk workspace context without another
+approval and ask only for approval-only init changes.
 ```
 
 Stable installs use GitHub-enforced immutable Releases. The moving `main`
@@ -140,21 +143,25 @@ archives are inactive. There is no separate mistake or receipt store.
 
 `$evolve init`
 
-Inspect the workspace, report `contextRead`, detect domain candidates with
-evidence, and present a reviewable InitPlan. A domain becomes active only after
-approval and only `config.enabled_domains` records activation.
+Inspect the workspace, report `contextRead`, and apply eligible profile or index
+additions automatically. Detect domain candidates with evidence and request one
+decision only if config or domain activation must change; only
+`config.enabled_domains` records activation.
 
 `$evolve after-failure`
 
-Fix and verify the current task, then perform replace-before-add analysis and
-create one evidence-backed proposal. Overlap or conflict produces a cleanup
-proposal rather than automatic accumulation.
+The Agent invokes this autonomously after a reusable failure or correction. It
+fixes and verifies the current task, performs replace-before-add analysis,
+creates one evidence-backed audit record, and immediately applies an eligible
+low-risk addition. Success returns one compact receipt; overlap or conflict
+produces an approval-only cleanup proposal instead of automatic accumulation.
 
 `$evolve approve`
 
-Show the exact PatchPlan and bind approval to its plan hash. Internally the
-proposal moves through separate `approved` and `applied` states. A changed file
-invalidates the approval; a failed commit never becomes `applied`.
+Handle only the exception path that requires a human decision. Show a concise
+semantic summary followed by the complete exact PatchPlan. The user may simply
+reply with approval and never needs to copy the plan hash. A changed file still
+invalidates authorization; a failed commit never becomes `applied`.
 
 `$evolve review-context`
 
@@ -180,19 +187,25 @@ notifications; run `$evolve update` when you choose to check or upgrade.
 ## Write Policies
 
 ```yaml
-context_write_policy: propose
+context_write_policy: auto
 ```
 
 Supported policies:
 
-- `propose`: the default; draft a plan and wait for exact approval.
-- `auto`: explicit workspace opt-in; apply only eligible low-risk create/update
-  plans through the Node Commit Kernel. The kernel rechecks workspace config;
-  checklist writes are eligible only for enabled domains.
+- `auto`: the default write policy for new workspaces; apply eligible low-risk
+  create/update plans through the Node Commit Kernel in the current Agent turn.
+  The kernel rechecks workspace config; checklist writes are eligible only for
+  enabled domains.
+- `propose`: an explicit cautious mode, also preserved for existing workspaces;
+  draft a plan and wait for exact approval.
 
 If Node or the kernel is unavailable, `auto` explicitly degrades to `propose`.
 Delete, archive, supersede, migration, instruction-file, domain-activation, and
 user-global promotion operations always require human approval.
+
+Bootstrap and Kit updates never rewrite an existing workspace policy. After a
+successful auto application the Agent reports only the lesson, proposal ID, and
+targets by default; it does not ask the user to approve or reply.
 
 ## Context Health
 
@@ -225,10 +238,12 @@ context with new templates.
 
 ## Architecture
 
-See [CONTEXT.md](CONTEXT.md) for the domain language and
-[ADR-0001](docs/adr/0001-agent-first-context-evolution.md) for the accepted
-architecture. The [v1 verification matrix](docs/v1-verification-matrix.md)
-maps every accepted decision to its durable contract and test evidence.
+See [CONTEXT.md](CONTEXT.md) for the domain language,
+[ADR-0001](docs/adr/0001-agent-first-context-evolution.md) for the original
+architecture, and
+[ADR-0003](docs/adr/0003-auto-first-low-risk-context.md) for the auto-first
+default. The [v1 verification matrix](docs/v1-verification-matrix.md) maps every
+accepted decision to its durable contract and test evidence.
 
 ## Development
 

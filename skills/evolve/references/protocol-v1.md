@@ -31,8 +31,10 @@ validate its lifecycle.
 
 - Observation: a factual signal from current work.
 - Evidence: a minimal, verifiable pointer or summary supporting an observation.
-- Proposal: the aggregate that owns one context evolution lifecycle.
-- Decision: approval or rejection of one immutable PatchPlan.
+- Proposal: the internal audit aggregate that owns one context evolution
+  lifecycle. It is not a default user approval inbox.
+- Decision: an automatic `policy_auto` result, approval, or rejection of one
+  immutable PatchPlan.
 - PatchPlan: the persisted, complete target contents, operations, hashes, policy
   result, privacy result, health gate, and context delta proposed for
   application.
@@ -87,7 +89,9 @@ Archived is terminal. A failed, conflicted, or rolled-back apply attempt leaves
 the proposal approved. current_fix_status must be verified before applied.
 
 Auto records decision: policy_auto before it attempts application. It follows
-the same approved-to-applied transition as manual approval.
+the same approved-to-applied transition as manual approval. When all auto gates
+pass, the Agent completes this transition in the current command before its
+final response; it does not wait for another user turn.
 
 ## PatchPlan
 
@@ -151,9 +155,13 @@ must not pretend that candidate_hash proves an applicable workspace plan.
 
 ## Auto gates
 
+New workspaces created from the current template declare `auto`. Existing
+workspace config remains authoritative and is never silently changed by an
+install or Kit update. `propose` remains a supported explicit cautious mode.
+
 Auto is permitted only when all conditions hold:
 
-- config explicitly requests auto
+- the complete live config declares auto
 - the Node commit kernel is available
 - status is proposed and current_fix_status is verified
 - scope is workspace and PatchPlan semanticOperation is add
@@ -170,8 +178,8 @@ Auto is permitted only when all conditions hold:
 
 Otherwise effective policy is propose. Human approval is always required for
 every other semanticOperation, including cleanup, removal, migration, domain
-changes, instruction files, user-global promotion, enabling auto, or expanding
-its authority.
+changes, instruction files, user-global promotion, changing an existing
+workspace from propose to auto, or otherwise expanding write authority.
 
 ## Apply result
 
@@ -194,12 +202,18 @@ audit_write_pending, retain the returned attempt, and retry the aggregate
 write. Do not create another receipt file, silently reapply, or claim the
 lifecycle is complete.
 
+After a successful automatic application, the Agent emits one compact,
+non-blocking receipt with the lesson, proposal ID, and affected targets. The
+default response does not include the full PatchPlan or plan hash and requests
+no user action. A failed or downgraded path reports one blocking reason and asks
+only for a decision that the protocol actually requires.
+
 A mechanical likely-secret match is a hard rejection until redacted. Human
 approval cannot override this safety failure.
 
 ## Active context health
 
-Before proposing an add, compare it to active context:
+Before preparing an add, compare it to active context:
 
 - no match: add may be appropriate
 - same meaning: add evidence, not another active rule

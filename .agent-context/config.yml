@@ -2,7 +2,7 @@ schema_version: 1
 created_with_kit_version: "0.3.0"
 last_migrated_with_kit_version: null
 
-context_write_policy: propose
+context_write_policy: auto
 enabled_domains: [coding]
 
 budgets:

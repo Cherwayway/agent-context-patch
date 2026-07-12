@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   assertBootstrapRejectsDirectoryRedirects,
+  assertFreshInstallerDefaultsToAuto,
   assertInstallerContract,
   assertLegacyWorkspaceIsReadOnly,
   assertSkillAndGuidanceContract,
@@ -30,6 +31,28 @@ const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 const installer = join(repositoryRoot, "install", "install.ps1");
 const powershell = findPowerShell();
 const directoryLinksAvailable = supportsDirectoryLinks();
+
+test(
+  "PowerShell gives a fresh workspace the auto-first config",
+  { skip: powershell === undefined ? "PowerShell is not available on this platform" : false },
+  () => {
+    assertFreshInstallerDefaultsToAuto({
+      runDryRun(workspace) {
+        return invoke(["-Mode", "DryRun", "-WorkspacePath", workspace]);
+      },
+      runApply(workspace, planHash) {
+        return invoke([
+          "-Mode",
+          "Apply",
+          "-WorkspacePath",
+          workspace,
+          "-ApprovedPlanHash",
+          planHash,
+        ]);
+      },
+    });
+  },
+);
 
 test(
   "PowerShell installer dry-runs and applies one approved idempotent plan",

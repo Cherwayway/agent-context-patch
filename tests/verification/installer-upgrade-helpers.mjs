@@ -26,7 +26,7 @@ export function assertSkillUpgradeHappyPath({ repositoryRoot, runDryRun, runAppl
     const dryRun = runDryRun(sandbox);
     assertCommandSucceeded(dryRun, "skill update dry-run");
     assert.match(dryRun.stdout, /UpgradeSkill/iu);
-    assert.match(dryRun.stdout, /installed=0\.3\.0;source=0\.3\.1/iu);
+    assert.match(dryRun.stdout, /installed=0\.3\.1;source=0\.4\.0/iu);
     assert.match(dryRun.stdout, /Backup path:\s*.+/iu);
     assert.deepEqual(snapshotTree(sandbox.skillTarget), targetBefore, "dry-run wrote skill files");
     assert.deepEqual(snapshotTree(sandbox.workspace), workspaceBefore, "dry-run wrote workspace files");
@@ -34,8 +34,8 @@ export function assertSkillUpgradeHappyPath({ repositoryRoot, runDryRun, runAppl
     const apply = runApply(sandbox, extractPlanHash(dryRun.stdout));
     assertCommandSucceeded(apply, "skill update apply");
     assert.match(apply.stdout, /Update receipt:/iu);
-    assert.match(apply.stdout, /Installed version:\s*0\.3\.1/iu);
-    assert.match(apply.stdout, /Previous version:\s*0\.3\.0/iu);
+    assert.match(apply.stdout, /Installed version:\s*0\.4\.0/iu);
+    assert.match(apply.stdout, /Previous version:\s*0\.3\.1/iu);
     assert.match(apply.stdout, /Restart required:\s*true/iu);
     assertTreesEqual(sandbox.skillSource, sandbox.skillTarget, "updated skill differs from source");
     assertTreesEqual(sandbox.skillTargetBefore, sandbox.backupPath, "upgrade backup is incomplete");
@@ -121,7 +121,7 @@ export function assertSkillUpdateRejectsDowngrade({ repositoryRoot, runDryRun })
     const dryRun = runDryRun(sandbox);
     assertCommandFailed(dryRun, "skill downgrade dry-run");
     assert.match(dryRun.stdout, /DowngradeRequired/iu);
-    assert.match(dryRun.stdout, /installed=0\.3\.0;source=0\.1\.0/iu);
+    assert.match(dryRun.stdout, /installed=0\.3\.1;source=0\.1\.0/iu);
     assert.deepEqual(snapshotTree(sandbox.skillTarget), targetBefore, "downgrade plan wrote skill");
     assert.deepEqual(snapshotTree(sandbox.workspace), workspaceBefore, "downgrade plan wrote workspace");
   } finally {
@@ -157,7 +157,7 @@ export function assertSkillUpdateBlocksSameVersionDrift({ repositoryRoot, runDry
   try {
     const targetManifestPath = join(sandbox.skillTarget, "manifest.json");
     const targetManifest = JSON.parse(readFileSync(targetManifestPath, "utf8"));
-    targetManifest.version = "0.3.1";
+    targetManifest.version = "0.4.0";
     writeFileSync(targetManifestPath, `${JSON.stringify(targetManifest, null, 2)}\n`, "utf8");
     const targetBefore = snapshotTree(sandbox.skillTarget);
 
@@ -310,7 +310,7 @@ function createUpgradeSandbox(repositoryRoot) {
     root,
     "user-skills",
     ".agent-context-patch-backups",
-    "evolve-0.3.0-before-0.3.1",
+    "evolve-0.3.1-before-0.4.0",
   );
 
   mkdirSync(workspace, { recursive: true });
@@ -321,17 +321,17 @@ function createUpgradeSandbox(repositoryRoot) {
   cpSync(skillSource, skillTarget, { recursive: true });
   const targetManifestPath = join(skillTarget, "manifest.json");
   const targetManifest = JSON.parse(readFileSync(targetManifestPath, "utf8"));
-  targetManifest.version = "0.3.0";
+  targetManifest.version = "0.3.1";
   writeFileSync(targetManifestPath, `${JSON.stringify(targetManifest, null, 2)}\n`, "utf8");
-  writeFileSync(join(skillTarget, "removed-in-0.3.1.txt"), "old managed file\n", "utf8");
+  writeFileSync(join(skillTarget, "removed-in-0.4.0.txt"), "old managed file\n", "utf8");
   cpSync(skillTarget, skillTargetBefore, { recursive: true });
 
   const sourceManifestPath = join(skillSource, "manifest.json");
   const sourceManifest = JSON.parse(readFileSync(sourceManifestPath, "utf8"));
-  sourceManifest.version = "0.3.1";
+  sourceManifest.version = "0.4.0";
   writeFileSync(sourceManifestPath, `${JSON.stringify(sourceManifest, null, 2)}\n`, "utf8");
   appendFileSync(join(skillSource, "SKILL.md"), "\n<!-- update contract candidate -->\n", "utf8");
-  writeFileSync(join(skillSource, "added-in-0.3.1.txt"), "new managed file\n", "utf8");
+  writeFileSync(join(skillSource, "added-in-0.4.0.txt"), "new managed file\n", "utf8");
 
   return {
     root,

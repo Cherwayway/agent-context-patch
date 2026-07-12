@@ -3,6 +3,8 @@
 - Status: accepted
 - Date: 2026-07-10
 - Decision owners: repository maintainers and user
+- Superseded in part: ADR-0003 replaces the default-policy and routine
+  interaction decisions; the mechanical safety gates remain active.
 
 ## Context
 

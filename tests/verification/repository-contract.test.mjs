@@ -16,7 +16,7 @@ test("package, skill manifest, and context schema versions agree", () => {
   const manifest = readJson("skills/evolve/manifest.json");
   const config = parseYamlSubset(read("templates/.agent-context/config.yml"), "template config");
 
-  assert.equal(packageJson.version, "0.3.1");
+  assert.equal(packageJson.version, "0.4.0");
   assert.equal(packageJson.engines?.node, ">=20");
   assert.equal(manifest.kit, "agent-context-patch");
   assert.equal(manifest.version, packageJson.version);
@@ -111,13 +111,23 @@ test("personal dogfooding is an installed reference and this repository follows 
     validateConfigDocument(read(".agent-context/config.yml"), ".agent-context/config.yml"),
     [],
   );
-  assert.match(profile, /early personal dogfooding/u);
+  assert.match(profile, /0\.4\.0 auto-first/u);
   assert.match(profile, /personal-dogfooding\.zh-CN\.md/u);
   assert.equal(
     containsFiles(join(repositoryRoot, ".agent-context", "mistakes")),
     false,
     "dogfood context revived the obsolete mistakes store",
   );
+});
+
+test("the auto-first fresh-Agent acceptance evidence is retained", () => {
+  const acceptance = read("docs/acceptance/2026-07-12-auto-first-fresh-context.md");
+
+  assert.match(acceptance, /^- Result: PASS$/mu);
+  assert.match(acceptance, /No approval turn\s+occurred/u);
+  assert.match(acceptance, /production proposal validator returned no failures/u);
+  assert.match(acceptance, /Proposal count remained zero/u);
+  assert.match(acceptance, /no raw conversation/u);
 });
 
 test("the applied demo proposal is a valid v1 evolution aggregate", () => {
@@ -127,6 +137,10 @@ test("the applied demo proposal is a valid v1 evolution aggregate", () => {
   const { data } = parseMarkdownFrontmatter(source, proposalPath);
 
   assert.equal(data.status, "applied", "demo must exercise the applied audit path");
+  assert.match(source, /"requestedPolicy": "auto"/u);
+  assert.match(source, /"policy": "auto"/u);
+  assert.match(source, /^- decision: policy_auto$/mu);
+  assert.match(source, /^  result: applied$/mu);
   assert.deepEqual(validateProposalDocument(source, proposalPath), []);
 });
 

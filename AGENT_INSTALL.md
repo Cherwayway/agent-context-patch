@@ -23,6 +23,8 @@ development install and reviews that exact source.
 - Install `skills/evolve/` in the current Agent's user-level skill directory.
 - Install the short guidance fragment in the workspace instruction file.
 - Initialize `.agent-context/` in the workspace.
+- New workspace context defaults to `auto`; preserve any existing workspace
+  policy byte-for-byte.
 - Do not install a global trigger unless the user explicitly opts in.
 - Run Bootstrap dry-run and show the exact plan hash before apply.
 - Never merge an existing instruction file through Bootstrap.
@@ -194,8 +196,10 @@ subscribe to GitHub Release notifications for external notice and invoke
 
 ## Post-Install
 
-Run `$evolve init` unless the user explicitly opts out. The init result must
-include:
+Run `$evolve init` automatically unless the user explicitly opts out. Apply
+eligible low-risk profile and index additions without another approval. Ask
+once only if config or domain activation must change. The compact init result
+must include:
 
 - `contextRead` for the current run;
 - detected domain candidates with evidence and confidence;

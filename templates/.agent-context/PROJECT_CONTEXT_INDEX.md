@@ -15,7 +15,8 @@ only truth source for enabled domains and write policy.
 
 ## On-Demand History
 
-- proposals/: evolution aggregates with evidence, decisions, and apply attempts.
+- proposals/: internal evolution aggregates with evidence, decisions, and apply
+  attempts; eligible auto records are not user approval tasks.
 - reports/: rebuildable weekly and context-health views.
 - archive/: inactive or superseded context and migration backups.
 

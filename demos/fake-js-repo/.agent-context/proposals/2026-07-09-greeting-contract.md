@@ -12,7 +12,7 @@ target_files:
 confidence: high
 authority: current_source
 retention_value: high
-plan_hash: c8ad1021c04f0c71b30a97f5e965230cbf55616c0caab2f09fa66d51b1daa148
+plan_hash: 703294a47871d13777c95c643ed34e6526e440a90f306f0e3fffdf7a8fbd6f11
 created_by: demo_fixture
 created_at: 2026-07-09T14:00:00Z
 updated_at: 2026-07-09T14:05:01Z
@@ -58,9 +58,9 @@ contract remains active and the focused test is run.
   "planId": "2026-07-09-greeting-contract-plan-1",
   "proposalId": "2026-07-09-greeting-contract",
   "semanticOperation": "add",
-  "requestedPolicy": "propose",
-  "policy": "propose",
-  "policyReason": "workspace_policy_propose",
+  "requestedPolicy": "auto",
+  "policy": "auto",
+  "policyReason": "auto_eligible",
   "risk": "low",
   "currentFixStatus": "verified",
   "privacy": {
@@ -77,8 +77,8 @@ contract remains active and the focused test is run.
     {
       "type": "update",
       "target": ".agent-context/PROJECT_PROFILE.md",
-      "beforeHash": "612bfdbf8d97d0bf996a7e62fc2ec0d509b5f72b01af2c4337be89fa745f6b39",
-      "content": "# Project Profile\n\n## Product / Project\n\n- Name: Fake JS Repo\n- Purpose: Demonstrate the $evolve after-failure and $evolve approve flow.\n- Current status: Verified fixture.\n\n## Enabled Domains\n\nDerived from config.yml:\n\n- coding\n\n## Technical Context\n\n- Main language: JavaScript\n- Test command: npm test\n\n## Active Working Rules\n\n- Greeting output must preserve caller-provided names.\n- Run npm test after changing src/greeting.js.\n\n## Known Risks\n\n- A hard-coded greeting could silently ignore the caller-provided name.\n\n## Current Uncertainties\n\n- None for the demonstrated greeting contract.\n\n## Verification State\n\n- Last verified at: 2026-07-10\n- Verified against: package.json, test/greeting.test.js, and npm test.\n"
+      "beforeHash": "8ff66455419ef5dc4904d0d48f6ac8281f45bec43fb5abd93c2de958855151b0",
+      "content": "# Project Profile\n\n## Product / Project\n\n- Name: Fake JS Repo\n- Purpose: Demonstrate the automatic $evolve after-failure flow.\n- Current status: Verified fixture.\n\n## Enabled Domains\n\nDerived from config.yml:\n\n- coding\n\n## Technical Context\n\n- Main language: JavaScript\n- Test command: npm test\n\n## Active Working Rules\n\n- Greeting output must preserve caller-provided names.\n- Run npm test after changing src/greeting.js.\n\n## Known Risks\n\n- A hard-coded greeting could silently ignore the caller-provided name.\n\n## Current Uncertainties\n\n- None for the demonstrated greeting contract.\n\n## Verification State\n\n- Last verified at: 2026-07-10\n- Verified against: package.json, test/greeting.test.js, and npm test.\n"
     },
     {
       "type": "update",
@@ -113,26 +113,26 @@ raw conversation, complete log, secret, customer data, or absolute user path.
 ## Decision Log
 
 ~~~yaml
-- decision: approved
+- decision: policy_auto
   decided_at: 2026-07-09T14:05:00Z
-  decided_by: demo_user
-  plan_hash: c8ad1021c04f0c71b30a97f5e965230cbf55616c0caab2f09fa66d51b1daa148
-  reason: The exact two-line context patch was approved.
+  decided_by: agent
+  plan_hash: 703294a47871d13777c95c643ed34e6526e440a90f306f0e3fffdf7a8fbd6f11
+  reason: All low-risk workspace auto gates passed.
 ~~~
 
 ## Apply Attempts
 
 ~~~yaml
 - attempt: 1
-  plan_hash: c8ad1021c04f0c71b30a97f5e965230cbf55616c0caab2f09fa66d51b1daa148
+  plan_hash: 703294a47871d13777c95c643ed34e6526e440a90f306f0e3fffdf7a8fbd6f11
   before_hashes:
-    .agent-context/PROJECT_PROFILE.md: 612bfdbf8d97d0bf996a7e62fc2ec0d509b5f72b01af2c4337be89fa745f6b39
+    .agent-context/PROJECT_PROFILE.md: 8ff66455419ef5dc4904d0d48f6ac8281f45bec43fb5abd93c2de958855151b0
     .agent-context/checklists/coding.md: 638dafbc096b3430206ae43f6f47357ea7351e4f999d59b98992f0c3636b1041
   result: applied
   attempted_at: 2026-07-09T14:05:01Z
   applied_at: 2026-07-09T14:05:01Z
   after_hashes:
-    .agent-context/PROJECT_PROFILE.md: ec66420394a5be26d8dbd1ce808987ec1e5b3e8e620536be25b1109a6b8b071b
+    .agent-context/PROJECT_PROFILE.md: d1d4a3cf544a1575fa9fb32a6994e4d0032db7e5378716da31582c39a0d0feab
     .agent-context/checklists/coding.md: 7b5a9cf81f4ce715d407a8bdb827f23f073da95aa0a2f8939d5f98317eca6c3f
   error_summary: null
 ~~~

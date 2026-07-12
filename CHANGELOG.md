@@ -5,6 +5,18 @@ semantic versions for the Kit independently from the Workspace Schema version.
 
 ## [Unreleased]
 
+### Changed
+
+- New workspaces now default to `context_write_policy: auto`; existing
+  workspace policy remains untouched by install and Kit update paths.
+- Codex and Claude adapters now invoke `$evolve after-failure` autonomously,
+  complete eligible low-risk patches in the same turn, and return one compact
+  non-blocking receipt instead of asking for routine approval.
+- `$evolve approve` is now documented as the safety-exception path, while the
+  fake JavaScript demo exercises the `policy_auto` lifecycle.
+- Prepared Kit Version 0.4.0 without changing Workspace Schema 1 or claiming
+  post-success user-triggered undo.
+
 ## [0.3.1] - 2026-07-11
 
 ### Added
