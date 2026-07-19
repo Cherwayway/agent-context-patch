@@ -7,7 +7,7 @@
   small, durable context improvements that apply automatically when the
   workspace safety gates allow it.
 - Primary current user: the repository owner working across personal projects.
-- Current status: verified 0.6.0 observable-delivery candidate under personal dogfooding;
+- Current status: verified 0.5.1 observable-delivery candidate under personal dogfooding;
   external-user optimization is not the current decision driver.
 
 ## Workspace

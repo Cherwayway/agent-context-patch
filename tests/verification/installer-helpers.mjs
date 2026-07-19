@@ -126,7 +126,7 @@ export function assertFreshInstallerDefaultsToAuto({ runDryRun, runApply }) {
     assertCommandSucceeded(apply, "fresh installer apply");
 
     const config = readFileSync(join(workspace, ".agent-context", "config.yml"), "utf8");
-    assert.match(config, /^created_with_kit_version: "0\.6\.0"$/mu);
+    assert.match(config, /^created_with_kit_version: "0\.5\.1"$/mu);
     assert.match(config, /^context_write_policy: auto$/mu);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
@@ -218,7 +218,7 @@ export function assertV1ConfigBootstrapContract({ repositoryRoot, runDryRun, run
     {
       name: "invalid created kit version",
       config: templateConfig.replace(
-        'created_with_kit_version: "0.6.0"',
+        'created_with_kit_version: "0.5.1"',
         'created_with_kit_version: "v0.2.0"',
       ),
     },
@@ -232,8 +232,8 @@ export function assertV1ConfigBootstrapContract({ repositoryRoot, runDryRun, run
     {
       name: "created kit version with decoded trailing newline",
       config: templateConfig.replace(
-        'created_with_kit_version: "0.6.0"',
-        'created_with_kit_version: "0.6.0\\n"',
+        'created_with_kit_version: "0.5.1"',
+        'created_with_kit_version: "0.5.1\\n"',
       ),
     },
   ];

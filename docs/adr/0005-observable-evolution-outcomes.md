@@ -110,7 +110,7 @@ content, conversation data, secret, or absolute path. They are not persisted.
 Proposal aggregates remain the durable evidence, decision, and apply-audit
 record.
 
-This ships as Kit Version 0.6.0. Workspace Schema remains 1 because no durable
+This ships as Kit Version 0.5.1. Workspace Schema remains 1 because no durable
 workspace shape or migration rule changes.
 
 ## Consequences

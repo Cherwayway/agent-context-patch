@@ -5,7 +5,7 @@ semantic versions for the Kit independently from the Workspace Schema version.
 
 ## [Unreleased]
 
-## [0.6.0] - 2026-07-19
+## [0.5.1] - 2026-07-19
 
 ### Added
 
@@ -23,7 +23,7 @@ semantic versions for the Kit independently from the Workspace Schema version.
   three-stage receipt contract, and no-trigger silence policy.
 - `$evolve after-failure` now finalizes delivery through the Outcome Interface
   instead of hand-formatting success or blocker receipts.
-- Prepared Kit Version 0.6.0 without changing Workspace Schema 1, adding a
+- Prepared Kit Version 0.5.1 without changing Workspace Schema 1, adding a
   public command, or creating a durable receipt source.
 
 ## [0.5.0] - 2026-07-19

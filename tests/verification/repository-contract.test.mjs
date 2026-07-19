@@ -16,7 +16,7 @@ test("package, skill manifest, and context schema versions agree", () => {
   const manifest = readJson("skills/evolve/manifest.json");
   const config = parseYamlSubset(read("templates/.agent-context/config.yml"), "template config");
 
-  assert.equal(packageJson.version, "0.6.0");
+  assert.equal(packageJson.version, "0.5.1");
   assert.equal(packageJson.engines?.node, ">=20");
   assert.equal(manifest.kit, "agent-context-patch");
   assert.equal(manifest.version, packageJson.version);
@@ -111,7 +111,7 @@ test("personal dogfooding is an installed reference and this repository follows 
     validateConfigDocument(read(".agent-context/config.yml"), ".agent-context/config.yml"),
     [],
   );
-  assert.match(profile, /0\.6\.0 observable-delivery/u);
+  assert.match(profile, /0\.5\.1 observable-delivery/u);
   assert.match(profile, /personal-dogfooding\.zh-CN\.md/u);
   assert.equal(
     containsFiles(join(repositoryRoot, ".agent-context", "mistakes")),

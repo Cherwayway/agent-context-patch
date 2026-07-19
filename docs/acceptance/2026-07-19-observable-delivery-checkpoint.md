@@ -1,7 +1,7 @@
 # Observable delivery checkpoint fresh-Agent acceptance
 
 - Date: 2026-07-19
-- Candidate Kit Version: 0.6.0
+- Candidate Kit Version: 0.5.1
 - Workspace Schema: 1
 - Result: PASS
 
