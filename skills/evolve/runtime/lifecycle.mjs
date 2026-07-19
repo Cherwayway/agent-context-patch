@@ -12,6 +12,11 @@ import { join, resolve } from "node:path";
 import { applyPatchPlan, sha256Text } from "./index.mjs";
 import { inspectPatchPlanTargets } from "./internal.mjs";
 import {
+  deriveLifecycleReconciliationStatus,
+  isLifecycleIdentifier,
+  isTerminalProposalStatus,
+} from "./lifecycle-contract.mjs";
+import {
   inspectProposalDocument,
   isPolicyAutoEligiblePlan,
 } from "./proposal.mjs";
@@ -19,14 +24,6 @@ import {
   readProposalUtf8,
   writeProposalCas,
 } from "./proposal-store.mjs";
-
-const TERMINAL_STATUSES = new Set([
-  "applied",
-  "rejected",
-  "superseded",
-  "archived",
-]);
-const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
 export async function reconcileWorkspaceProposalLifecycles({ workspaceRoot } = {}) {
   let workspace;
@@ -59,7 +56,13 @@ export async function reconcileWorkspaceProposalLifecycles({ workspaceRoot } = {
 }
 
 async function reconcileWhileLocked({ workspaceRoot, proposalsRoot, missing }) {
-  if (missing) return { status: "settled", inspectedCount: 0, outcomes: [] };
+  if (missing) {
+    return {
+      status: deriveLifecycleReconciliationStatus([]),
+      inspectedCount: 0,
+      outcomes: [],
+    };
+  }
   const entries = await readdir(proposalsRoot, { withFileTypes: true });
   const outcomes = [];
   const records = [];
@@ -105,7 +108,7 @@ async function reconcileWhileLocked({ workspaceRoot, proposalsRoot, missing }) {
 
   for (const record of records) {
     const { data } = record.proposal;
-    if (TERMINAL_STATUSES.has(data.status)) continue;
+    if (isTerminalProposalStatus(data.status)) continue;
 
     inspectedCount += 1;
     if (duplicateIds.has(data.id)) {
@@ -123,14 +126,10 @@ async function reconcileWhileLocked({ workspaceRoot, proposalsRoot, missing }) {
     );
   }
 
+  const status = deriveLifecycleReconciliationStatus(outcomes);
+  if (status === undefined) throw new TypeError("invalid_lifecycle_outcome");
   return {
-    status: outcomes.every(
-      ({ action, afterStatus }) =>
-        ["settled", "approval_required"].includes(action) ||
-        TERMINAL_STATUSES.has(afterStatus),
-    )
-      ? "settled"
-      : "blocked",
+    status,
     inspectedCount,
     outcomes,
   };
@@ -304,9 +303,7 @@ async function reconcileProposal({
 
 function namedReplacement(sections) {
   const value = sections.get("Supersession")?.trim();
-  return typeof value === "string" && IDENTIFIER_PATTERN.test(value)
-    ? value
-    : undefined;
+  return isLifecycleIdentifier(value) ? value : undefined;
 }
 
 function hasUnappliedStaleConflict(attempts) {
@@ -591,7 +588,7 @@ function unsafeProposalOutcome(name) {
 function invalidProposalOutcome(name, reason) {
   const proposalId = name.slice(0, -".md".length);
   return {
-    proposalId: IDENTIFIER_PATTERN.test(proposalId) ? proposalId : "unknown",
+    proposalId: isLifecycleIdentifier(proposalId) ? proposalId : "unknown",
     beforeStatus: "unknown",
     afterStatus: "unknown",
     action: "manual_recovery_required",

@@ -44,10 +44,12 @@ are allowed only after a human decision.
 
 ### 3. Routine output is one non-blocking receipt
 
-After a successful automatic application, the Agent reports only the lesson,
-proposal ID, and affected targets. The user does not need to act. Full target
-content, the PatchPlan, and its hash remain available on request and in the
-proposal aggregate, but they are not dumped into the normal final response.
+After a successful automatic application, the Agent reports one compact,
+non-blocking receipt. The user does not need to act. Full target content, the
+PatchPlan, and its hash remain available on request and in the proposal
+aggregate, but they are not dumped into the normal final response. ADR-0005
+later standardizes this as the content-safe three-stage Evolution Outcome and
+removes lesson prose from the receipt.
 
 When an auto gate fails, the Agent reports one blocking reason and requests
 only the decision required for that exceptional operation.

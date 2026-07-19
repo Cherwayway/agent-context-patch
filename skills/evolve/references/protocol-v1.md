@@ -27,8 +27,13 @@ The agent owns semantic proposal lifecycle decisions and replacement-plan
 generation. The Lifecycle Coordinator owns only deterministic reconciliation:
 validating proposal aggregates, comparing exact target hashes, resuming an
 unchanged authorized plan through the kernel, and writing audit transitions.
-The kernel must not classify project meaning, mutate the proposal aggregate, or
-claim to validate its lifecycle.
+The Coordinator-owned `runtime/lifecycle-contract.mjs` is the single read-only
+source for Coordinator outcome shapes, transition validity, and settled-state
+derivation; the Coordinator and Evolution Outcome module both consume it. The
+Outcome module owns only cross-stage validation, content-safe normalization,
+unsafe-detail removal, and receipt formatting. The kernel and outcome module
+must not classify project meaning; the kernel must not mutate the proposal
+aggregate or claim to validate its lifecycle.
 
 ## Terms
 
@@ -44,6 +49,8 @@ claim to validate its lifecycle.
 - Apply Attempt: an append-only result for one plan application.
 - Lifecycle Reconciliation: a deterministic pass that settles or reports
   unfinished proposal lifecycles without changing PatchPlan meaning.
+- Evolution Outcome: an ephemeral, content-safe delivery result covering the
+  Agent-owned detect/propose stages and mechanically evidenced apply stage.
 - Active Context: short, current guidance loaded by ordinary work.
 - Report: a rebuildable view over proposals and active context.
 - Archive: inactive history loaded only when explicitly requested.
@@ -259,14 +266,85 @@ Attempt reports `audit_recovery_required`; it does not silently reapply or
 invent the missing record. Do not create another receipt file or claim the
 lifecycle is complete.
 
-After a successful automatic application, the Agent emits one compact,
-non-blocking receipt with the lesson, proposal ID, and affected targets. The
-default response does not include the full PatchPlan or plan hash and requests
-no user action. A failed or downgraded path reports one blocking reason and asks
-only for a decision that the protocol actually requires.
-
 A mechanical likely-secret match is a hard rejection until redacted. Human
 approval cannot override this safety failure.
+
+## Evolution Outcome
+
+After the current fix is verified, run one delivery checkpoint only when at
+least one high-signal event occurred:
+
+- `failed_verification_later_passed`
+- `explicit_user_correction`
+- `independent_qa_defect`
+- `stale_context`
+- `first_fix_failed_then_passed`
+
+The Agent supplies semantic `detect` and `propose` results. The production
+Outcome Interface accepts those stages plus an optional content-safe proposal
+ID and the exact Lifecycle Coordinator result:
+
+~~~text
+finalizeEvolutionOutcome({ detect, propose, proposalId?, reconciliation? })
+~~~
+
+It returns this task-level contract plus one formatted `receipt`:
+
+~~~text
+schemaVersion: 1
+detect:  { status, reason }
+propose: { status, reason }
+apply:   { status, reason }
+proposalId?: content-safe identifier
+targets?: sorted workspace-relative paths
+receipt: { kind, text }
+~~~
+
+Statuses are:
+
+- detect: `candidate | no_candidate | skipped`
+- propose: `created | not_needed | blocked`
+- apply: `applied | approval_required | blocked | not_attempted`
+
+Every reason is one stable, bounded lowercase machine token. Token syntax alone
+does not establish privacy: credential-like prefixes/values, long mixed
+alphanumeric segments, and conversation-detail markers are rejected from
+reasons, proposal IDs, and every relative target segment before receipt
+formatting. The valid cross-stage families are:
+
+| Situation | detect | propose | apply |
+|---|---|---|---|
+| Trigger ran; no reusable lesson | `no_candidate` | `not_needed` | `not_attempted` |
+| Trigger cannot be evaluated safely | `skipped` | `blocked` | `not_attempted` |
+| Candidate cannot become a valid proposal | `candidate` | `blocked` | `not_attempted` |
+| Eligible automatic proposal completes | `candidate` | `created` | `applied` |
+| Valid proposal needs a human decision | `candidate` | `created` | `approval_required` |
+| Valid proposal hits a mechanical blocker | `candidate` | `created` | `blocked` |
+| Existing proposal is reconciled | `skipped(existing_proposal)` | `not_needed(existing_proposal)` | `applied | approval_required | blocked` |
+
+Every other combination fails closed as `invalid_evolution_outcome`. An
+`applied` outcome additionally requires a valid proposal ID, settled
+reconciliation, one exact Coordinator outcome, a non-terminal-to-applied exact
+resume action, reason `applied`, consistent Coordinator accounting, and at
+least one safe relative target. Every inspected Coordinator outcome must also
+have its complete content-safe shape and a valid action/status relationship.
+Matching target bytes, a terminal-to-terminal pseudo transition, missing audit
+evidence, or one applied proposal inside an otherwise blocked workspace cannot
+produce an applied receipt.
+
+The receipt is one line covering `detect`, `propose`, and `apply`; each
+non-success status carries its reason. An applied receipt also includes the
+content-safe proposal ID and relative targets. Approval reports one concise
+exception. A blocker includes one machine reason and a safe next-action token
+when known. The receipt contains no lesson prose, proposal prose, PatchPlan or
+target content, secret, conversation data, or absolute path.
+
+If there is no high-signal trigger, emit no receipt and create no proposal or
+durable context write merely to record a no-op. `skipped` is available for an
+explicit diagnostic. Evolution Outcomes are ephemeral task results; proposal
+aggregates remain the only durable audit source. There is no receipt sidecar,
+new public command, daemon, startup hook, background scan, telemetry, or
+Workspace Schema migration.
 
 ## Active context health
 

@@ -15,9 +15,10 @@ Agent Context Patch is agent-first:
   prepares semantic changes.
 - The deterministic commit kernel validates the plan envelope, paths, policy,
   hashes, conflicts, and application. The Lifecycle Coordinator owns
-  deterministic proposal reconciliation and audit continuation; the agent owns
-  semantic lifecycle decisions. The kernel never judges project meaning or
-  edits proposal prose.
+  deterministic proposal reconciliation and audit continuation. The Outcome
+  Interface validates and formats the ephemeral delivery result; the agent owns
+  detection, proposal meaning, and semantic lifecycle decisions. Neither
+  deterministic module judges project meaning or edits proposal prose.
 - `auto` is the default write policy for new workspaces. It requires the Node
   kernel; if the kernel is unavailable, preserve the exact proposal, report
   the reason, and use the approval path instead of pretending the patch was
@@ -79,6 +80,62 @@ If the lifecycle lock remains after a crash, verify that no coordinator is
 active before manually removing only
 `.agent-context/.lifecycle-coordinator.lock`. Never delete it based on age.
 
+## Delivery checkpoint
+
+After the current fix is verified, run one delivery checkpoint only when at
+least one high-signal event occurred:
+
+- `failed_verification_later_passed`
+- `explicit_user_correction`
+- `independent_qa_defect`
+- `stale_context`
+- `first_fix_failed_then_passed`
+
+The Agent decides the semantic `detect` and `propose` stages. If a proposal was
+created or an existing proposal was reconciled, pass the exact content-safe
+Lifecycle Coordinator result as mechanical evidence; never synthesize the
+`apply` stage. Finalize the task-level result through the installed Skill's
+separate Outcome Interface:
+
+~~~js
+import { finalizeEvolutionOutcome } from "./runtime/outcome.mjs";
+
+const outcome = finalizeEvolutionOutcome({
+  detect,
+  propose,
+  proposalId,
+  reconciliation,
+});
+~~~
+
+Omit `proposalId` and `reconciliation` for `no_candidate` or a semantic blocker.
+Resolve the module path from the installed Skill. Print only `outcome.receipt.text`:
+it covers `detect`, `propose`, and `apply`; every non-success stage includes one
+stable machine-readable reason. Applied results may also include only a
+content-safe proposal ID and sorted workspace-relative targets. Do not add
+lesson prose, PatchPlan content, target content, secrets, conversation data, or
+absolute paths to the receipt.
+
+The valid state families are:
+
+- `no_candidate / not_needed / not_attempted`
+- `skipped / blocked / not_attempted`
+- `candidate / blocked / not_attempted`
+- `candidate / created / applied | approval_required | blocked`
+- `skipped(existing_proposal) / not_needed(existing_proposal) / applied |
+  approval_required | blocked`
+
+Any other combination is invalid and must fail closed. In particular, the
+Outcome Interface cannot report `applied` without the exact proposal ID and a
+verified applied audit from settled reconciliation. If finalization itself
+rejects the inputs, report only `invalid_evolution_outcome`; do not hand-format
+a success receipt.
+
+If there is no high-signal trigger, stay silent: do not create a proposal or
+durable context write merely to emit an outcome. `detect: skipped` is available
+only when an explicit diagnostic result is required. The outcome and receipt
+are ephemeral task results; proposal aggregates remain the durable audit source.
+
 ## Hard invariants
 
 - Never let evolution delay repair of the current task.
@@ -96,6 +153,8 @@ active before manually removing only
   Apply Attempt writes stay outside the kernel transaction.
 - Never infer `applied` from target content. Exact before hashes permit resume;
   after hashes without an applied Attempt require audit recovery.
+- Never hand-format a detect-to-apply success. The Outcome Interface requires
+  settled Lifecycle Coordinator evidence and strips unsafe detail.
 - Every non-migration kernel call requires a complete current v1 config.
   Future schemas remain read-only; legacy migration requires exact backups for
   every changed existing file in the same approved transaction.
@@ -153,7 +212,9 @@ invoke this command manually:
 1. Repair the current issue and verify it when possible.
 2. Reconcile unfinished proposal lifecycles before creating another aggregate;
    handle every blocking outcome using the rules above.
-3. Decide whether the lesson is reusable. If not, stop after the repair.
+3. After verification, run the delivery checkpoint. Decide whether the lesson
+   is reusable. If not, finalize `no_candidate / not_needed / not_attempted`
+   and print only its compact receipt.
 4. Compare it with active context using replace-before-add.
 5. Create one evidence-backed proposal aggregate in proposals/.
 6. Use pending_current_fix while repair is not verified; otherwise use
@@ -167,12 +228,14 @@ invoke this command manually:
     Reconciliation again. It persists the `policy_auto` Decision, enters
     approved, calls the Commit Kernel with the exact runtime plan, appends the
     Apply Attempt, and enters applied only after success.
-11. For a successful auto path, give one compact non-blocking receipt containing
-    the lesson, proposal ID, and targets. Do not request approval, wait for a
-    reply, or print the full PatchPlan or plan hash unless asked.
-12. If an auto gate fails, keep the exact proposal and report the single
-    blocking reason. Ask for a decision only when the operation is an allowed
-    approval-only exception.
+11. Finalize the Agent-owned `detect` and `propose` stages with the exact
+    reconciliation result through `finalizeEvolutionOutcome`. Print only
+    `outcome.receipt.text`; do not request approval, wait for a reply, or print
+    the full PatchPlan or plan hash on an applied path.
+12. If an auto gate fails, keep the exact proposal and let the Outcome Interface
+    report `approval_required` or `blocked` with one machine-readable reason and
+    a safe next action when known. Ask for a decision only when the operation is
+    an allowed approval-only exception.
 
 ### $evolve approve
 

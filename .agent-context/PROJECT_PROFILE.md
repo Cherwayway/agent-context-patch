@@ -7,7 +7,7 @@
   small, durable context improvements that apply automatically when the
   workspace safety gates allow it.
 - Primary current user: the repository owner working across personal projects.
-- Current status: verified 0.5.0 lifecycle-reconciliation candidate under personal dogfooding;
+- Current status: verified 0.5.1 observable-delivery candidate under personal dogfooding;
   external-user optimization is not the current decision driver.
 
 ## Workspace
@@ -38,7 +38,8 @@ Derived from config.yml:
 - Personal-use workflow:
   `skills/evolve/references/personal-dogfooding.zh-CN.md`
 - Workspace scaffold: `templates/.agent-context/`
-- Commit Kernel and Lifecycle Coordinator: `skills/evolve/runtime/`
+- Commit Kernel, Lifecycle Coordinator, and Outcome Interface:
+  `skills/evolve/runtime/`
 - Bootstrap adapters: `install/`
 - Verification: `tests/verification/` and `scripts/run-verification.mjs`
 
@@ -60,6 +61,8 @@ Derived from config.yml:
   promotion, and other authority-expanding changes.
 - Reconcile unfinished proposals before creating another record: resume only an
   exact still-current plan, and never infer an applied audit from target content.
+- After a verified high-signal repair, report one content-safe detect/propose/apply
+  Outcome; ordinary no-trigger work stays silent and creates no no-op proposal.
 - Replace, merge, archive, or delete stale context instead of only adding.
 
 ## Known Risks
@@ -85,6 +88,8 @@ Derived from config.yml:
   skills/evolve/references/protocol-v1.md,
   docs/adr/0003-auto-first-low-risk-context.md,
   docs/adr/0004-lifecycle-reconciliation-around-commit-kernel.md,
+  docs/adr/0005-observable-evolution-outcomes.md,
   docs/acceptance/2026-07-12-auto-first-fresh-context.md,
   tests/lifecycle/lifecycle-coordinator.test.mjs,
+  tests/outcome/evolution-outcome.test.mjs,
   tests/verification/auto-default.test.mjs, and npm test.

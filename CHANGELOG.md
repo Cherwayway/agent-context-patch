@@ -5,6 +5,27 @@ semantic versions for the Kit independently from the Workspace Schema version.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-19
+
+### Added
+
+- A production Evolution Outcome Interface that validates legal
+  `detect / propose / apply` families, consumes exact Lifecycle Coordinator
+  evidence, strips unsafe detail, and formats one ephemeral task receipt.
+- Unit and real-Coordinator integration coverage for applied, no-candidate,
+  approval, blocked, invalid, and privacy-sensitive outcomes.
+- Fresh-Agent positive and negative acceptance for the high-signal delivery
+  checkpoint and silent one-off behavior.
+
+### Changed
+
+- Codex and Claude now share the same post-verification high-signal triggers,
+  three-stage receipt contract, and no-trigger silence policy.
+- `$evolve after-failure` now finalizes delivery through the Outcome Interface
+  instead of hand-formatting success or blocker receipts.
+- Prepared Kit Version 0.5.1 without changing Workspace Schema 1, adding a
+  public command, or creating a durable receipt source.
+
 ## [0.5.0] - 2026-07-19
 
 ### Added
