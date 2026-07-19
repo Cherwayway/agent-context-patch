@@ -1,9 +1,12 @@
 # Runtime Modules
 
-This optional Node 20+ runtime contains two deep deterministic modules. The
-Commit Kernel owns the `PatchPlan -> ApplyAttempt` seam. The Lifecycle
-Coordinator settles unfinished proposal audit around that seam. Neither module
-decides what project context means.
+This optional Node 20+ runtime contains three deep deterministic
+responsibilities. The Commit Kernel owns the `PatchPlan -> ApplyAttempt` seam.
+The Lifecycle Coordinator settles unfinished proposal audit around that seam.
+Its internal `lifecycle-contract.mjs` is the single read-only source for
+Coordinator outcome shapes, transitions, and settled-state derivation. The
+Evolution Outcome module consumes that contract and formats the ephemeral
+detect-to-apply delivery result. None decides what project context means.
 
 ## Commit Kernel API
 
@@ -112,7 +115,47 @@ coordinator is active, remove that exact workspace-relative lock manually after
 a crash. There is no lifecycle daemon, startup scan, sidecar receipt, or
 alternate source of truth.
 
-## Result contract
+## Evolution Outcome API
+
+Import the Outcome Interface directly from its deep module. The Agent supplies
+semantic `detect` and `propose`; a proposal path supplies the exact Lifecycle
+Coordinator result as mechanical evidence:
+
+~~~js
+import { finalizeEvolutionOutcome } from "./outcome.mjs";
+
+const outcome = finalizeEvolutionOutcome({
+  detect: { status: "candidate", reason: "stale_context" },
+  propose: { status: "created", reason: "proposal_created" },
+  proposalId: "proposal-example",
+  reconciliation,
+});
+~~~
+
+`lifecycle.mjs` and `outcome.mjs` both consume the Coordinator-owned
+`lifecycle-contract.mjs`. Do not restate its action/status transition table in
+either caller.
+
+The result contains `schemaVersion`, the three `{ status, reason }` stages,
+optional content-safe `proposalId`, optional sorted workspace-relative
+`targets`, and one fixed-format `receipt`. It rejects invalid state families and
+cannot report `applied` unless settled Coordinator evidence proves one exact
+non-terminal-to-applied resume with an applied audit and at least one safe
+target. Every inspected outcome must have the complete content-safe Coordinator
+shape and a valid action/status relationship. Missing, malformed, ambiguous,
+blocked, or partially consistent evidence becomes a content-safe blocker
+instead of a success claim.
+
+The module copies no proposal prose, PatchPlan content, target content,
+conversation data, or absolute path. Unsafe lifecycle targets are removed. It
+also rejects every relative target segment and other bounded token fields that
+resemble credentials, high-entropy values, or encoded conversation detail. It
+does not read or write the workspace and creates no receipt file; the proposal
+aggregate remains the durable audit source. An ordinary task with no high-signal
+trigger does not invoke the
+Interface and stays silent.
+
+## Commit Kernel result contract
 
 The returned object contains:
 

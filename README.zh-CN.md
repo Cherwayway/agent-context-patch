@@ -4,7 +4,8 @@
 
 Agent Context Patch 采用 Agent-first：旗舰 Agent 负责理解项目、判断经验是否值得沉淀、
 生成 context patch。新 workspace 默认使用 `auto`，由很薄的 deterministic Commit Kernel
-负责安全提交；低风险本地改进在当前 Agent 回合直接完成，人工决策只留给安全例外。
+负责安全提交；低风险本地改进在当前 Agent 回合直接完成，由共享 Evolution Outcome 统一报告，
+人工决策只留给安全例外。
 
 默认循环：
 
@@ -12,12 +13,19 @@ Agent Context Patch 采用 Agent-first：旗舰 Agent 负责理解项目、判�
 2. 先修复并验证当前任务。
 3. 先协调未完成的 proposal 生命周期，再检查 Active Context，优先替换而不是追加。
 4. 生成带证据和精确 PatchPlan 的内部审计记录。
-5. 由 `auto` 通过 Commit Kernel 立即应用合格的低风险计划，只返回一条无需操作的简短回执。
+5. 由 `auto` 通过 Commit Kernel 立即应用合格的低风险计划，再返回一条内容安全的
+   `detect / propose / apply` 简短回执。
 6. 只有安全门禁要求例外决策时才询问用户，并持续提出语义清理 proposal。
 
 生命周期协调只会续跑仍然完全一致的精确计划。目标内容即使恰好等于 after hash，缺少
 applied 审计时也只会进入恢复流程，不能据此反推“就是本 proposal 写的”。它不会新增
 公开命令，也不会后台扫描。
+
+当前修复验证通过后，只有出现高信号事件才运行 delivery checkpoint：失败验证后来通过、
+用户明确纠正、独立 QA 缺陷、发现过期 workspace context，或首个修复失败而后续修复通过。
+是否存在可复用候选仍由 Agent 判断；Outcome Interface 必须拿到精确 Lifecycle Coordinator
+证据后才能报告 `applied`。普通无触发任务保持静默，不会为了报告 no-op 创建 proposal 或
+持久化 context 写入。
 
 ## 快速安装
 
@@ -133,7 +141,8 @@ Decision Log 与 Apply Attempts；report 是派生视图；archive 默认不读�
   补充；只有 config 或 domain activation 需要变化时才请求一次决策。
 - `$evolve after-failure`：由 Agent 在发现可复用错误后自动运行；先修复当前任务，
   再协调未完成 proposal、执行 replace-before-add、生成审计记录并立即应用合格的
-  低风险补充。成功时只返回一条非阻塞回执；重叠或冲突才转为 cleanup proposal。
+  低风险补充。成功时只返回一条覆盖 `detect`、`propose`、`apply` 的非阻塞回执；
+  重叠或冲突才转为 cleanup proposal。
 - `$evolve approve`：只处理需要人工决策的例外路径。先展示简短语义摘要和完整精确
   PatchPlan；用户回复“应用”即可，不需要复制 plan hash。内部仍区分 `approved` 与
   `applied`；文件未变时既有精确批准可在后续 Agent 回合续跑，文件变化会让授权失效。
@@ -166,8 +175,10 @@ Node 或 kernel 不可用时，`auto` 必须明确降级为 `propose`。删除�
 supersede、migration、instruction 文件、domain activation 和 user-global promotion
 永远需要人工批准。
 
-Bootstrap 和 Kit update 永远不会改写已有 workspace 的策略。自动应用成功后，Agent
-默认只报告经验摘要、proposal ID 和目标文件，不请求用户批准或回复。
+Bootstrap 和 Kit update 永远不会改写已有 workspace 的策略。高信号修复自动应用成功后，
+Agent 默认只打印共享的内容安全 Outcome 回执：三个阶段、非成功阶段的稳定 reason，以及
+可用时的 proposal ID 和 workspace-relative 目标；不暴露经验或计划正文，也不在 applied
+路径请求用户批准或回复。
 
 ## Context Health
 
@@ -193,7 +204,8 @@ legacy context。
 
 领域词汇见 [CONTEXT.md](CONTEXT.md)，原始架构决策见
 [ADR-0001](docs/adr/0001-agent-first-context-evolution.md)，auto-first 默认见
-[ADR-0003](docs/adr/0003-auto-first-low-risk-context.md)，决策与验证证据的映射见
+[ADR-0003](docs/adr/0003-auto-first-low-risk-context.md)，delivery checkpoint 与三阶段
+临时结果见 [ADR-0005](docs/adr/0005-observable-evolution-outcomes.md)，决策与验证证据的映射见
 [v1 verification matrix](docs/v1-verification-matrix.md)。
 
 统一验证入口：
@@ -202,5 +214,5 @@ legacy context。
 npm test
 ```
 
-验证会执行真实 demo、协议 fixtures、Commit Kernel 文件结果、Bootstrap
+验证会执行真实 demo、协议 fixtures、Commit Kernel、Lifecycle/Outcome 行为、Bootstrap
 dry-run/apply/idempotency、仓库卫生和平台契约；CI 在 Windows 与 Ubuntu 运行同一入口。

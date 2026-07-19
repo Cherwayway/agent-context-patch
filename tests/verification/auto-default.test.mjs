@@ -72,11 +72,12 @@ test("a fresh template config applies an eligible plan without approval", async 
   );
 });
 
-test("Codex and Claude guidance requires same-turn gate-eligible application", () => {
-  for (const path of [
+test("Codex and Claude share the observable delivery checkpoint", () => {
+  const paths = [
     "adapters/codex/AGENTS.fragment.md",
     "adapters/claude/CLAUDE.fragment.md",
-  ]) {
+  ];
+  for (const path of paths) {
     const adapter = compact(read(path));
     assert.match(adapter, /Default to `auto`/u, `${path} does not default to auto`);
     assert.match(
@@ -106,11 +107,33 @@ test("Codex and Claude guidance requires same-turn gate-eligible application", (
     );
     assert.match(
       adapter,
-      /lesson, proposal ID, and targets/iu,
+      /proposal ID and (?:workspace-)?relative targets/iu,
       `${path} does not define the compact receipt fields`,
+    );
+    assert.match(adapter, /delivery checkpoint/iu);
+    assert.match(adapter, /current fix (?:is|has been) verified/iu);
+    assert.match(adapter, /finalizeEvolutionOutcome/u);
+    assert.match(adapter, /detect[^.]{0,100}propose[^.]{0,100}apply/iu);
+    assert.match(adapter, /receipt\.text/u);
+    for (const trigger of [
+      "failed_verification_later_passed",
+      "explicit_user_correction",
+      "independent_qa_defect",
+      "stale_context",
+      "first_fix_failed_then_passed",
+    ]) {
+      assert.match(adapter, new RegExp(`\\b${trigger}\\b`, "u"));
+    }
+    assert.match(
+      adapter,
+      /no high-signal trigger[^.]{0,180}silent[^.]{0,180}(?:no|do not create)[^.]{0,100}(?:proposal|durable context write)/iu,
     );
     assert.doesNotMatch(adapter, /Default to `propose`/u);
   }
+
+  const codex = read(paths[0]).replaceAll("AGENTS.md", "INSTRUCTIONS.md");
+  const claude = read(paths[1]).replaceAll("CLAUDE.md", "INSTRUCTIONS.md");
+  assert.equal(codex, claude, "Agent adapters drifted from the shared contract");
 });
 
 test("README and evolve skill publish auto rather than propose as the default", () => {
@@ -127,6 +150,30 @@ test("README and evolve skill publish auto rather than propose as the default", 
       `${path} still publishes propose as the default write policy`,
     );
   }
+});
+
+test("evolve finalizes triggered work through the shared Outcome Interface", () => {
+  const skill = compact(read("skills/evolve/SKILL.md"));
+
+  assert.match(skill, /delivery checkpoint/iu);
+  assert.match(skill, /current fix (?:is|has been) verified/iu);
+  assert.match(skill, /finalizeEvolutionOutcome/u);
+  assert.match(skill, /runtime\/outcome\.mjs/u);
+  assert.match(skill, /receipt\.text/u);
+  assert.match(skill, /detect[^.]{0,100}propose[^.]{0,100}apply/iu);
+  for (const trigger of [
+    "failed_verification_later_passed",
+    "explicit_user_correction",
+    "independent_qa_defect",
+    "stale_context",
+    "first_fix_failed_then_passed",
+  ]) {
+    assert.match(skill, new RegExp(`\\b${trigger}\\b`, "u"));
+  }
+  assert.match(
+    skill,
+    /no high-signal trigger[^.]{0,180}silent[^.]{0,180}(?:no|do not create)[^.]{0,100}(?:proposal|durable context write)/iu,
+  );
 });
 
 function read(relativePath) {

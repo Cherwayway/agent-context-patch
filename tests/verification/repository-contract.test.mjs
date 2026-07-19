@@ -16,7 +16,7 @@ test("package, skill manifest, and context schema versions agree", () => {
   const manifest = readJson("skills/evolve/manifest.json");
   const config = parseYamlSubset(read("templates/.agent-context/config.yml"), "template config");
 
-  assert.equal(packageJson.version, "0.5.0");
+  assert.equal(packageJson.version, "0.6.0");
   assert.equal(packageJson.engines?.node, ">=20");
   assert.equal(manifest.kit, "agent-context-patch");
   assert.equal(manifest.version, packageJson.version);
@@ -111,7 +111,7 @@ test("personal dogfooding is an installed reference and this repository follows 
     validateConfigDocument(read(".agent-context/config.yml"), ".agent-context/config.yml"),
     [],
   );
-  assert.match(profile, /0\.5\.0 lifecycle-reconciliation/u);
+  assert.match(profile, /0\.6\.0 observable-delivery/u);
   assert.match(profile, /personal-dogfooding\.zh-CN\.md/u);
   assert.equal(
     containsFiles(join(repositoryRoot, ".agent-context", "mistakes")),
@@ -128,6 +128,38 @@ test("the auto-first fresh-Agent acceptance evidence is retained", () => {
   assert.match(acceptance, /production proposal validator returned no failures/u);
   assert.match(acceptance, /Proposal count remained zero/u);
   assert.match(acceptance, /no raw conversation/u);
+});
+
+test("the observable delivery fresh-Agent acceptance evidence is retained", () => {
+  const acceptance = read(
+    "docs/acceptance/2026-07-19-observable-delivery-checkpoint.md",
+  );
+
+  assert.match(acceptance, /^- Result: PASS$/mu);
+  assert.match(acceptance, /without naming `?\$?evolve`?/iu);
+  assert.match(acceptance, /detect=candidate/u);
+  assert.match(acceptance, /propose=created/u);
+  assert.match(acceptance, /apply=applied/u);
+  assert.match(acceptance, /production proposal validator returned no failures/iu);
+  assert.match(acceptance, /Proposal count remained zero/u);
+  assert.match(acceptance, /no durable context write/iu);
+  assert.match(acceptance, /no evolution receipt/iu);
+  assert.match(acceptance, /no raw conversation/iu);
+  assert.match(acceptance, /no private absolute workspace path/iu);
+});
+
+test("lifecycle transitions have one Coordinator-owned runtime contract", () => {
+  const contract = read("skills/evolve/runtime/lifecycle-contract.mjs");
+  const coordinator = read("skills/evolve/runtime/lifecycle.mjs");
+  const outcome = read("skills/evolve/runtime/outcome.mjs");
+
+  assert.match(contract, /function isLifecycleOutcome/u);
+  assert.match(contract, /function deriveLifecycleReconciliationStatus/u);
+  assert.match(coordinator, /from "\.\/lifecycle-contract\.mjs"/u);
+  assert.match(coordinator, /deriveLifecycleReconciliationStatus/u);
+  assert.match(outcome, /from "\.\/lifecycle-contract\.mjs"/u);
+  assert.match(outcome, /isLifecycleOutcome/u);
+  assert.doesNotMatch(outcome, /function validCoordinatorTransition/u);
 });
 
 test("the applied demo proposal is a valid v1 evolution aggregate", () => {

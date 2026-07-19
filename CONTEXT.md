@@ -27,6 +27,11 @@ context growth as success by itself.
   exact safe work, and reports semantic or audit recovery to the Agent.
 - **Lifecycle Coordinator**: the deep runtime module that performs Lifecycle
   Reconciliation around, but not inside, the Commit Kernel.
+- **Evolution Outcome**: an ephemeral, content-safe task result with Agent-owned
+  detect/propose stages and a mechanically evidenced apply stage. It never
+  replaces proposal audit.
+- **Delivery Checkpoint**: the post-verification, high-signal-only point where
+  an Agent finalizes and reports one Evolution Outcome.
 - **Promotion**: an approved proposal to generalize a workspace lesson into
   user-level guidance. User-global context is never an active v1 write scope.
 - **Domain Candidate**: an Agent-detected domain with evidence and confidence.
@@ -65,10 +70,18 @@ context growth as success by itself.
   resumes exact automatic or already-approved plans through the Commit Kernel,
   and writes proposal audit state with a lock plus source-hash CAS. It never
   chooses wording, generates a replacement plan, or infers an applied audit.
+  Its internal lifecycle contract is the single source for output shape,
+  transition validity, and settled-state derivation shared with Outcome.
+- The **Evolution Outcome module** accepts Agent-owned detect/propose results,
+  an optional content-safe proposal ID, and exact Coordinator evidence. It
+  validates legal state families, fails closed on incomplete apply evidence,
+  strips unsafe detail, and formats the shared ephemeral receipt. It never reads
+  or writes workspace files or decides lesson meaning.
 - The **Bootstrap module** plans and applies deterministic skill/template file
   operations. PowerShell and Bash are its two platform adapters.
-- Codex and Claude guidance files are two Agent adapters. They remain short and
-  load the full skill only when needed.
+- Codex and Claude guidance files are two Agent adapters. They share the same
+  high-signal Delivery Checkpoint triggers and Outcome Interface contract,
+  remain short, and load the full skill only when needed.
 - `npm test` is the repository verification interface. Tests cross public seams
   and must exercise observable file outcomes, not merely search for tokens.
 
@@ -115,7 +128,12 @@ context growth as success by itself.
 18. Persist evidence pointers and summaries, not raw conversations or complete
     logs. Use workspace-relative paths.
 19. Existing instructions, explicit workspace policy, and legacy context are
-    never silently overwritten.
+   never silently overwritten.
+20. After a verified high-signal repair, one Evolution Outcome reports detect,
+   propose, and apply. Applied requires settled exact Coordinator evidence;
+   unsafe or incomplete evidence fails closed.
+21. Ordinary no-trigger work emits no evolution receipt and creates no proposal
+   or durable context write merely to record a no-op.
 
 ## Repository Reading Map
 
@@ -124,12 +142,15 @@ context growth as success by itself.
   interaction behavior.
 - `docs/adr/0004-lifecycle-reconciliation-around-commit-kernel.md`: unfinished
   proposal recovery and the narrow stale-supersession rule.
+- `docs/adr/0005-observable-evolution-outcomes.md`: high-signal Delivery
+  Checkpoint, three-stage outcome, and ephemeral receipt boundary.
 - `docs/v1-verification-matrix.md`: decision-to-contract verification map.
 - `skills/evolve/SKILL.md`: Agent-facing behavior.
 - `skills/evolve/references/`: protocol, privacy, migration, domain, and cleanup
   rules loaded on demand.
-- `skills/evolve/runtime/`: optional Node Commit Kernel and Lifecycle
-  Coordinator used by `auto` and reconciliation.
+- `skills/evolve/runtime/`: optional Node Commit Kernel, Lifecycle Coordinator,
+  Coordinator-owned lifecycle contract, and Evolution Outcome module used by
+  `auto`, reconciliation, and delivery.
 - `templates/.agent-context/`: new-workspace v1 shape.
 - `install/`: deterministic Bootstrap platform adapters.
 - `scripts/` and `tests/`: repository verification.
@@ -140,9 +161,9 @@ context growth as success by itself.
 npm test
 ```
 
-The full gate must cover the demo, schema fixtures, Commit Kernel and Lifecycle
-Coordinator behavior, Bootstrap dry-run/apply/idempotency, repository hygiene,
-and supported platform adapters.
+The full gate must cover the demo, schema fixtures, Commit Kernel, Lifecycle
+Coordinator, Evolution Outcome behavior, Bootstrap dry-run/apply/idempotency,
+repository hygiene, and supported platform adapters.
 
 ## Non-Goals
 

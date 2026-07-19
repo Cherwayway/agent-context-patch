@@ -6,7 +6,8 @@ context.
 Agent Context Patch is Agent-first: a capable Agent decides what a lesson means
 and drafts the context patch. New workspaces default to `auto`, backed by a
 small deterministic Commit Kernel. Safe local improvements finish in the same
-Agent turn; human review is reserved for safety exceptions.
+Agent turn; a shared Evolution Outcome reports delivery consistently, and human
+review is reserved for safety exceptions.
 
 The loop is:
 
@@ -15,8 +16,8 @@ The loop is:
 3. Reconcile unfinished proposal lifecycles, then search Active Context and
    replace before adding.
 4. Write an evidence-backed internal audit record with an exact PatchPlan.
-5. Apply an eligible low-risk plan immediately through `auto` and return one
-   short receipt with no action required.
+5. Apply an eligible low-risk plan immediately through `auto`, then finalize a
+   content-safe `detect / propose / apply` receipt with no action required.
 6. Ask only when a safety gate requires an exceptional decision, and keep
    Active Context current by proposing semantic cleanup.
 
@@ -24,6 +25,14 @@ Lifecycle reconciliation resumes only an unchanged exact plan. A matching
 post-apply hash without an applied audit is reported for recovery, never treated
 as proof that this proposal wrote the file. There is no background scanner or
 new public command.
+
+After a verified repair, the delivery checkpoint runs only for a high-signal
+event: a failed verification that later passed, an explicit user correction,
+an independent QA defect, stale workspace context, or a first fix that failed
+before a later fix passed. The Agent decides whether a reusable candidate
+exists; the Outcome Interface accepts exact Lifecycle Coordinator evidence
+before it can report `applied`. An ordinary no-trigger task stays silent and
+creates no proposal or durable context write merely to report a no-op.
 
 ## Quick Install
 
@@ -160,8 +169,8 @@ The Agent invokes this autonomously after a reusable failure or correction. It
 fixes and verifies the current task, performs replace-before-add analysis,
 reconciles unfinished proposals, creates one evidence-backed audit record, and
 immediately applies an eligible low-risk addition. Success returns one compact
-receipt; overlap or conflict produces an approval-only cleanup proposal instead
-of automatic accumulation.
+receipt covering `detect`, `propose`, and `apply`; overlap or conflict produces
+an approval-only cleanup proposal instead of automatic accumulation.
 
 `$evolve approve`
 
@@ -213,8 +222,10 @@ Delete, archive, supersede, migration, instruction-file, domain-activation, and
 user-global promotion operations always require human approval.
 
 Bootstrap and Kit updates never rewrite an existing workspace policy. After a
-successful auto application the Agent reports only the lesson, proposal ID, and
-targets by default; it does not ask the user to approve or reply.
+successful high-signal repair the Agent prints only the shared content-safe
+Outcome receipt: all three stages, stable non-success reasons, and the proposal
+ID plus workspace-relative targets when available. It does not expose lesson or
+plan content or ask the user to approve or reply on an applied path.
 
 ## Context Health
 
@@ -251,8 +262,10 @@ See [CONTEXT.md](CONTEXT.md) for the domain language,
 [ADR-0001](docs/adr/0001-agent-first-context-evolution.md) for the original
 architecture, and
 [ADR-0003](docs/adr/0003-auto-first-low-risk-context.md) for the auto-first
-default. The [v1 verification matrix](docs/v1-verification-matrix.md) maps every
-accepted decision to its durable contract and test evidence.
+default. [ADR-0005](docs/adr/0005-observable-evolution-outcomes.md) defines the
+delivery checkpoint and three-stage ephemeral outcome. The
+[v1 verification matrix](docs/v1-verification-matrix.md) maps every accepted
+decision to its durable contract and test evidence.
 
 ## Development
 
@@ -262,6 +275,7 @@ Run the single verification interface:
 npm test
 ```
 
-The gate executes real demo behavior, protocol fixtures, Commit Kernel file
-outcomes, Bootstrap dry-run/apply/idempotency, repository hygiene, and platform
-contracts. CI runs the same interface on Windows and Ubuntu.
+The gate executes real demo behavior, protocol fixtures, Commit Kernel and
+Lifecycle/Outcome behavior, Bootstrap dry-run/apply/idempotency, repository
+hygiene, and platform contracts. CI runs the same interface on Windows and
+Ubuntu.
