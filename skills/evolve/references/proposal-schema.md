@@ -190,7 +190,10 @@ Append each applied, failed, conflict, or rolled-back attempt.
 
 ## Supersession
 
-Name the replacing proposal or state None.
+Name the replacing proposal or state None. The never-applied stale-conflict path
+must contain only the replacement's exact proposal ID; Lifecycle Reconciliation
+verifies that replacement before changing the old status. Historical
+successfully-applied supersession notes remain valid Schema 1 records.
 
 ## Rejection Notes
 
@@ -273,6 +276,12 @@ immutable. A changed plan requires a new superseding proposal. Every
 Decision Log and Apply Attempt plan_hash in one aggregate must equal
 frontmatter plan_hash and the recomputed hash.
 
+Before audit history exists, a stale target leaves status `proposed` and the
+Agent may regenerate that same proposal from current sources. After history
+exists, the Agent must create a new proposal, write its exact ID in the old
+proposal's Supersession section, and leave the old proposal `approved` until
+Lifecycle Reconciliation verifies the cross-proposal edge.
+
 Auto requires semanticOperation add. update, tighten, merge, rewrite,
 supersede, demote_to_checklist, archive_example, archive_rule, domain_enable,
 domain_disable, migration, and user_global_promotion require exact approval
@@ -347,9 +356,23 @@ do not change status from approved. Every attempt plan_hash must equal the
 aggregate frontmatter and recomputed PatchPlan hash.
 
 Terminal status remains derivable from this history. `superseded` requires a
-valid applied history and a non-empty Supersession target. `archived` requires
-either that superseded history or a rejected Decision with meaningful Rejection
-Notes and no Apply Attempt. Empty history can never be relabeled archived.
+non-empty Supersession target and either:
+
+- a valid applied history; or
+- an approval, no successful Apply Attempt, and a final `conflict` Attempt whose
+  error_summary is `before_hash_mismatch`, `target_exists`, or `target_missing`.
+
+For the second path, the single-document validator proves the history shape and
+the Lifecycle Coordinator proves that the named different replacement proposal
+exists and is not rejected, archived, or superseded before changing status.
+Until then, status remains `approved`. `archived` requires either a valid
+superseded history or a rejected Decision with meaningful Rejection Notes and
+no Apply Attempt. Empty history can never be relabeled archived.
+
+If live targets all equal the plan's after hashes but there is no applied Apply
+Attempt, do not infer application. Report `audit_recovery_required` and retain
+the aggregate unchanged until the missing audit can be resolved from retained
+same-process evidence or human investigation.
 
 ## Evidence requirements
 

@@ -5,6 +5,26 @@ semantic versions for the Kit independently from the Workspace Schema version.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-19
+
+### Added
+
+- A deterministic Lifecycle Coordinator that reconciles interrupted automatic
+  and exact-approved proposal lifecycles without expanding the Commit Kernel.
+- Production proposal parsing and validation shared by runtime reconciliation
+  and repository verification.
+- Content-safe target-state inspection, proposal source-hash CAS writes, and a
+  workspace lifecycle lock for deterministic audit repair.
+
+### Changed
+
+- An approved proposal with no successful apply may now become `superseded`
+  after a real stale-target conflict only when its named replacement proposal
+  exists and validates.
+- `$evolve after-failure`, `approve`, `review-context`, and `weekly` now
+  reconcile unfinished proposal lifecycles before creating or reporting more
+  work. Workspace Schema remains 1.
+
 ## [0.4.0] - 2026-07-12
 
 ### Changed

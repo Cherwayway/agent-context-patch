@@ -23,9 +23,12 @@ The commit kernel owns mechanical commit invariants:
 - return content-free status, reason, and per-target operation hashes
 - stop auto when a privacy heuristic is suspicious
 
-The agent owns proposal lifecycle transitions and audit timestamps. The kernel
-must not classify project meaning, mutate the proposal aggregate, or claim to
-validate its lifecycle.
+The agent owns semantic proposal lifecycle decisions and replacement-plan
+generation. The Lifecycle Coordinator owns only deterministic reconciliation:
+validating proposal aggregates, comparing exact target hashes, resuming an
+unchanged authorized plan through the kernel, and writing audit transitions.
+The kernel must not classify project meaning, mutate the proposal aggregate, or
+claim to validate its lifecycle.
 
 ## Terms
 
@@ -39,6 +42,8 @@ validate its lifecycle.
   result, privacy result, health gate, and context delta proposed for
   application.
 - Apply Attempt: an append-only result for one plan application.
+- Lifecycle Reconciliation: a deterministic pass that settles or reports
+  unfinished proposal lifecycles without changing PatchPlan meaning.
 - Active Context: short, current guidance loaded by ordinary work.
 - Report: a rebuildable view over proposals and active context.
 - Archive: inactive history loaded only when explicitly requested.
@@ -80,6 +85,7 @@ Legal transitions:
 pending_current_fix -> proposed
 proposed            -> approved | rejected
 approved            -> applied
+approved            -> superseded  # unapplied stale conflict plus valid replacement only
 applied             -> superseded
 rejected            -> archived
 superseded          -> archived
@@ -92,6 +98,47 @@ Auto records decision: policy_auto before it attempts application. It follows
 the same approved-to-applied transition as manual approval. When all auto gates
 pass, the Agent completes this transition in the current command before its
 final response; it does not wait for another user turn.
+
+An approved proposal that never applied may enter superseded only when its
+final Attempt is a real stale-target conflict (`before_hash_mismatch`,
+`target_exists`, or `target_missing`), no Attempt ever applied, and its
+Supersession section names a different valid replacement proposal that exists.
+The single-proposal contract validates the history; Lifecycle Reconciliation
+validates replacement existence before changing status.
+
+## Lifecycle reconciliation
+
+Before `$evolve after-failure`, `$evolve approve`, `$evolve review-context`, or
+`$evolve weekly` creates, approves, or reports more proposal work, invoke:
+
+~~~js
+reconcileWorkspaceProposalLifecycles({ workspaceRoot })
+~~~
+
+The coordinator reads only proposal Markdown and exact PatchPlan targets. It
+ignores README, temporary, and terminal proposal files. It classifies all
+targets for one plan together:
+
+- all before hashes: the exact automatic or already-approved plan may resume;
+- all after hashes with no applied Attempt: report `audit_recovery_required`
+  and do not infer who wrote the bytes;
+- mixed before/after: report `manual_recovery_required`;
+- changed before any history: report `regenerate_required`; the Agent may
+  rewrite that history-free proposal semantically;
+- changed after audit history: report `superseding_proposal_required`; the
+  Agent creates a replacement and names it in the old Supersession section.
+
+Reconciliation returns only IDs, statuses, machine-readable actions/reasons,
+and workspace-relative targets. It never returns target or PatchPlan content or
+an absolute path. It never generates wording, replaces a stale plan, creates a
+new proposal, or claims to repair an unknown audit gap.
+
+Proposal audit writes use `.agent-context/.lifecycle-coordinator.lock`, a
+source-hash compare-and-swap check, a same-directory temporary file, and atomic
+replacement. A lock is never deleted based on age. After verifying no
+coordinator is active, remove that exact lock manually if a crashed process left
+it behind. Reconciliation creates no receipt sidecar and never runs as a daemon,
+startup hook, installer scan, or update scan.
 
 ## PatchPlan
 
@@ -188,18 +235,21 @@ replacement. The kernel does not edit the proposal aggregate. Its raw result
 contains status, optional content-free reason, plan ID, proposal ID, plan hash,
 and per-target operations with before and after hashes. It has no timestamp.
 
-Before invoking the kernel, the agent persists the exact Decision and status
-approved. After the kernel returns, the agent maps status to result, adds
-attempted_at, adds applied_at only for success, derives a content-free
-error_summary from reason, and immediately appends the Apply Attempt. An applied
-result moves status to applied. Conflict, write failure, or rollback leaves
-status approved. A partial write must be rolled back. If rollback itself fails,
-record the affected targets and stop; never report applied.
+Before invoking the kernel, the Agent or Lifecycle Coordinator persists the
+exact Decision and status approved. After the kernel returns, the coordinator
+maps status to result, adds attempted_at, adds applied_at only for success,
+derives a content-free error_summary from reason, and immediately appends the
+Apply Attempt. An applied result moves status to applied. Conflict, write
+failure, or rollback leaves status approved. A partial write must be rolled
+back. If rollback itself fails, record the affected targets and stop; never
+report applied.
 
 This audit writeback is a real boundary. If the decision write fails, do not
 apply. If attempt writeback fails after context application, report
-audit_write_pending, retain the returned attempt, and retry the aggregate
-write. Do not create another receipt file, silently reapply, or claim the
+`audit_write_pending`, retain the returned attempt, and retry the aggregate
+write. A later reconciliation that sees target `afterHash` without the applied
+Attempt reports `audit_recovery_required`; it does not silently reapply or
+invent the missing record. Do not create another receipt file or claim the
 lifecycle is complete.
 
 After a successful automatic application, the Agent emits one compact,

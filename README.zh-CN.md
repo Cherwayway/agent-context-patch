@@ -10,10 +10,14 @@ Agent Context Patch 采用 Agent-first：旗舰 Agent 负责理解项目、判�
 
 1. 发现可复用的失败、纠正、过期规则或工作流经验。
 2. 先修复并验证当前任务。
-3. 检查 Active Context，优先替换而不是追加。
+3. 先协调未完成的 proposal 生命周期，再检查 Active Context，优先替换而不是追加。
 4. 生成带证据和精确 PatchPlan 的内部审计记录。
 5. 由 `auto` 通过 Commit Kernel 立即应用合格的低风险计划，只返回一条无需操作的简短回执。
 6. 只有安全门禁要求例外决策时才询问用户，并持续提出语义清理 proposal。
+
+生命周期协调只会续跑仍然完全一致的精确计划。目标内容即使恰好等于 after hash，缺少
+applied 审计时也只会进入恢复流程，不能据此反推“就是本 proposal 写的”。它不会新增
+公开命令，也不会后台扫描。
 
 ## 快速安装
 
@@ -128,14 +132,15 @@ Decision Log 与 Apply Attempts；report 是派生视图；archive 默认不读�
 - `$evolve init`：检查 workspace，报告 `contextRead`，自动应用合格的 profile/index
   补充；只有 config 或 domain activation 需要变化时才请求一次决策。
 - `$evolve after-failure`：由 Agent 在发现可复用错误后自动运行；先修复当前任务，
-  再执行 replace-before-add、生成审计记录并立即应用合格的低风险补充。成功时只返回
-  一条非阻塞回执；重叠或冲突才转为 cleanup proposal。
+  再协调未完成 proposal、执行 replace-before-add、生成审计记录并立即应用合格的
+  低风险补充。成功时只返回一条非阻塞回执；重叠或冲突才转为 cleanup proposal。
 - `$evolve approve`：只处理需要人工决策的例外路径。先展示简短语义摘要和完整精确
   PatchPlan；用户回复“应用”即可，不需要复制 plan hash。内部仍区分 `approved` 与
-  `applied`，文件变化会让授权失效。
-- `$evolve review-context`：按冲突、过期、重复、authority 与 retention value
-  生成语义清理 proposal；不按数量自动删除。
-- `$evolve weekly`：生成派生健康报告，不反向覆盖 Active Context。
+  `applied`；文件未变时既有精确批准可在后续 Agent 回合续跑，文件变化会让授权失效。
+- `$evolve review-context`：先协调未完成 proposal，再按冲突、过期、重复、authority
+  与 retention value 生成语义清理 proposal；不按数量自动删除。
+- `$evolve weekly`：先协调未完成 proposal，再生成派生健康报告，不反向覆盖 Active
+  Context。
 - `$evolve update`：显式检查最新稳定的不可变 Release，校验 checksum、tag 和 source
   commit，并在替换 user-level skill 前展示完整 UpdatePlan 与精确 plan hash。升级成功后
   需要开启一个新的 Agent 任务加载新版；不会后台检查、上传遥测或静默升级。
