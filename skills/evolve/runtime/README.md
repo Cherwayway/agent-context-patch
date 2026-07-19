@@ -1,10 +1,11 @@
-# Commit Kernel Runtime
+# Runtime Modules
 
-This optional Node 20+ module is the deterministic `PatchPlan -> ApplyAttempt`
-seam. It commits exact file content; it does not decide what project context
-means.
+This optional Node 20+ runtime contains two deep deterministic modules. The
+Commit Kernel owns the `PatchPlan -> ApplyAttempt` seam. The Lifecycle
+Coordinator settles unfinished proposal audit around that seam. Neither module
+decides what project context means.
 
-## API
+## Commit Kernel API
 
 ~~~js
 import {
@@ -60,6 +61,56 @@ The exact hash may authorize approval-only v1 targets or high-risk operations.
 It never bypasses the verified-current-fix, complete-current-config, schema,
 topology, path, migration-backup, or mechanical privacy safety gates. Proposal
 aggregates are never kernel targets, even after exact approval.
+
+## Lifecycle Coordinator API
+
+Import the coordinator directly from its deep module; `index.mjs` intentionally
+remains the three-export Commit Kernel interface:
+
+~~~js
+import { reconcileWorkspaceProposalLifecycles } from "./lifecycle.mjs";
+
+const result = await reconcileWorkspaceProposalLifecycles({
+  workspaceRoot: process.cwd(),
+});
+~~~
+
+The coordinator scans non-terminal `.agent-context/proposals/*.md` aggregates,
+validates them with the production proposal contract, and compares complete
+PatchPlan targets with live hashes. It can:
+
+- resume an interrupted exact `auto` plan;
+- resume an already-human-approved exact plan while all before hashes match;
+- report semantic regeneration, supersession, audit recovery, or manual
+  recovery without changing target meaning;
+- move a never-applied stale approval to `superseded` only after its final
+  Attempt is a recognized stale conflict and its named valid replacement
+  proposal exists.
+
+The result contains `status`, `inspectedCount`, and content-safe outcomes with
+proposal ID, before/after status, action, machine-readable reason, and relative
+targets. A workspace-level failure may add `blockingReason`. No outcome includes
+proposal prose, PatchPlan content, target content, or an absolute path.
+
+`status: settled` means no unsafe mechanical lifecycle gap remains. It can still
+contain `approval_required` outcomes; those proposals are intentionally waiting
+for informed human review and do not block unrelated reconciliation, weekly
+reporting, or new failure handling.
+
+Matching `afterHash` without an applied Attempt is
+`audit_recovery_required`, never inferred application. Mixed before/after state
+requires manual recovery. Changed history-free proposals are left to the Agent
+for semantic regeneration.
+
+Proposal writes use `.agent-context/.lifecycle-coordinator.lock`, validate the
+complete post-write aggregate, compare the source hash twice, write an exclusive
+same-directory `.tmp` file, and atomically rename it. A transient replacement
+failure retries the exact same audit source once in-process; an uncertain
+post-rename error is recognized idempotently from the desired source hash. The
+lock is ownership-token based and is never deleted by age. After confirming no
+coordinator is active, remove that exact workspace-relative lock manually after
+a crash. There is no lifecycle daemon, startup scan, sidecar receipt, or
+alternate source of truth.
 
 ## Result contract
 

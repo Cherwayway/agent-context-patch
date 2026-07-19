@@ -12,12 +12,18 @@ The loop is:
 
 1. Detect a reusable failure, correction, stale rule, or workflow lesson.
 2. Fix and verify the current task first.
-3. Search Active Context and replace before adding.
+3. Reconcile unfinished proposal lifecycles, then search Active Context and
+   replace before adding.
 4. Write an evidence-backed internal audit record with an exact PatchPlan.
 5. Apply an eligible low-risk plan immediately through `auto` and return one
    short receipt with no action required.
 6. Ask only when a safety gate requires an exceptional decision, and keep
    Active Context current by proposing semantic cleanup.
+
+Lifecycle reconciliation resumes only an unchanged exact plan. A matching
+post-apply hash without an applied audit is reported for recovery, never treated
+as proof that this proposal wrote the file. There is no background scanner or
+new public command.
 
 ## Quick Install
 
@@ -152,28 +158,31 @@ decision only if config or domain activation must change; only
 
 The Agent invokes this autonomously after a reusable failure or correction. It
 fixes and verifies the current task, performs replace-before-add analysis,
-creates one evidence-backed audit record, and immediately applies an eligible
-low-risk addition. Success returns one compact receipt; overlap or conflict
-produces an approval-only cleanup proposal instead of automatic accumulation.
+reconciles unfinished proposals, creates one evidence-backed audit record, and
+immediately applies an eligible low-risk addition. Success returns one compact
+receipt; overlap or conflict produces an approval-only cleanup proposal instead
+of automatic accumulation.
 
 `$evolve approve`
 
 Handle only the exception path that requires a human decision. Show a concise
 semantic summary followed by the complete exact PatchPlan. The user may simply
 reply with approval and never needs to copy the plan hash. A changed file still
-invalidates authorization; a failed commit never becomes `applied`.
+invalidates authorization; an unchanged already-approved plan may resume on a
+later Agent turn, while a failed commit never becomes `applied`.
 
 `$evolve review-context`
 
-Review conflicts, staleness, duplication, authority, and retention value.
+Reconcile unfinished proposals, then review conflicts, staleness, duplication,
+authority, and retention value.
 Quantity is only a review trigger. Semantic merge, rewrite, supersede, and
 archive changes always require approval.
 
 `$evolve weekly`
 
-Create a derived report of recurring lessons, proposal health, cleanup
-candidates, applied improvements, and watch items. Reports never overwrite
-Active Context.
+Reconcile unfinished proposals, then create a derived report of recurring
+lessons, proposal health, cleanup candidates, applied improvements, and watch
+items. Reports never overwrite Active Context.
 
 `$evolve update`
 

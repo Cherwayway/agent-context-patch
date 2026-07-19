@@ -14,8 +14,10 @@ Agent Context Patch is agent-first:
 - The agent understands the project, judges evidence, chooses wording, and
   prepares semantic changes.
 - The deterministic commit kernel validates the plan envelope, paths, policy,
-  hashes, conflicts, and application. The agent owns lifecycle logging. The
-  kernel never judges project meaning or edits proposal prose.
+  hashes, conflicts, and application. The Lifecycle Coordinator owns
+  deterministic proposal reconciliation and audit continuation; the agent owns
+  semantic lifecycle decisions. The kernel never judges project meaning or
+  edits proposal prose.
 - `auto` is the default write policy for new workspaces. It requires the Node
   kernel; if the kernel is unavailable, preserve the exact proposal, report
   the reason, and use the approval path instead of pretending the patch was
@@ -34,6 +36,49 @@ For normal project work, load only:
 Do not load proposals, reports, or archive by default. Read config.yml and the
 relevant reference only when evolving context.
 
+## Lifecycle reconciliation
+
+For `$evolve after-failure`, `$evolve approve`, `$evolve review-context`, and
+`$evolve weekly`, invoke the installed runtime's dedicated coordinator before
+creating, approving, or reporting more proposal work. Invoke it again after a
+new eligible auto proposal or an exact approval is persisted so the coordinator
+owns the apply-and-audit continuation:
+
+~~~js
+import { reconcileWorkspaceProposalLifecycles } from "./runtime/lifecycle.mjs";
+
+const reconciliation = await reconcileWorkspaceProposalLifecycles({
+  workspaceRoot,
+});
+~~~
+
+Resolve the module path from the installed Skill; the example path is relative
+to this file, not the user's current directory. This is not a new public
+command. Do not run it from `init`, `update`, installation, Agent startup, a
+daemon, or a background scan.
+
+Handle its content-safe outcomes as follows:
+
+- `resume_exact_auto` or `resume_exact_authorized`: report the resulting state;
+  do not append another Decision for an already-approved plan.
+- `regenerate_required`: re-read current sources and semantically rebuild the
+  history-free proposal; deterministic code must not choose new wording.
+- `superseding_proposal_required`: create a replacement proposal, write that
+  exact proposal ID in the old Supersession section, then reconcile again. The
+  coordinator alone verifies the cross-proposal edge before changing the old
+  status to superseded.
+- `audit_recovery_required`: stop. Matching after hashes do not prove that this
+  proposal applied; never invent the missing Attempt or silently reapply.
+- `manual_recovery_required`: stop automatic work and report the one
+  machine-readable reason.
+- `approval_required`: continue only through the existing informed approval
+  path.
+- `settled`: no additional lifecycle action is needed for that proposal.
+
+If the lifecycle lock remains after a crash, verify that no coordinator is
+active before manually removing only
+`.agent-context/.lifecycle-coordinator.lock`. Never delete it based on age.
+
 ## Hard invariants
 
 - Never let evolution delay repair of the current task.
@@ -49,6 +94,8 @@ relevant reference only when evolving context.
   require a new plan and new approval.
 - The proposal aggregate itself is never a PatchPlan target. Decision and
   Apply Attempt writes stay outside the kernel transaction.
+- Never infer `applied` from target content. Exact before hashes permit resume;
+  after hashes without an applied Attempt require audit recovery.
 - Every non-migration kernel call requires a complete current v1 config.
   Future schemas remain read-only; legacy migration requires exact backups for
   every changed existing file in the same approved transaction.
@@ -104,24 +151,26 @@ missed context read, or stale-context discovery. The user does not need to
 invoke this command manually:
 
 1. Repair the current issue and verify it when possible.
-2. Decide whether the lesson is reusable. If not, stop after the repair.
-3. Compare it with active context using replace-before-add.
-4. Create one evidence-backed proposal aggregate in proposals/.
-5. Use pending_current_fix while repair is not verified; otherwise use
+2. Reconcile unfinished proposal lifecycles before creating another aggregate;
+   handle every blocking outcome using the rules above.
+3. Decide whether the lesson is reusable. If not, stop after the repair.
+4. Compare it with active context using replace-before-add.
+5. Create one evidence-backed proposal aggregate in proposals/.
+6. Use pending_current_fix while repair is not verified; otherwise use
    proposed.
-6. Keep evidence as workspace-relative pointers and short result summaries.
-7. Evaluate authority, retention value, privacy, and the net active-context
+7. Keep evidence as workspace-relative pointers and short result summaries.
+8. Evaluate authority, retention value, privacy, and the net active-context
    change.
-8. For a workspace proposal, persist the full JSON PatchPlan under Proposed
+9. For a workspace proposal, persist the full JSON PatchPlan under Proposed
    Patch and compute plan_hash from its canonical JSON.
-9. Evaluate policy and all auto gates. When eligible, persist a `policy_auto`
-   Decision and enter approved, add runtime-only `workspaceRoot` and `planHash`,
-   call `applyPatchPlan(plan)` without approval authorization, append the Apply
-   Attempt, and enter applied only after success.
-10. For a successful auto path, give one compact non-blocking receipt containing
+10. Evaluate policy and all auto gates. When eligible, invoke Lifecycle
+    Reconciliation again. It persists the `policy_auto` Decision, enters
+    approved, calls the Commit Kernel with the exact runtime plan, appends the
+    Apply Attempt, and enters applied only after success.
+11. For a successful auto path, give one compact non-blocking receipt containing
     the lesson, proposal ID, and targets. Do not request approval, wait for a
     reply, or print the full PatchPlan or plan hash unless asked.
-11. If an auto gate fails, keep the exact proposal and report the single
+12. If an auto gate fails, keep the exact proposal and report the single
     blocking reason. Ask for a decision only when the operation is an allowed
     approval-only exception.
 
@@ -129,34 +178,41 @@ invoke this command manually:
 
 This is the public exception path for a proposal that cannot use auto:
 
-1. Parse the four-tilde JSON block under Proposed Patch / PatchPlan JSON.
+1. Reconcile unfinished lifecycles. If the requested proposal was resumed to
+   applied or superseded, report that result and stop. If it needs regeneration,
+   supersession, audit recovery, or manual recovery, resolve that exact outcome
+   before requesting approval.
+2. Parse the four-tilde JSON block under Proposed Patch / PatchPlan JSON.
    Reject prose-only or partial patch descriptions.
-2. Recompute canonical JSON SHA-256 and require it to equal frontmatter
+3. Recompute canonical JSON SHA-256 and require it to equal frontmatter
    plan_hash. Require target_files to equal the operation targets and every
    existing Decision/Apply hash to equal the same value. Require
    semanticOperation to equal frontmatter operation.
-3. Show a concise semantic summary followed by the complete immutable plan:
+4. Show a concise semantic summary followed by the complete immutable plan:
    target contents, operations, before hashes, policy result, context delta,
    and plan_hash. High-risk approval must be informed even though it is rare.
-4. Obtain explicit approval for the exact current plan. The user may simply
+5. Obtain explicit approval for the exact current plan. The user may simply
    reply with approval; never require them to copy or repeat the hash.
-5. Persist a Decision Log entry and status approved. If this write fails, stop
+6. Persist a Decision Log entry and status approved. If this write fails, stop
    before calling the kernel.
-6. Recheck policy, paths, privacy, budgets, and before hashes.
-7. Add runtime-only absolute workspaceRoot and planHash, then call
-   applyPatchPlan(plan, {approvedPlanHash}). Approval stays outside the hashed
-   plan and must match plan_hash exactly.
+7. Invoke Lifecycle Reconciliation again. It rechecks the exact plan, current
+   config, paths, mechanical privacy, and before hashes, adds runtime-only
+   absolute workspaceRoot and
+   planHash, then calls `applyPatchPlan(plan, {approvedPlanHash})`. Approval
+   stays outside the hashed plan and must match plan_hash exactly.
 8. Let the kernel transaction update only the context targets and return its
    raw status, reason, and per-target hash operations.
-9. Map that result to an Apply Attempt, add the attempt timestamp and a
-   content-free error summary, then append it immediately. On success set
-   status to applied; on conflict, failure, or rollback keep status approved.
+9. Let the coordinator map that result to an Apply Attempt, add the attempt
+   timestamp and a content-free error summary, then append it immediately. On
+   success it sets status to applied; on conflict, failure, or rollback it keeps
+   status approved.
 10. If audit writeback fails, report audit_write_pending and retry it. Do not
-   create a separate receipt or claim lifecycle completion.
+    create a separate receipt or claim lifecycle completion.
 
 If a target changes before any decision or attempt, replace the plan and
 recompute its hash. After audit history exists, create a superseding proposal
-instead; one aggregate never mixes hashes from multiple plans.
+instead, write the replacement ID in the old Supersession section, and rerun
+Lifecycle Reconciliation; one aggregate never mixes hashes from multiple plans.
 Without the kernel, propose mode may apply the exact human-approved patch, but
 must still record hashes and the result.
 
@@ -170,6 +226,7 @@ kernel.
 Review active context against current sources. Use
 references/cleanup-policy.md and references/context-budget.md.
 
+- Reconcile unfinished proposal lifecycles before calculating proposal health.
 - Rank authority separately from retention value.
 - Detect stale, duplicated, conflicting, vague, or over-specific rules.
 - Prefer tighten, merge, rewrite, supersede, or archive over another append.
@@ -181,7 +238,8 @@ Thresholds trigger review and block auto; they never authorize truncation.
 
 ### $evolve weekly
 
-Write a compact derived report in reports/ covering:
+Reconcile unfinished proposal lifecycles first, then write a compact derived
+report in reports/ covering:
 
 1. recurring signals and verification status
 2. applied improvements

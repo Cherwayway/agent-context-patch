@@ -313,6 +313,17 @@ test("superseded and archived statuses require one valid terminal transition", (
     "fixture-replacement-proposal",
   );
   assert.deepEqual(validateProposalDocument(superseded, "valid superseded proposal"), []);
+  assert.deepEqual(
+    validateProposalDocument(
+      replaceSectionContent(
+        applied.replace("status: applied", "status: superseded"),
+        "Supersession",
+        "Replaced by fixture-replacement-proposal after the original apply.",
+      ),
+      "historical applied supersession prose",
+    ),
+    [],
+  );
 
   const archivedSuperseded = superseded.replace("status: superseded", "status: archived");
   assert.deepEqual(
@@ -344,6 +355,33 @@ test("superseded and archived statuses require one valid terminal transition", (
   emptyArchived = replaceSectionContent(emptyArchived, "Decision Log", "None.");
   emptyArchived = replaceSectionContent(emptyArchived, "Apply Attempts", "None.");
   assertRejected(emptyArchived, "archived status");
+});
+
+test("an approved stale conflict may name a replacement and terminate without a false applied history", () => {
+  const conflicted = asConflict(read("valid.md"));
+  const replacementNamed = replaceSectionContent(
+    conflicted,
+    "Supersession",
+    "fixture-replacement-proposal",
+  );
+  assert.deepEqual(
+    validateProposalDocument(replacementNamed, "stale replacement pending"),
+    [],
+  );
+
+  const superseded = replacementNamed.replace("status: approved", "status: superseded");
+  assert.deepEqual(
+    validateProposalDocument(superseded, "superseded stale proposal"),
+    [],
+  );
+
+  const failed = replacementNamed
+    .replace("result: conflict", "result: failed")
+    .replace("error_summary: before_hash_mismatch", "error_summary: filesystem_error");
+  assertRejected(
+    failed.replace("status: approved", "status: superseded"),
+    "stale conflict",
+  );
 });
 
 test("cleanup operation vocabulary is accepted", () => {

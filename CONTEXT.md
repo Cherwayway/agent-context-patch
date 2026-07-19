@@ -22,6 +22,11 @@ context growth as success by itself.
   PatchPlan.
 - **ApplyAttempt**: the result of committing an authorized PatchPlan, including
   relative targets and before/after hashes but not duplicated patch content.
+- **Lifecycle Reconciliation**: a deterministic pass over unfinished proposals
+  that compares each immutable PatchPlan with live target hashes, resumes only
+  exact safe work, and reports semantic or audit recovery to the Agent.
+- **Lifecycle Coordinator**: the deep runtime module that performs Lifecycle
+  Reconciliation around, but not inside, the Commit Kernel.
 - **Promotion**: an approved proposal to generalize a workspace lesson into
   user-level guidance. User-global context is never an active v1 write scope.
 - **Domain Candidate**: an Agent-detected domain with evidence and confidence.
@@ -55,6 +60,11 @@ context growth as success by itself.
   returns an ApplyAttempt. Approval carries the reviewed `planHash` outside the
   plan, avoiding a self-referential hash. The kernel owns path safety, policy
   guards, hashes, conflict detection, staging, and rollback.
+- The **Lifecycle Coordinator** accepts only a workspace root. It validates
+  proposal aggregates, classifies live targets as before/after/mixed/changed,
+  resumes exact automatic or already-approved plans through the Commit Kernel,
+  and writes proposal audit state with a lock plus source-hash CAS. It never
+  chooses wording, generates a replacement plan, or infers an applied audit.
 - The **Bootstrap module** plans and applies deterministic skill/template file
   operations. PowerShell and Bash are its two platform adapters.
 - Codex and Claude guidance files are two Agent adapters. They remain short and
@@ -80,24 +90,31 @@ context growth as success by itself.
    verification, supported topology, path, or privacy guards.
 8. The proposal aggregate is never a PatchPlan target. Its Decision Log and
    Apply Attempts stay outside the Commit Kernel boundary.
-9. A non-migration commit requires one complete, valid v1 workspace config.
+9. Unfinished proposals are reconciled before new proposal work. Exact
+   authorization remains reusable only while every target is still at its
+   `beforeHash`; a live `afterHash` without an applied Attempt is an audit
+   recovery blocker, not proof of application.
+10. An approved proposal that never applied may become `superseded` only after
+    a real stale-target conflict and only when the named valid replacement
+    proposal exists.
+11. A non-migration commit requires one complete, valid v1 workspace config.
    Future schemas remain read-only; a legacy migration must create exact
    workspace-local backups in the same transaction.
-10. Bootstrap also validates the complete v1 config envelope without requiring
+12. Bootstrap also validates the complete v1 config envelope without requiring
     Node. Invalid current-looking config is blocked before any template write.
-11. Archive content is append-only history: every archive target is
+13. Archive content is append-only history: every archive target is
     create-only, including after exact approval.
-12. Any target content, operation, policy result, or context-delta change
+14. Any target content, operation, policy result, or context-delta change
    invalidates the approved plan hash.
-13. Domain detection is semantic and temporary; activation is approved and
+15. Domain detection is semantic and temporary; activation is approved and
    persisted only in `config.enabled_domains`.
-14. Replace before add. Overlap or conflict forces a cleanup proposal instead of
+16. Replace before add. Overlap or conflict forces a cleanup proposal instead of
    automatic accumulation.
-15. Quantity triggers context review; authority and retention value decide what
+17. Quantity triggers context review; authority and retention value decide what
     should change. Context is never truncated automatically.
-16. Persist evidence pointers and summaries, not raw conversations or complete
+18. Persist evidence pointers and summaries, not raw conversations or complete
     logs. Use workspace-relative paths.
-17. Existing instructions, explicit workspace policy, and legacy context are
+19. Existing instructions, explicit workspace policy, and legacy context are
     never silently overwritten.
 
 ## Repository Reading Map
@@ -105,11 +122,14 @@ context growth as success by itself.
 - `docs/adr/0001-agent-first-context-evolution.md`: original architecture.
 - `docs/adr/0003-auto-first-low-risk-context.md`: current default write and
   interaction behavior.
+- `docs/adr/0004-lifecycle-reconciliation-around-commit-kernel.md`: unfinished
+  proposal recovery and the narrow stale-supersession rule.
 - `docs/v1-verification-matrix.md`: decision-to-contract verification map.
 - `skills/evolve/SKILL.md`: Agent-facing behavior.
 - `skills/evolve/references/`: protocol, privacy, migration, domain, and cleanup
   rules loaded on demand.
-- `skills/evolve/runtime/`: optional Node Commit Kernel used by `auto`.
+- `skills/evolve/runtime/`: optional Node Commit Kernel and Lifecycle
+  Coordinator used by `auto` and reconciliation.
 - `templates/.agent-context/`: new-workspace v1 shape.
 - `install/`: deterministic Bootstrap platform adapters.
 - `scripts/` and `tests/`: repository verification.
@@ -120,13 +140,14 @@ context growth as success by itself.
 npm test
 ```
 
-The full gate must cover the demo, schema fixtures, Commit Kernel behavior,
-Bootstrap dry-run/apply/idempotency, repository hygiene, and supported platform
-adapters.
+The full gate must cover the demo, schema fixtures, Commit Kernel and Lifecycle
+Coordinator behavior, Bootstrap dry-run/apply/idempotency, repository hygiene,
+and supported platform adapters.
 
 ## Non-Goals
 
-- No database, vector store, cloud sync, daemon, or general workflow engine.
+- No database, vector store, cloud sync, background reconciliation daemon, or
+  general workflow engine.
 - No automatic semantic merge of `AGENTS.md` or `CLAUDE.md`.
 - No public `repo`, `team`, or `kit` write scopes in v1.
 - No deterministic module for deciding what a project lesson means.

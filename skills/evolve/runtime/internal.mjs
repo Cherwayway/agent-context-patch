@@ -72,6 +72,87 @@ export function createCommitKernel({ replaceFile = rename, afterLockAcquired = a
 
 export const applyPatchPlan = createCommitKernel().applyPatchPlan;
 
+export async function inspectPatchPlanTargets(receivedPlan) {
+  let plan;
+  try {
+    plan = JSON.parse(JSON.stringify(receivedPlan));
+  } catch {
+    return targetInspectionProblem("invalid_plan");
+  }
+  const shapeProblem = validatePlanShape(plan);
+  if (shapeProblem) return targetInspectionProblem(shapeProblem);
+  if (plan.planHash !== computePlanHash(plan)) {
+    return targetInspectionProblem("plan_hash_mismatch", "conflict");
+  }
+
+  let workspaceStat;
+  try {
+    workspaceStat = await followStatMaybe(plan.workspaceRoot);
+  } catch {
+    return targetInspectionProblem("filesystem_error");
+  }
+  if (!workspaceStat?.isDirectory()) {
+    return targetInspectionProblem("invalid_workspace_root");
+  }
+
+  const contextRoot = resolve(plan.workspaceRoot, ".agent-context");
+  const seenTargets = new Set();
+  const operations = [];
+  try {
+    for (const operation of plan.operations) {
+      const prepared = await prepareOperationLocation(
+        plan,
+        contextRoot,
+        operation,
+        seenTargets,
+      );
+      if (prepared.problem) {
+        return targetInspectionProblem(
+          prepared.problem.reason,
+          prepared.problem.status,
+        );
+      }
+      const targetStat = await statMaybe(prepared.absoluteTarget);
+      const actualHash = targetStat
+        ? sha256(await readFile(prepared.absoluteTarget))
+        : null;
+      const afterHash = sha256Text(operation.content);
+      let state = "changed";
+      if (operation.type === "create") {
+        if (!targetStat) state = "before";
+        else if (actualHash === afterHash) state = "after";
+      } else if (!targetStat) {
+        state = "changed";
+      } else if (actualHash === operation.beforeHash) {
+        state = "before";
+      } else if (actualHash === afterHash) {
+        state = "after";
+      }
+      operations.push({
+        type: operation.type,
+        target: prepared.target,
+        beforeHash: operation.beforeHash,
+        afterHash,
+        actualHash,
+        state,
+      });
+    }
+  } catch {
+    return targetInspectionProblem("filesystem_error");
+  }
+
+  const states = new Set(operations.map(({ state }) => state));
+  const relation =
+    states.size === 1 && states.has("before")
+      ? "before"
+      : states.size === 1 && states.has("after")
+        ? "after"
+        : !states.has("changed")
+          ? "mixed"
+          : "changed";
+  return { status: "ready", relation, operations };
+}
+
 async function commitPatchPlan(plan, authorization, { replaceFile, afterLockAcquired }) {
   const receivedPlan = plan;
   try {
@@ -482,25 +563,14 @@ async function preflightOperations(plan, contextRoot, { approved, autoConfig }) 
   const operations = [];
   const seenTargets = new Set();
   for (const operation of plan.operations) {
-    const target = normalizeTarget(operation.target);
-    if (!target || seenTargets.has(targetKey(target))) {
-      return { problem: { status: "failed", reason: target ? "duplicate_target" : "unsafe_target" } };
-    }
-    if (isKernelReservedTarget(target)) {
-      return { problem: { status: "failed", reason: "kernel_reserved_target" } };
-    }
-    seenTargets.add(targetKey(target));
-
-    const absoluteTarget = resolve(plan.workspaceRoot, ...target.split("/"));
-    if (!isInside(contextRoot, absoluteTarget)) {
-      return { problem: { status: "failed", reason: "unsafe_target" } };
-    }
-    if (!(await isSymlinkFreeFilePath(contextRoot, absoluteTarget))) {
-      return { problem: { status: "failed", reason: "unsafe_target" } };
-    }
-    if (!isSupportedTarget(target)) {
-      return { problem: { status: "failed", reason: "target_not_supported" } };
-    }
+    const prepared = await prepareOperationLocation(
+      plan,
+      contextRoot,
+      operation,
+      seenTargets,
+    );
+    if (prepared.problem) return prepared;
+    const { target, absoluteTarget } = prepared;
     if (
       plan.semanticOperation !== "migration" &&
       target.startsWith(".agent-context/archive/") &&
@@ -551,6 +621,38 @@ async function preflightOperations(plan, contextRoot, { approved, autoConfig }) 
     if (migrationProblem) return { problem: migrationProblem };
   }
   return { operations };
+}
+
+async function prepareOperationLocation(plan, contextRoot, operation, seenTargets) {
+  const target = normalizeTarget(operation.target);
+  if (!target || seenTargets.has(targetKey(target))) {
+    return {
+      problem: {
+        status: "failed",
+        reason: target ? "duplicate_target" : "unsafe_target",
+      },
+    };
+  }
+  if (isKernelReservedTarget(target)) {
+    return { problem: { status: "failed", reason: "kernel_reserved_target" } };
+  }
+  seenTargets.add(targetKey(target));
+
+  const absoluteTarget = resolve(plan.workspaceRoot, ...target.split("/"));
+  if (!isInside(contextRoot, absoluteTarget)) {
+    return { problem: { status: "failed", reason: "unsafe_target" } };
+  }
+  if (!(await isSymlinkFreeFilePath(contextRoot, absoluteTarget))) {
+    return { problem: { status: "failed", reason: "unsafe_target" } };
+  }
+  if (!isSupportedTarget(target)) {
+    return { problem: { status: "failed", reason: "target_not_supported" } };
+  }
+  return { operation, target, absoluteTarget };
+}
+
+function targetInspectionProblem(reason, status = "failed") {
+  return { status, reason, relation: "invalid", operations: [] };
 }
 
 async function validateMigrationOperations(operations) {

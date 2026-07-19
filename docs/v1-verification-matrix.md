@@ -2,7 +2,9 @@
 
 This matrix maps the accepted decisions in
 `docs/adr/0001-agent-first-context-evolution.md` and
-`docs/adr/0003-auto-first-low-risk-context.md` to durable repository evidence.
+`docs/adr/0003-auto-first-low-risk-context.md`, plus the lifecycle extension in
+`docs/adr/0004-lifecycle-reconciliation-around-commit-kernel.md`, to durable
+repository evidence.
 It distinguishes executable guarantees from semantic Agent responsibilities so
 future changes do not turn documentation claims into untested promises.
 
@@ -12,6 +14,7 @@ future changes do not turn documentation claims into untested promises.
 | Scope | Workspace is the only active write scope; user-global is a sanitized, approved handoff. | proposal fixtures and validator; `references/protocol-v1.md` |
 | Write policy | Only `propose` and `auto`; new workspaces default to auto, existing config is preserved, and every automatic write still requires one complete live v1 config plus all target, domain, risk, health, and privacy gates. | default-policy contract; shared production config validator; installer preservation tests; kernel live-config and auto-gate tests |
 | Approval lifecycle | Eligible auto plans complete in the current Agent turn with a `policy_auto` Decision and one non-blocking receipt. `$evolve approve` handles exceptions and binds a complete persisted PatchPlan, including its semantic operation, to the exact external `planHash`. | auto-default Kernel outcome; applied `policy_auto` demo aggregate; fresh-Agent acceptance record; recomputed proposal/Decision/Attempt and exact-approval tests |
+| Lifecycle reconciliation | Unfinished exact auto or approved plans resume only from all-before state; all-after without an applied audit, mixed state, and semantic target drift fail closed. Current approval-only proposals remain non-blocking. A never-applied stale approval terminates only after a recognized conflict and a valid named replacement exists. | production proposal validator and shared auto-eligibility predicate; lifecycle coordinator, proposal-store retry, approval-waiting tighten, and target-inspection behavior tests; lock, idempotency, stale replacement, and content-safe result assertions |
 | Installation | Agent resolves semantics; Bootstrap plans deterministic files, validates the complete config envelope without Node, and never edits instructions. | shared PowerShell/Bash invalid/valid config, dry-run/apply/idempotency, and guidance-preservation tests |
 | Runtime capability | Bootstrap and propose do not require Node; the default auto path uses the Node kernel or explicitly downgrades with one blocking reason. | native installer adapters; skill and adapter auto-default contract; kernel tests |
 | Migration | Legacy context is read-only until a reviewed migration creates byte-identical backups and applies exact v1 updates; future schemas remain read-only. | legacy, invalid, missing-config, and future-schema tests; approved backup-and-migrate plus missing-backup kernel tests |
@@ -29,10 +32,12 @@ value, domain fit, wording, and whether a user-global candidate is sufficiently
 generalized. These decisions remain reviewable in the proposal aggregate.
 
 Proposal audit is also an explicit boundary: Decision Log and Apply Attempts do
-not enter `planHash`. The Agent records either `policy_auto` or exact approval
-before calling the kernel and persists the returned content-free ApplyAttempt
-afterward. An audit writeback failure is reported as `audit_write_pending` and
-retried; it never creates a second receipt source of truth.
+not enter `planHash`. The Agent or Lifecycle Coordinator records either
+`policy_auto` or exact approval before calling the kernel and persists the
+returned content-free ApplyAttempt afterward. An audit writeback failure is
+reported as `audit_write_pending`; a later all-after state becomes explicit
+audit recovery rather than inferred application. Neither path creates a second
+receipt source of truth.
 
 ## Required gate
 
