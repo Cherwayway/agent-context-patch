@@ -591,8 +591,8 @@ function normalizeAuditToken(value) {
   return token;
 }
 
-function validatePolicyAutoPlan(plan, expect) {
-  const eligible =
+export function isPolicyAutoEligiblePlan(plan) {
+  return (
     plan.requestedPolicy === "auto" &&
     plan.policy === "auto" &&
     plan.semanticOperation === "add" &&
@@ -600,8 +600,16 @@ function validatePolicyAutoPlan(plan, expect) {
     plan.currentFixStatus === "verified" &&
     plan.privacy?.safe === true &&
     plan.contextHealth?.autoAllowed === true &&
-    plan.operations.every((operation) => autoEligibleTarget(operation.target));
-  expect(eligible, "policy_auto Decision requires every auto eligibility gate");
+    Array.isArray(plan.operations) &&
+    plan.operations.every((operation) => autoEligibleTarget(operation.target))
+  );
+}
+
+function validatePolicyAutoPlan(plan, expect) {
+  expect(
+    isPolicyAutoEligiblePlan(plan),
+    "policy_auto Decision requires every auto eligibility gate",
+  );
 }
 
 function autoEligibleTarget(target) {

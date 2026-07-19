@@ -14,7 +14,8 @@ semantic versions for the Kit independently from the Workspace Schema version.
 - Production proposal parsing and validation shared by runtime reconciliation
   and repository verification.
 - Content-safe target-state inspection, proposal source-hash CAS writes, and a
-  workspace lifecycle lock for deterministic audit repair.
+  workspace lifecycle lock for deterministic audit repair, including bounded
+  exact-source retry after transient replacement failures.
 
 ### Changed
 
@@ -24,6 +25,8 @@ semantic versions for the Kit independently from the Workspace Schema version.
 - `$evolve after-failure`, `approve`, `review-context`, and `weekly` now
   reconcile unfinished proposal lifecycles before creating or reporting more
   work. Workspace Schema remains 1.
+- Current approval-only proposals remain non-blocking, while lifecycle resume
+  and proposal validation share one static `policy_auto` eligibility predicate.
 
 ## [0.4.0] - 2026-07-12
 

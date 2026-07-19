@@ -10,7 +10,8 @@ Read:
 
 1. `CONTEXT.md` for the domain language and module seams.
 2. `docs/adr/0001-agent-first-context-evolution.md` plus later superseding ADRs,
-   especially `docs/adr/0003-auto-first-low-risk-context.md`.
+   especially `docs/adr/0003-auto-first-low-risk-context.md` and
+   `docs/adr/0004-lifecycle-reconciliation-around-commit-kernel.md`.
 3. The relevant `skills/evolve/references/` file.
 
 Do not add a second source of truth for proposal lifecycle, write policy, domain
@@ -20,11 +21,15 @@ activation, or receipts.
 
 - Agent instructions own semantic judgment.
 - The Commit Kernel owns only deterministic commit safety.
+- The Lifecycle Coordinator owns only deterministic proposal reconciliation and
+  uses the Commit Kernel rather than absorbing it.
 - Bootstrap owns deterministic install file operations.
 - PowerShell/Bash and Codex/Claude are adapters at real seams.
 - Tests cross public interfaces and verify observable behavior.
 
-Do not create a new seam until a second real adapter exists.
+Do not create a new adapter abstraction until a second real adapter exists. A
+new deep-module seam needs an accepted ADR and multiple concrete workflow
+callers.
 
 ## Domain Packs
 

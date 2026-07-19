@@ -4,8 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { computePlanHash, sha256Text } from "../../skills/evolve/runtime/index.mjs";
 import { reconcileWorkspaceProposalLifecycles } from "../../skills/evolve/runtime/lifecycle.mjs";
-import { validateProposalDocument } from "../../skills/evolve/runtime/proposal.mjs";
+import {
+  inspectProposalDocument,
+  validateProposalDocument,
+} from "../../skills/evolve/runtime/proposal.mjs";
 
 const fixtureRoot = join(import.meta.dirname, "..", "verification", "fixtures");
 
@@ -142,6 +146,75 @@ test("a stale proposal without audit history is left untouched for semantic rege
     await readFile(targetPath, "utf8"),
     "# Project Profile\n\nDifferent live rule.\n",
   );
+});
+
+test("a current approval-only proposal is actionable without blocking unrelated workflows", async (t) => {
+  const workspaceRoot = await createWorkspace(t, { policy: "auto" });
+  const proposalPath = join(
+    workspaceRoot,
+    ".agent-context",
+    "proposals",
+    "2026-07-11-approval-waiting.md",
+  );
+  const before = "# Project Profile\n\nApproval baseline.\n";
+  const proposal = await approvalWaitingTightenFixture({ before });
+  await writeFile(proposalPath, proposal, "utf8");
+  await writeFile(
+    join(workspaceRoot, ".agent-context", "PROJECT_PROFILE.md"),
+    before,
+    "utf8",
+  );
+
+  const result = await reconcileWorkspaceProposalLifecycles({ workspaceRoot });
+
+  assert.deepEqual(result, {
+    status: "settled",
+    inspectedCount: 1,
+    outcomes: [
+      {
+        proposalId: "fixture-approval-waiting",
+        beforeStatus: "proposed",
+        afterStatus: "proposed",
+        action: "approval_required",
+        reason: "policy_requires_approval",
+        targets: [".agent-context/PROJECT_PROFILE.md"],
+      },
+    ],
+  });
+  assert.equal(await readFile(proposalPath, "utf8"), proposal);
+});
+
+test("a stale approval-waiting tighten proposal is marked for regeneration before approval", async (t) => {
+  const workspaceRoot = await createWorkspace(t, { policy: "auto" });
+  const proposalPath = join(
+    workspaceRoot,
+    ".agent-context",
+    "proposals",
+    "2026-07-11-stale-approval-waiting.md",
+  );
+  const before = "# Project Profile\n\nApproval baseline.\n";
+  const proposal = await approvalWaitingTightenFixture({ before });
+  await writeFile(proposalPath, proposal, "utf8");
+  await writeFile(
+    join(workspaceRoot, ".agent-context", "PROJECT_PROFILE.md"),
+    "# Project Profile\n\nA later unrelated addition.\n",
+    "utf8",
+  );
+
+  const result = await reconcileWorkspaceProposalLifecycles({ workspaceRoot });
+
+  assert.deepEqual(result.outcomes, [
+    {
+      proposalId: "fixture-approval-waiting",
+      beforeStatus: "proposed",
+      afterStatus: "proposed",
+      action: "regenerate_required",
+      reason: "target_state_changed",
+      targets: [".agent-context/PROJECT_PROFILE.md"],
+    },
+  ]);
+  assert.equal(result.status, "blocked");
+  assert.equal(await readFile(proposalPath, "utf8"), proposal);
 });
 
 test("matching afterHash without an applied audit is reported, never inferred", async (t) => {
@@ -439,4 +512,44 @@ async function staleAutoCreateFixture(replacementId) {
     .replace("error_summary: null", "error_summary: target_exists");
   stale = replaceSectionContent(stale, "Supersession", replacementId);
   return stale;
+}
+
+async function approvalWaitingTightenFixture({ before }) {
+  const source = await interruptedAutoFixture();
+  const inspected = inspectProposalDocument(source, "approval fixture base");
+  assert.deepEqual(inspected.failures, []);
+  const plan = structuredClone(inspected.value.plan);
+  plan.planId = "plan-fixture-approval-waiting";
+  plan.proposalId = "fixture-approval-waiting";
+  plan.semanticOperation = "tighten";
+  plan.requestedPolicy = "auto";
+  plan.policy = "propose";
+  plan.policyReason = "semantic_overlap_requires_approval";
+  plan.risk = "high";
+  plan.contextHealth.autoAllowed = false;
+  plan.operations = [
+    {
+      type: "update",
+      target: ".agent-context/PROJECT_PROFILE.md",
+      beforeHash: sha256Text(before),
+      content: "# Project Profile\n\nTightened approved rule.\n",
+    },
+  ];
+  const planHash = computePlanHash(plan);
+  return replacePatchPlan(
+    source
+      .replace("id: fixture-valid-auto", "id: fixture-approval-waiting")
+      .replace("operation: add", "operation: tighten")
+      .replace(/^plan_hash:[^\r\n]*$/mu, `plan_hash: ${planHash}`),
+    plan,
+  );
+}
+
+function replacePatchPlan(source, plan) {
+  const opening = source.indexOf("~~~~json");
+  assert.notEqual(opening, -1);
+  const jsonStart = source.indexOf("\n", opening) + 1;
+  const closing = source.indexOf("\n~~~~", jsonStart);
+  assert.notEqual(closing, -1);
+  return `${source.slice(0, jsonStart)}${JSON.stringify(plan, null, 2)}${source.slice(closing)}`;
 }

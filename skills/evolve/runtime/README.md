@@ -92,6 +92,11 @@ proposal ID, before/after status, action, machine-readable reason, and relative
 targets. A workspace-level failure may add `blockingReason`. No outcome includes
 proposal prose, PatchPlan content, target content, or an absolute path.
 
+`status: settled` means no unsafe mechanical lifecycle gap remains. It can still
+contain `approval_required` outcomes; those proposals are intentionally waiting
+for informed human review and do not block unrelated reconciliation, weekly
+reporting, or new failure handling.
+
 Matching `afterHash` without an applied Attempt is
 `audit_recovery_required`, never inferred application. Mixed before/after state
 requires manual recovery. Changed history-free proposals are left to the Agent
@@ -99,11 +104,13 @@ for semantic regeneration.
 
 Proposal writes use `.agent-context/.lifecycle-coordinator.lock`, validate the
 complete post-write aggregate, compare the source hash twice, write an exclusive
-same-directory `.tmp` file, and atomically rename it. The lock is ownership
-token based and is never deleted by age. After confirming no coordinator is
-active, remove that exact workspace-relative lock manually after a crash.
-There is no lifecycle daemon, startup scan, sidecar receipt, or alternate source
-of truth.
+same-directory `.tmp` file, and atomically rename it. A transient replacement
+failure retries the exact same audit source once in-process; an uncertain
+post-rename error is recognized idempotently from the desired source hash. The
+lock is ownership-token based and is never deleted by age. After confirming no
+coordinator is active, remove that exact workspace-relative lock manually after
+a crash. There is no lifecycle daemon, startup scan, sidecar receipt, or
+alternate source of truth.
 
 ## Result contract
 

@@ -4,19 +4,21 @@ import {
   open,
   readFile,
   readdir,
-  rename,
-  rm,
   stat,
   unlink,
 } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import { applyPatchPlan, sha256Text } from "./index.mjs";
 import { inspectPatchPlanTargets } from "./internal.mjs";
 import {
   inspectProposalDocument,
-  validateProposalDocument,
+  isPolicyAutoEligiblePlan,
 } from "./proposal.mjs";
+import {
+  readProposalUtf8,
+  writeProposalCas,
+} from "./proposal-store.mjs";
 
 const TERMINAL_STATUSES = new Set([
   "applied",
@@ -74,7 +76,7 @@ async function reconcileWhileLocked({ workspaceRoot, proposalsRoot, missing }) {
       continue;
     }
 
-    const sourceRead = await readUtf8File(proposalPath);
+    const sourceRead = await readProposalUtf8(proposalPath);
     if (sourceRead.problem) {
       inspectedCount += 1;
       outcomes.push(invalidProposalOutcome(entry.name, sourceRead.problem));
@@ -124,7 +126,8 @@ async function reconcileWhileLocked({ workspaceRoot, proposalsRoot, missing }) {
   return {
     status: outcomes.every(
       ({ action, afterStatus }) =>
-        action === "settled" || TERMINAL_STATUSES.has(afterStatus),
+        ["settled", "approval_required"].includes(action) ||
+        TERMINAL_STATUSES.has(afterStatus),
     )
       ? "settled"
       : "blocked",
@@ -257,7 +260,7 @@ async function reconcileProposal({
   }
 
   if (data.status === "proposed") {
-    if (!isExactAutoPlan(plan)) {
+    if (!isPolicyAutoEligiblePlan(plan)) {
       return {
         ...base,
         action: "approval_required",
@@ -407,18 +410,6 @@ async function resumeProposal({
   };
 }
 
-function isExactAutoPlan(plan) {
-  return (
-    plan.requestedPolicy === "auto" &&
-    plan.policy === "auto" &&
-    plan.semanticOperation === "add" &&
-    plan.risk === "low" &&
-    plan.currentFixStatus === "verified" &&
-    plan.privacy?.safe === true &&
-    plan.contextHealth?.autoAllowed === true
-  );
-}
-
 async function inspectWorkspace(workspaceRoot) {
   if (typeof workspaceRoot !== "string" || workspaceRoot.trim() === "") {
     return { problem: "invalid_workspace_root" };
@@ -475,56 +466,6 @@ async function releaseLifecycleLock(lock) {
     return true;
   } catch {
     return false;
-  }
-}
-
-async function writeProposalCas({ proposalPath, expectedHash, source }) {
-  if (validateProposalDocument(source, basename(proposalPath)).length > 0) {
-    return { problem: "invalid_audit_write" };
-  }
-  const current = await readUtf8File(proposalPath);
-  if (current.problem) return current;
-  if (sha256Text(current.source) !== expectedHash) {
-    return { problem: "proposal_source_changed" };
-  }
-
-  const temporaryPath = `${proposalPath}.${randomUUID()}.tmp`;
-  let handle;
-  try {
-    handle = await open(temporaryPath, "wx", 0o600);
-    await handle.writeFile(source, "utf8");
-    await handle.sync();
-    await handle.close();
-    handle = undefined;
-
-    const latest = await readUtf8File(proposalPath);
-    if (latest.problem || sha256Text(latest.source) !== expectedHash) {
-      await rm(temporaryPath, { force: true });
-      return { problem: latest.problem ?? "proposal_source_changed" };
-    }
-    await rename(temporaryPath, proposalPath);
-    return {};
-  } catch {
-    await handle?.close().catch(() => {});
-    await rm(temporaryPath, { force: true }).catch(() => {});
-    return { problem: "audit_write_failed" };
-  }
-}
-
-async function readUtf8File(path) {
-  try {
-    const fileStat = await lstat(path);
-    if (!fileStat.isFile() || fileStat.isSymbolicLink()) {
-      return { problem: "unsafe_proposal_path" };
-    }
-    const bytes = await readFile(path);
-    const source = bytes.toString("utf8");
-    if (!Buffer.from(source, "utf8").equals(bytes)) {
-      return { problem: "invalid_proposal_encoding" };
-    }
-    return { source };
-  } catch {
-    return { problem: "filesystem_error" };
   }
 }
 

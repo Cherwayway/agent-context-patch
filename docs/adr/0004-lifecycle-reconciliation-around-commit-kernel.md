@@ -65,6 +65,11 @@ Decision and continue through the Kernel. An existing exact human approval is
 durable across Agent turns while the persisted plan still validates and every
 target remains at `beforeHash`.
 
+A current proposal that requires human approval is already in its intended
+waiting state. The coordinator reports `approval_required`, but treats that
+outcome as non-blocking so unrelated failure handling, review, and reporting
+can continue.
+
 The coordinator never rewrites PatchPlan content, changes targets, re-evaluates
 project meaning, or generates a replacement. Those remain Agent
 responsibilities.
@@ -110,6 +115,11 @@ The coordinator protects them with:
 - a same-directory exclusive temporary file and atomic rename;
 - regular-file, symlink, and UTF-8 checks;
 - validation of the complete resulting proposal before write.
+
+If atomic replacement reports a transient failure, the coordinator retries the
+same validated audit source once in the same process. If replacement completed
+but its acknowledgement was lost, the retry recognizes the exact desired source
+hash as an idempotent success. It never creates a second Decision or Attempt.
 
 A crash may leave the lifecycle lock. After confirming no coordinator is
 active, an operator may remove that exact workspace-relative file manually.

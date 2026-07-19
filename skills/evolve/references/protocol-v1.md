@@ -133,12 +133,19 @@ and workspace-relative targets. It never returns target or PatchPlan content or
 an absolute path. It never generates wording, replaces a stale plan, creates a
 new proposal, or claims to repair an unknown audit gap.
 
+A result may be `settled` while listing `approval_required`: ordinary current
+approval-only proposals are intentionally waiting for review and do not block
+unrelated evolve workflows. Unsafe auto, stale, mixed, malformed, or audit-gap
+outcomes remain blocking.
+
 Proposal audit writes use `.agent-context/.lifecycle-coordinator.lock`, a
 source-hash compare-and-swap check, a same-directory temporary file, and atomic
-replacement. A lock is never deleted based on age. After verifying no
-coordinator is active, remove that exact lock manually if a crashed process left
-it behind. Reconciliation creates no receipt sidecar and never runs as a daemon,
-startup hook, installer scan, or update scan.
+replacement. A transient replacement failure retries the same validated audit
+source once in the same process, and an uncertain post-rename result is checked
+idempotently against the desired source hash. A lock is never deleted based on
+age. After verifying no coordinator is active, remove that exact lock manually
+if a crashed process left it behind. Reconciliation creates no receipt sidecar
+and never runs as a daemon, startup hook, installer scan, or update scan.
 
 ## PatchPlan
 
