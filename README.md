@@ -1,15 +1,96 @@
 # Agent Context Patch
 
-Turn recurring Agent mistakes into small, durable, reviewable workspace
-context.
+[简体中文](README.zh-CN.md) ·
+[Latest release](https://github.com/Cherwayway/agent-context-patch/releases/latest) ·
+[Install guide](AGENT_INSTALL.md) ·
+[Report feedback](https://github.com/Cherwayway/agent-context-patch/issues/new?template=feedback.yml)
 
-Agent Context Patch is Agent-first: a capable Agent decides what a lesson means
-and drafts the context patch. New workspaces default to `auto`, backed by a
-small deterministic Commit Kernel. Safe local improvements finish in the same
-Agent turn; a shared Evolution Outcome reports delivery consistently, and human
-review is reserved for safety exceptions.
+[![Verification](https://github.com/Cherwayway/agent-context-patch/actions/workflows/verification.yml/badge.svg)](https://github.com/Cherwayway/agent-context-patch/actions/workflows/verification.yml)
+[![Latest release](https://img.shields.io/github/v/release/Cherwayway/agent-context-patch)](https://github.com/Cherwayway/agent-context-patch/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-The loop is:
+**Your coding Agent fixed this last week. Today, it made the same mistake
+again.**
+
+Agent Context Patch turns verified corrections into small, durable workspace
+memory for **Claude Code and OpenAI Codex**. Later Agent tasks load the useful
+lesson instead of rediscovering it from an old chat.
+
+It is local and inspectable: no hosted service, no daemon, no telemetry, and no
+silent global instruction edits.
+
+## See The Difference
+
+| Without Agent Context Patch | With Agent Context Patch |
+| --- | --- |
+| A fix lives only in chat history. | The Agent identifies the reusable part after the fix passes verification. |
+| A later task starts cold and repeats the mistake. | The lesson becomes a small workspace context patch that later tasks read. |
+| Instructions accumulate until they are noisy or contradictory. | New lessons use replace-before-add; stale or risky changes go through review. |
+
+For example, the executable fresh-Agent acceptance starts with a failing
+greeting test that discards caller-provided names. The Agent fixes and verifies
+the behavior, then adds one reusable guard to workspace context. The exact
+user-facing result stays content-safe:
+
+```text
+Evolution outcome: detect=candidate; propose=created; apply=applied; proposal=2026-07-19-caller-input-data-flow; targets=.agent-context/checklists/coding.md.
+```
+
+The durable context contains the guard; the receipt never exposes lesson or
+PatchPlan content.
+
+The useful path stays short:
+
+```text
+verified failure -> reusable lesson -> safe context patch -> later Agent tasks
+```
+
+Ordinary one-off work stays out of the loop.
+
+## Quick Install
+
+Copy this prompt into Codex or Claude Code:
+
+```text
+Install the latest stable Agent Context Patch from
+https://github.com/Cherwayway/agent-context-patch/releases/latest and follow
+AGENT_INSTALL.md. Resolve an immutable release, verify its checksum, run the
+Bootstrap dry-run, and show me the plan plus the AGENTS.md or CLAUDE.md patch
+before applying. After the approved install, run $evolve init.
+```
+
+Stable installs use GitHub-enforced immutable Releases. The moving `main`
+branch is a development source, not a normal install source. Bootstrap never
+merges an existing `AGENTS.md` or `CLAUDE.md` by itself.
+
+## When It Helps
+
+Use Agent Context Patch when:
+
+- a long-lived workspace keeps accumulating repeated Agent corrections;
+- multiple Agent tasks or tools need the same repository-specific lessons;
+- an important workflow is easy to forget after context compaction;
+- existing instructions have become stale, duplicated, or contradictory.
+
+Skip it for an unverified guess, a one-off change, or anything that would store
+secrets, raw conversations, customer data, or production credentials.
+
+## What Makes It Safe
+
+- The Agent owns semantic judgment: what happened, whether it is reusable, and
+  what the smallest useful lesson is.
+- Active Context stays small through replace-before-add and explicit cleanup.
+- A deterministic Commit Kernel handles file safety, exact plans, conflicts,
+  audit evidence, and rollback boundaries.
+- Eligible low-risk workspace additions can finish in the same Agent turn.
+  Approval-only operations stay behind review; see
+  [Write Policies](#write-policies).
+
+[See the executable demo](demos/README.md), the
+[fresh-Agent acceptance evidence](docs/acceptance/2026-07-19-observable-delivery-checkpoint.md),
+or the [architecture](CONTEXT.md).
+
+## How It Works
 
 1. Detect a reusable failure, correction, stale rule, or workflow lesson.
 2. Fix and verify the current task first.
@@ -29,38 +110,8 @@ new public command.
 After a verified repair, the delivery checkpoint runs only for a high-signal
 event: a failed verification that later passed, an explicit user correction,
 an independent QA defect, stale workspace context, or a first fix that failed
-before a later fix passed. The Agent decides whether a reusable candidate
-exists; the Outcome Interface accepts exact Lifecycle Coordinator evidence
-before it can report `applied`. An ordinary no-trigger task stays silent and
-creates no proposal or durable context write merely to report a no-op.
-
-## Quick Install
-
-Ask your Agent:
-
-```text
-Install the latest stable Agent Context Patch from
-https://github.com/Cherwayway/agent-context-patch/releases/latest. Resolve it to
-one GitHub-enforced immutable tag and source commit, download that exact
-Release, and verify its published checksum before running its AGENT_INSTALL.md.
-Run Bootstrap dry-run first, show the exact plan hash and the separate AGENTS.md
-or CLAUDE.md patch, then ask before applying. After the install, run $evolve
-init automatically; apply eligible low-risk workspace context without another
-approval and ask only for approval-only init changes.
-```
-
-Stable installs use GitHub-enforced immutable Releases. The moving `main`
-branch is a development source, not a normal install source.
-
-Default placement:
-
-- The `$evolve` skill and optional Node Commit Kernel install in the Agent's
-  user-level skill directory.
-- The short trigger fragment and `.agent-context/` install in the workspace.
-- A global trigger is explicit opt-in.
-
-Bootstrap itself never merges existing `AGENTS.md` or `CLAUDE.md`. The Agent
-must show that semantic patch separately.
+before a later fix passed. An ordinary no-trigger task stays silent and creates
+no proposal or durable context write merely to report a no-op.
 
 ## Local Bootstrap Development
 

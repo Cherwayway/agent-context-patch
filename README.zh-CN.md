@@ -1,19 +1,92 @@
 # Agent Context Patch
 
-把 Agent 反复犯过的错误，变成短小、持久、可审阅的 workspace context。
+[English](README.md) ·
+[最新 Release](https://github.com/Cherwayway/agent-context-patch/releases/latest) ·
+[安装指南](AGENT_INSTALL.md) ·
+[反馈问题](https://github.com/Cherwayway/agent-context-patch/issues/new?template=feedback.yml)
 
-Agent Context Patch 采用 Agent-first：旗舰 Agent 负责理解项目、判断经验是否值得沉淀、
-生成 context patch。新 workspace 默认使用 `auto`，由很薄的 deterministic Commit Kernel
-负责安全提交；低风险本地改进在当前 Agent 回合直接完成，由共享 Evolution Outcome 统一报告，
-人工决策只留给安全例外。
+[![Verification](https://github.com/Cherwayway/agent-context-patch/actions/workflows/verification.yml/badge.svg)](https://github.com/Cherwayway/agent-context-patch/actions/workflows/verification.yml)
+[![Latest release](https://img.shields.io/github/v/release/Cherwayway/agent-context-patch)](https://github.com/Cherwayway/agent-context-patch/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-默认循环：
+**你的 Coding Agent 上周刚修过这个错误，今天却又犯了一次。**
+
+Agent Context Patch 把已经验证过的纠正，变成 **Claude Code 和 OpenAI Codex**
+都能在后续任务中读取的短小 workspace memory。Agent 不必再从旧对话里重新发现同一条经验。
+
+它完全本地、可以审阅：没有托管服务、后台守护进程和遥测，也不会静默修改全局指令。
+
+## 使用前后
+
+| 没有 Agent Context Patch | 使用 Agent Context Patch |
+| --- | --- |
+| 修复只存在于聊天记录中。 | 修复验证通过后，Agent 判断其中是否有可复用经验。 |
+| 下一次任务冷启动，再次犯错。 | 经验成为短小的 workspace context patch，供后续任务读取。 |
+| 指令不断追加，逐渐重复甚至冲突。 | 新经验先替换再新增；过期或高风险改动进入人工审阅。 |
+
+例如，可执行的 fresh-Agent 验收从一个“丢弃调用方姓名”的失败 greeting 测试开始。
+Agent 修复并验证行为，再把一条可复用 guard 写入 workspace context。真实的用户回执
+保持 content-safe：
+
+```text
+Evolution outcome: detect=candidate; propose=created; apply=applied; proposal=2026-07-19-caller-input-data-flow; targets=.agent-context/checklists/coding.md.
+```
+
+持久 context 保存 guard；回执永远不会暴露经验正文或 PatchPlan 内容。
+
+有效路径保持很短：
+
+```text
+验证过的失败 -> 可复用经验 -> 安全 context patch -> 后续 Agent 任务
+```
+
+普通的一次性工作不会进入这个循环。
+
+## 快速安装
+
+把下面这段话交给 Codex 或 Claude Code：
+
+```text
+从 https://github.com/Cherwayway/agent-context-patch/releases/latest 安装最新稳定版
+Agent Context Patch，并严格遵循 AGENT_INSTALL.md。解析不可变 Release、验证 checksum、
+先运行 Bootstrap dry-run，并在应用前向我展示完整计划以及 AGENTS.md 或 CLAUDE.md
+语义 patch。批准安装后，运行 $evolve init。
+```
+
+正式安装只使用由 GitHub 强制不可变的 Release；持续变化的 `main` 只作为开发源。
+Bootstrap 永远不会自行合并已有的 `AGENTS.md` 或 `CLAUDE.md`。
+
+## 适合什么场景
+
+适合：
+
+- 长期 workspace 不断出现 Agent 重复犯错或用户重复纠正；
+- 多个 Agent 任务或工具需要共享同一批仓库经验；
+- context compaction 后，关键工作流容易被遗忘；
+- 现有指令已经过期、重复或互相冲突。
+
+不适合尚未验证的猜测和普通一次性修改，也绝不能用来保存 secrets、原始对话、
+客户数据或生产凭据。
+
+## 为什么安全
+
+- Agent 负责语义判断：发生了什么、是否值得复用、最小有效经验是什么。
+- Active Context 遵循“先替换再新增”，并显式清理过期内容。
+- deterministic Commit Kernel 只负责文件安全、精确计划、冲突、审计证据与回滚边界。
+- 合格的低风险 workspace 新增可以在当前 Agent 回合完成；approval-only 操作始终
+  进入人工审阅，完整边界见[写入策略](#写入策略)。
+
+可以继续查看[可执行 Demo](demos/README.md)、
+[fresh-Agent 验收证据](docs/acceptance/2026-07-19-observable-delivery-checkpoint.md)
+或[架构说明](CONTEXT.md)。
+
+## 工作原理
 
 1. 发现可复用的失败、纠正、过期规则或工作流经验。
 2. 先修复并验证当前任务。
 3. 先协调未完成的 proposal 生命周期，再检查 Active Context，优先替换而不是追加。
 4. 生成带证据和精确 PatchPlan 的内部审计记录。
-5. 由 `auto` 通过 Commit Kernel 立即应用合格的低风险计划，再返回一条内容安全的
+5. 由 `auto` 通过 Commit Kernel 立即应用合格的低风险计划，再返回内容安全的
    `detect / propose / apply` 简短回执。
 6. 只有安全门禁要求例外决策时才询问用户，并持续提出语义清理 proposal。
 
@@ -23,35 +96,7 @@ applied 审计时也只会进入恢复流程，不能据此反推“就是本 pr
 
 当前修复验证通过后，只有出现高信号事件才运行 delivery checkpoint：失败验证后来通过、
 用户明确纠正、独立 QA 缺陷、发现过期 workspace context，或首个修复失败而后续修复通过。
-是否存在可复用候选仍由 Agent 判断；Outcome Interface 必须拿到精确 Lifecycle Coordinator
-证据后才能报告 `applied`。普通无触发任务保持静默，不会为了报告 no-op 创建 proposal 或
-持久化 context 写入。
-
-## 快速安装
-
-把下面这段话交给 Agent：
-
-```text
-Install the latest stable Agent Context Patch from
-https://github.com/Cherwayway/agent-context-patch/releases/latest. Resolve it to
-one GitHub-enforced immutable tag and source commit, download that exact
-Release, and verify its published checksum before running its AGENT_INSTALL.md.
-Run Bootstrap dry-run first, show the exact plan hash and the separate AGENTS.md
-or CLAUDE.md patch, then ask before applying. After the install, run $evolve
-init automatically; apply eligible low-risk workspace context without another
-approval and ask only for approval-only init changes.
-```
-
-正式安装只使用由 GitHub 强制不可变的 Release；持续变化的 `main` 只作为开发源。
-
-默认安装位置：
-
-- `$evolve` skill 和可选 Node Commit Kernel 安装在 Agent 的 user-level skill 目录；
-- 短 guidance fragment 与 `.agent-context/` 安装在 workspace；
-- global trigger 只允许显式 opt-in。
-
-Bootstrap 永远不会自动合并已有 `AGENTS.md` / `CLAUDE.md`；Agent 必须单独展示
-语义 patch 并请求批准。
+普通无触发任务保持静默，不会为了报告 no-op 创建 proposal 或持久化 context 写入。
 
 ## 本地 Bootstrap 开发
 
