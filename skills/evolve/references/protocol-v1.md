@@ -140,6 +140,13 @@ and workspace-relative targets. It never returns target or PatchPlan content or
 an absolute path. It never generates wording, replaces a stale plan, creates a
 new proposal, or claims to repair an unknown audit gap.
 
+When an exact plan reaches `applied`, reconciliation repeats over the stable
+proposal cohort until one pass performs no new successful application. Each
+proposal contributes only its latest outcome, while an applied transition is
+retained after that proposal becomes terminal. The returned status therefore
+describes state after the coordinator's own writes rather than the order in
+which proposal filenames were inspected.
+
 A result may be `settled` while listing `approval_required`: ordinary current
 approval-only proposals are intentionally waiting for review and do not block
 unrelated evolve workflows. Unsafe auto, stale, mixed, malformed, or audit-gap

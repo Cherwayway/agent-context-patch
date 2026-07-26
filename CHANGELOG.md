@@ -5,6 +5,18 @@ semantic versions for the Kit independently from the Workspace Schema version.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-07-26
+
+### Fixed
+
+- Lifecycle reconciliation now performs bounded post-application passes so one
+  call cannot report `settled` when its own exact application has already made
+  an earlier sibling proposal stale.
+- Coordinator results are independent of proposal filename order while
+  unrelated approval-waiting proposals remain non-blocking.
+- The real Coordinator-to-Outcome path now verifies that a post-application
+  sibling blocker cannot produce an applied-success receipt.
+
 ## [0.5.1] - 2026-07-19
 
 ### Added

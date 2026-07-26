@@ -95,6 +95,12 @@ proposal ID, before/after status, action, machine-readable reason, and relative
 targets. A workspace-level failure may add `blockingReason`. No outcome includes
 proposal prose, PatchPlan content, target content, or an absolute path.
 
+If reconciliation applies exact work, it re-reads the stable proposal cohort
+until a pass performs no new successful application. The final result therefore
+reflects target and policy state after the coordinator's own writes, independent
+of proposal filename order. It retains one latest outcome per inspected
+proposal, including the applied transition for a proposal that became terminal.
+
 `status: settled` means no unsafe mechanical lifecycle gap remains. It can still
 contain `approval_required` outcomes; those proposals are intentionally waiting
 for informed human review and do not block unrelated reconciliation, weekly
