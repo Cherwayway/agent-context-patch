@@ -16,6 +16,8 @@ semantic versions for the Kit independently from the Workspace Schema version.
   unrelated approval-waiting proposals remain non-blocking.
 - The real Coordinator-to-Outcome path now verifies that a post-application
   sibling blocker cannot produce an applied-success receipt.
+- Applied Coordinator results now carry explicit post-application verification,
+  which the Outcome Interface requires before it can publish success.
 
 ## [0.5.1] - 2026-07-19
 

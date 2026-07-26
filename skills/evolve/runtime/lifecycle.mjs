@@ -72,6 +72,7 @@ async function reconcileWhileLocked({ workspaceRoot, proposalsRoot, missing }) {
     isProposalCandidate(entry.name),
   ).length;
   const outcomesByEntry = new Map();
+  let applicationSeen = false;
 
   for (let pass = 0; pass <= candidateCount; pass += 1) {
     const passOutcomes = await reconcilePass({
@@ -82,9 +83,10 @@ async function reconcileWhileLocked({ workspaceRoot, proposalsRoot, missing }) {
     for (const { entryName, outcome } of passOutcomes) {
       outcomesByEntry.set(entryName, outcome);
     }
-    if (
-      !passOutcomes.some(({ outcome }) => isAppliedLifecycleOutcome(outcome))
-    ) {
+    const appliedThisPass = passOutcomes.some(({ outcome }) =>
+      isAppliedLifecycleOutcome(outcome),
+    );
+    if (!appliedThisPass) {
       const outcomes = [...outcomesByEntry.values()];
       const status = deriveLifecycleReconciliationStatus(outcomes);
       if (status === undefined) throw new TypeError("invalid_lifecycle_outcome");
@@ -92,8 +94,10 @@ async function reconcileWhileLocked({ workspaceRoot, proposalsRoot, missing }) {
         status,
         inspectedCount: outcomes.length,
         outcomes,
+        ...(applicationSeen ? { postApplicationVerified: true } : {}),
       };
     }
+    applicationSeen = true;
   }
 
   throw new TypeError("lifecycle_reconciliation_not_quiescent");

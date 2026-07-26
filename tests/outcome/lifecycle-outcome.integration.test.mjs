@@ -11,6 +11,10 @@ import {
 import { reconcileWorkspaceProposalLifecycles } from "../../skills/evolve/runtime/lifecycle.mjs";
 import { finalizeEvolutionOutcome } from "../../skills/evolve/runtime/outcome.mjs";
 import { inspectProposalDocument } from "../../skills/evolve/runtime/proposal.mjs";
+import {
+  replacePatchPlan,
+  replaceSectionContent,
+} from "../lifecycle/proposal-fixture-helpers.mjs";
 
 const fixtureRoot = join(import.meta.dirname, "..", "verification", "fixtures");
 
@@ -52,6 +56,7 @@ test("the delivery checkpoint reports applied only after the real coordinator re
     reconciliation,
   });
 
+  assert.equal(reconciliation.postApplicationVerified, true);
   assert.deepEqual(result.apply, { status: "applied", reason: "applied" });
   assert.deepEqual(result.targets, [".agent-context/PROJECT_PROFILE.md"]);
   assert.equal(result.receipt.kind, "applied");
@@ -148,6 +153,7 @@ test("the delivery checkpoint blocks success when the same apply makes a sibling
   });
 
   assert.equal(reconciliation.status, "blocked");
+  assert.equal(reconciliation.postApplicationVerified, true);
   assert.deepEqual(result.apply, {
     status: "blocked",
     reason: "workspace_reconciliation_blocked",
@@ -155,15 +161,6 @@ test("the delivery checkpoint blocks success when the same apply makes a sibling
   assert.equal(result.receipt.kind, "blocked");
   assert.doesNotMatch(result.receipt.text, /apply=applied/u);
 });
-
-function replaceSectionContent(source, heading, content) {
-  const marker = `## ${heading}`;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `fixture is missing ${marker}`);
-  const next = source.indexOf("\n## ", start + marker.length);
-  const end = next === -1 ? source.length : next;
-  return `${source.slice(0, start + marker.length)}\n\n${content}\n${source.slice(end)}`;
-}
 
 function proposalFixture(source, { id, operation, plan }) {
   let proposal = source
@@ -177,13 +174,4 @@ function proposalFixture(source, { id, operation, plan }) {
   proposal = replaceSectionContent(proposal, "Decision Log", "None.");
   proposal = replaceSectionContent(proposal, "Apply Attempts", "None.");
   return replacePatchPlan(proposal, plan);
-}
-
-function replacePatchPlan(source, plan) {
-  const opening = source.indexOf("~~~~json");
-  assert.notEqual(opening, -1);
-  const jsonStart = source.indexOf("\n", opening) + 1;
-  const closing = source.indexOf("\n~~~~", jsonStart);
-  assert.notEqual(closing, -1);
-  return `${source.slice(0, jsonStart)}${JSON.stringify(plan, null, 2)}${source.slice(closing)}`;
 }

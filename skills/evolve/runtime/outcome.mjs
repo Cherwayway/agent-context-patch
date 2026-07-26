@@ -220,6 +220,14 @@ function inspectLifecycleEvidence(reconciliation, proposalId) {
   ) {
     return { problem: "invalid_lifecycle_evidence" };
   }
+  if (
+    reconciliation.outcomes.some((outcome) =>
+      isAppliedLifecycleOutcome(outcome),
+    ) &&
+    reconciliation.postApplicationVerified !== true
+  ) {
+    return { problem: "invalid_lifecycle_evidence" };
+  }
   const matches = inspectedOutcomes.filter(
     ({ outcome }) => outcome.proposalId === proposalId,
   );

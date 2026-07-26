@@ -31,7 +31,9 @@ reconcileWorkspaceProposalLifecycles({ workspaceRoot })
 
 No pass counter, dependency graph, semantic ordering, or new public action is
 added. Callers continue to receive one content-safe outcome per inspected
-proposal and `inspectedCount === outcomes.length`.
+proposal and `inspectedCount === outcomes.length`. When the call applied work
+and then completed a no-new-application observation pass, it also returns
+`postApplicationVerified: true`.
 
 ### 2. Reconcile a stable proposal cohort to post-application quiescence
 
@@ -75,7 +77,9 @@ remain Agent responsibilities.
   proposal sorts first.
 - Unrelated approval-waiting proposals remain non-blocking.
 - The Outcome Interface receives complete final sibling evidence and therefore
-  cannot publish a false applied-success receipt.
+  cannot publish a false applied-success receipt. It requires
+  `postApplicationVerified: true` before accepting any applied transition, so a
+  structurally plausible pre-fix result fails closed.
 - Runtime work can include more than one proposal scan, but no new filesystem
   or semantic surface is exposed to callers.
 
