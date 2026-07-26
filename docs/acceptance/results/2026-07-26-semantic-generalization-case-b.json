@@ -3,10 +3,10 @@
   "caseId": "case-b",
   "freshContext": true,
   "inputDigests": {
-    "skills/evolve/SKILL.md": "0deeefcb744841cdb1d82352c43b4668894bc4cba5a74fc520aca39ba96278f7",
-    "skills/evolve/references/cleanup-policy.md": "16dce06b16e96c32dc444e22c87d576ca4ee9f519d83ce09bed9021b73379c67",
+    "skills/evolve/SKILL.md": "90e56864aa15560d447f7c435634c90ddf848507832ba60827a9a5dd0855f10b",
+    "skills/evolve/references/cleanup-policy.md": "592735477b24f215c4def0f6ad1d4c5bf9e2a4ab62330950d5782e7b4d40de7d",
     "tests/acceptance/fixtures/review-context-semantic-generalization.json": "038cca94e9582fa514f29a72bafa1328baa7f56201acbae61e32d1f23836581c",
-    "tests/acceptance/review-context-semantic-generalization.runner.json": "d18af6344cc1b6aafbdc92903ff1ad7fc153d99b9f5cc77ec6dfae38a5782fe8",
+    "tests/acceptance/review-context-semantic-generalization.runner.json": "6fe7d783080be40c268d78bef1fd9159d918cff0c33ca0975978930de216eede",
     "tests/acceptance/review-context-semantic-generalization-result.schema.json": "e3b84da818b93a9c65bd783ca9b88f35fdc87f0759ab7a685380d5e36dd822fa"
   },
   "decision": "no_candidate",

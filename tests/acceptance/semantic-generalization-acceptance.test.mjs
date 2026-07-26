@@ -11,11 +11,19 @@ const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 const runnerPath =
   "tests/acceptance/review-context-semantic-generalization.runner.json";
 
+test("semantic input digests ignore checkout line endings", () => {
+  assert.equal(sha256("first\nsecond\n"), sha256("first\r\nsecond\r\n"));
+});
+
 test("fresh-context semantic review has a reusable bounded runner contract", () => {
   const runner = readJson(runnerPath);
   const schema = readJson(runner.resultSchemaPath);
 
   assert.equal(runner.schemaVersion, 1);
+  assert.deepEqual(runner.inputDigest, {
+    algorithm: "sha256",
+    textNormalization: "lf",
+  });
   assert.deepEqual(runner.allowedInputs, [
     "skills/evolve/SKILL.md",
     "skills/evolve/references/cleanup-policy.md",
@@ -225,5 +233,6 @@ function readJson(relativePath) {
 }
 
 function sha256(value) {
-  return createHash("sha256").update(value).digest("hex");
+  const canonicalText = value.replace(/\r\n?/gu, "\n");
+  return createHash("sha256").update(canonicalText).digest("hex");
 }
