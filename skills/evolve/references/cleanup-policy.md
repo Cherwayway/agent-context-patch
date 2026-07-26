@@ -16,6 +16,46 @@ Before adding an active rule, compare it with current rules:
 
 Auto is not allowed when overlap, replacement, or semantic removal is involved.
 
+## Generalize by behavior shape
+
+When several verified rules may describe one recurring failure, compare the
+behavior chain rather than their nouns:
+
+~~~text
+responsibility -> trigger -> reachable execution path
+               -> intended state or effect -> observable verification
+~~~
+
+Identify the broken stage in that chain and the verified result. A button, CLI
+option, extension hook, and scheduled job can share one failure shape even
+though their surfaces differ. Conversely, shared words or surfaces do not make
+accessibility, privacy, idempotency, and time-semantics failures one cluster.
+
+Propose a higher-order invariant only when one concise, testable rule covers
+every included case without weakening its acceptance. The proposed active rule
+must say when it applies, what execution or state guarantee is required, and
+what must be observed. Preserve domain details that remain necessary in the
+relevant checklist or replacement wording. If subsumption cannot be explained
+with concrete exclusions or counterexamples, retain the separate rules.
+
+Semantic clustering is Agent-owned judgment. Do not introduce keyword scores,
+similarity thresholds, embeddings, or deterministic auto-merge behavior.
+
+## Bounded evidence reading
+
+Use a summary-first, two-stage review:
+
+1. Compare Active Context and pointer-first summaries for responsibility,
+   broken behavior stage, verification result, and source proposal ID.
+2. Shortlist only plausible overlaps, then read those proposal aggregates and
+   current sources deeply enough to prove or reject subsumption.
+
+Do not load all proposal history after every failure. `$evolve after-failure`
+may inspect related applied-proposal summaries only when Active Context suggests
+the same responsibility or failure shape. `$evolve review-context` may scan the
+bounded summary surface before deep reading. `$evolve weekly` surfaces review
+candidates only; it never performs a semantic merge.
+
 ## Authority
 
 Use authority to resolve conflicting claims:
@@ -63,10 +103,13 @@ Generate a cleanup proposal when:
 For every affected rule, include:
 
 - exact rule and source proposal when known
+- subsumed proposal IDs and short evidence summaries
 - current purpose and evidence
 - authority and retention value
 - overlap, conflict, or staleness evidence
 - proposed operation and replacement
+- preserved domain details
+- exclusions and counterexamples
 - behavior lost if approved
 - net active-context change
 

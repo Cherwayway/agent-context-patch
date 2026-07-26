@@ -16,7 +16,7 @@ test("package, skill manifest, and context schema versions agree", () => {
   const manifest = readJson("skills/evolve/manifest.json");
   const config = parseYamlSubset(read("templates/.agent-context/config.yml"), "template config");
 
-  assert.equal(packageJson.version, "0.5.2");
+  assert.equal(packageJson.version, "0.5.3");
   assert.equal(packageJson.engines?.node, ">=20");
   assert.equal(manifest.kit, "agent-context-patch");
   assert.equal(manifest.version, packageJson.version);
@@ -146,6 +146,106 @@ test("the observable delivery fresh-Agent acceptance evidence is retained", () =
   assert.match(acceptance, /no evolution receipt/iu);
   assert.match(acceptance, /no raw conversation/iu);
   assert.match(acceptance, /no private absolute workspace path/iu);
+});
+
+test("semantic generalization remains an Agent-owned reviewed workflow", () => {
+  const skill = read("skills/evolve/SKILL.md");
+  const cleanupPolicy = read("skills/evolve/references/cleanup-policy.md");
+  const fixture = readJson(
+    "tests/acceptance/fixtures/review-context-semantic-generalization.json",
+  );
+  const runtime = [
+    "skills/evolve/runtime/index.mjs",
+    "skills/evolve/runtime/lifecycle.mjs",
+    "skills/evolve/runtime/outcome.mjs",
+  ]
+    .map(read)
+    .join("\n");
+
+  for (const behaviorField of [
+    "responsibility",
+    "trigger",
+    "reachable execution path",
+    "intended state or effect",
+    "observable verification",
+  ]) {
+    assert.ok(
+      cleanupPolicy.toLowerCase().includes(behaviorField),
+      `cleanup policy is missing behavior-shape field: ${behaviorField}`,
+    );
+  }
+  for (const evidenceField of [
+    "proposal ids",
+    "preserved domain details",
+    "counterexamples",
+    "behavior lost",
+    "net active-context change",
+  ]) {
+    assert.ok(
+      cleanupPolicy.toLowerCase().includes(evidenceField),
+      `cleanup policy is missing consolidation evidence: ${evidenceField}`,
+    );
+  }
+  assert.match(skill, /summary-first/iu);
+  assert.match(skill, /shortlist/iu);
+  assert.match(skill, /same responsibility/iu);
+  assert.doesNotMatch(runtime, /embedding|similarity threshold|semantic cluster/iu);
+
+  assert.equal(fixture.schemaVersion, 1);
+  assert.equal(fixture.cases.length, 2);
+  for (const scenario of fixture.cases) {
+    assert.ok(scenario.appliedProposals.length >= 4);
+    assert.equal(
+      new Set(scenario.appliedProposals.map(({ id }) => id)).size,
+      scenario.appliedProposals.length,
+    );
+    for (const proposal of scenario.appliedProposals) {
+      assert.equal(proposal.status, "applied");
+      for (const field of [
+        "surface",
+        "responsibility",
+        "trigger",
+        "executionPath",
+        "intendedEffect",
+        "observableVerification",
+        "failureStage",
+        "domainDetail",
+      ]) {
+        assert.equal(typeof proposal[field], "string");
+        assert.ok(proposal[field].length > 0);
+      }
+    }
+  }
+  assert.ok(
+    new Set(fixture.cases[0].appliedProposals.map(({ surface }) => surface))
+      .size >= 4,
+    "positive fixture must cross implementation nouns and domains",
+  );
+});
+
+test("semantic generalization has positive and negative fresh-Agent evidence", () => {
+  const acceptance = read(
+    "docs/acceptance/2026-07-26-semantic-generalization.md",
+  );
+
+  assert.match(acceptance, /^- Candidate Kit Version: 0\.5\.3$/mu);
+  assert.match(acceptance, /^- Fresh Agents: 2$/mu);
+  assert.match(acceptance, /^- Result: PASS$/mu);
+  assert.match(acceptance, /Case A[\s\S]*decision: `candidate`/u);
+  assert.match(acceptance, /four rules to\s+one invariant/u);
+  assert.match(acceptance, /human approval/u);
+  assert.match(acceptance, /Case B[\s\S]*decision: `no_candidate`/u);
+  assert.match(acceptance, /net active-context change was zero/u);
+  for (const proposalId of [
+    "2026-07-01-visible-control-dispatch",
+    "2026-07-02-cli-option-execution",
+    "2026-07-03-extension-hook-invocation",
+    "2026-07-04-scheduled-job-execution",
+  ]) {
+    assert.ok(acceptance.includes(proposalId));
+  }
+  assert.match(acceptance, /no raw conversation/iu);
+  assert.match(acceptance, /no private absolute path/iu);
 });
 
 test("lifecycle transitions have one Coordinator-owned runtime contract", () => {

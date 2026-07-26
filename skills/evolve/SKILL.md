@@ -215,7 +215,13 @@ invoke this command manually:
 3. After verification, run the delivery checkpoint. Decide whether the lesson
    is reusable. If not, finalize `no_candidate / not_needed / not_attempted`
    and print only its compact receipt.
-4. Compare it with active context using replace-before-add.
+4. Compare it with active context using replace-before-add. Compare the
+   responsibility, trigger, reachable execution path, intended effect, and
+   observable verification rather than relying on shared nouns. Only when
+   related active rules suggest the same responsibility or failure shape, read
+   pointer-first summaries for those applied proposals and shortlist the few
+   aggregates needed to test subsumption. Do not scan full proposal history
+   after every failure.
 5. Create one evidence-backed proposal aggregate in proposals/.
 6. Use pending_current_fix while repair is not verified; otherwise use
    proposed.
@@ -292,6 +298,13 @@ references/cleanup-policy.md and references/context-budget.md.
 - Reconcile unfinished proposal lifecycles before calculating proposal health.
 - Rank authority separately from retention value.
 - Detect stale, duplicated, conflicting, vague, or over-specific rules.
+- Use a summary-first two-stage read: scan Active Context plus proposal IDs and
+  short summaries, then deeply inspect only the shortlist that may share the
+  same responsibility and behavior failure shape.
+- Generalize across different implementation nouns only when one testable
+  invariant preserves the included verification guarantees. Record subsumed
+  rules and proposal IDs, preserved domain details, exclusions or
+  counterexamples, behavior lost, and net active-context change.
 - Prefer tighten, merge, rewrite, supersede, or archive over another append.
 - Produce an exact cleanup proposal with what behavior would be lost and the
   net context change.
@@ -308,7 +321,8 @@ report in reports/ covering:
 2. applied improvements
 3. proposal triage
 4. stale, redundant, or conflicting active context
-5. recommended patches and cleanup
+5. recommended patches, cleanup, and possible cross-noun generalization
+   candidates for `$evolve review-context`; the report never merges them
 6. next review priorities
 
 Reports are rebuildable views, not sources of truth, and are not part of the

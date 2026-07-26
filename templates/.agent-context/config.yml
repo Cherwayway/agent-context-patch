@@ -1,5 +1,5 @@
 schema_version: 1
-created_with_kit_version: "0.5.2"
+created_with_kit_version: "0.5.3"
 last_migrated_with_kit_version: null
 
 context_write_policy: auto
