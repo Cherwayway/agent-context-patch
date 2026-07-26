@@ -35,6 +35,7 @@ test("an applied outcome requires the exact proposal lifecycle audit", () => {
     reconciliation: {
       status: "settled",
       inspectedCount: 1,
+      postApplicationVerified: true,
       outcomes: [
         {
           proposalId,
@@ -63,6 +64,44 @@ test("an applied outcome requires the exact proposal lifecycle audit", () => {
       text: `Evolution outcome: detect=candidate; propose=created; apply=applied; proposal=${proposalId}; targets=${target}.`,
     },
   });
+});
+
+test("an applied outcome requires explicit post-application verification", () => {
+  const proposalId = "2026-07-26-unverified-fixed-point";
+  const target = ".agent-context/PROJECT_PROFILE.md";
+  const result = finalizeEvolutionOutcome({
+    detect: { status: "candidate", reason: "stale_context" },
+    propose: { status: "created", reason: "proposal_created" },
+    proposalId,
+    reconciliation: {
+      status: "settled",
+      inspectedCount: 2,
+      outcomes: [
+        {
+          proposalId: "approval-sibling",
+          beforeStatus: "proposed",
+          afterStatus: "proposed",
+          action: "approval_required",
+          reason: "policy_requires_approval",
+          targets: [target],
+        },
+        {
+          proposalId,
+          beforeStatus: "proposed",
+          afterStatus: "applied",
+          action: "resume_exact_auto",
+          reason: "applied",
+          targets: [target],
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(result.apply, {
+    status: "blocked",
+    reason: "invalid_lifecycle_evidence",
+  });
+  assert.equal(result.receipt.kind, "blocked");
 });
 
 test("an approval-only proposal is reported as a concise nonblocking exception", () => {
@@ -178,6 +217,7 @@ test("an existing proposal can reconcile without pretending to create it again",
     reconciliation: {
       status: "settled",
       inspectedCount: 1,
+      postApplicationVerified: true,
       outcomes: [
         {
           proposalId,
@@ -257,6 +297,7 @@ test("a blocked workspace reconciliation cannot hide behind one applied proposal
     reconciliation: {
       status: "blocked",
       inspectedCount: 2,
+      postApplicationVerified: true,
       outcomes: [
         {
           proposalId,
@@ -420,6 +461,7 @@ test("observable targets are normalized and lifecycle prose is ignored", () => {
     reconciliation: {
       status: "settled",
       inspectedCount: 1,
+      postApplicationVerified: true,
       outcomes: [
         {
           proposalId,
@@ -453,6 +495,7 @@ test("applied requires at least one audited workspace target", () => {
     reconciliation: {
       status: "settled",
       inspectedCount: 1,
+      postApplicationVerified: true,
       outcomes: [
         {
           proposalId,

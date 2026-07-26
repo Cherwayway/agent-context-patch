@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { replaceSectionContent } from "../support/proposal-fixture-helpers.mjs";
 import { validateProposalDocument } from "./proposal-contract.mjs";
 
 const fixtureRoot = fileURLToPath(new URL("fixtures/proposals", import.meta.url));
@@ -480,15 +481,6 @@ function replaceInSection(source, heading, search, replacement) {
   const section = source.slice(start, end);
   assert.ok(section.includes(search), `${heading} is missing mutation input`);
   return `${source.slice(0, start)}${section.replace(search, replacement)}${source.slice(end)}`;
-}
-
-function replaceSectionContent(source, heading, content) {
-  const headingMarker = `## ${heading}`;
-  const start = source.indexOf(headingMarker);
-  assert.notEqual(start, -1, `fixture is missing ${headingMarker}`);
-  const next = source.indexOf("\n## ", start + headingMarker.length);
-  const end = next === -1 ? source.length : next;
-  return `${source.slice(0, start + headingMarker.length)}\n\n${content}\n${source.slice(end)}`;
 }
 
 function asPending(source) {

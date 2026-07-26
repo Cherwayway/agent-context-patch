@@ -1,6 +1,6 @@
 {
   "name": "agent-context-patch",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "description": "Turn AI agent mistakes into durable project context patches.",
   "type": "module",

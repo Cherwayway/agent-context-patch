@@ -13,6 +13,7 @@ import { applyPatchPlan, sha256Text } from "./index.mjs";
 import { inspectPatchPlanTargets } from "./internal.mjs";
 import {
   deriveLifecycleReconciliationStatus,
+  isAppliedLifecycleOutcome,
   isLifecycleIdentifier,
   isTerminalProposalStatus,
 } from "./lifecycle-contract.mjs";
@@ -64,31 +65,75 @@ async function reconcileWhileLocked({ workspaceRoot, proposalsRoot, missing }) {
     };
   }
   const entries = await readdir(proposalsRoot, { withFileTypes: true });
+  const sortedEntries = entries.sort((left, right) =>
+    compareNames(left.name, right.name),
+  );
+  const candidateCount = sortedEntries.filter((entry) =>
+    isProposalCandidate(entry.name),
+  ).length;
+  const outcomesByEntry = new Map();
+  let applicationSeen = false;
+
+  for (let pass = 0; pass <= candidateCount; pass += 1) {
+    const passOutcomes = await reconcilePass({
+      workspaceRoot,
+      proposalsRoot,
+      entries: sortedEntries,
+    });
+    for (const { entryName, outcome } of passOutcomes) {
+      outcomesByEntry.set(entryName, outcome);
+    }
+    const appliedThisPass = passOutcomes.some(({ outcome }) =>
+      isAppliedLifecycleOutcome(outcome),
+    );
+    if (!appliedThisPass) {
+      const outcomes = [...outcomesByEntry.values()];
+      const status = deriveLifecycleReconciliationStatus(outcomes);
+      if (status === undefined) throw new TypeError("invalid_lifecycle_outcome");
+      return {
+        status,
+        inspectedCount: outcomes.length,
+        outcomes,
+        ...(applicationSeen ? { postApplicationVerified: true } : {}),
+      };
+    }
+    applicationSeen = true;
+  }
+
+  throw new TypeError("lifecycle_reconciliation_not_quiescent");
+}
+
+async function reconcilePass({ workspaceRoot, proposalsRoot, entries }) {
   const outcomes = [];
   const records = [];
   const proposalsById = new Map();
   const duplicateIds = new Set();
-  let inspectedCount = 0;
 
-  for (const entry of entries.sort((left, right) => compareNames(left.name, right.name))) {
+  for (const entry of entries) {
     if (!isProposalCandidate(entry.name)) continue;
     const proposalPath = join(proposalsRoot, entry.name);
     if (!entry.isFile() || entry.isSymbolicLink()) {
-      inspectedCount += 1;
-      outcomes.push(unsafeProposalOutcome(entry.name));
+      outcomes.push({
+        entryName: entry.name,
+        outcome: unsafeProposalOutcome(entry.name),
+      });
       continue;
     }
 
     const sourceRead = await readProposalUtf8(proposalPath);
     if (sourceRead.problem) {
-      inspectedCount += 1;
-      outcomes.push(invalidProposalOutcome(entry.name, sourceRead.problem));
+      outcomes.push({
+        entryName: entry.name,
+        outcome: invalidProposalOutcome(entry.name, sourceRead.problem),
+      });
       continue;
     }
     const inspected = inspectProposalDocument(sourceRead.source, entry.name);
     if (inspected.failures.length > 0) {
-      inspectedCount += 1;
-      outcomes.push(invalidProposalOutcome(entry.name, "invalid_proposal"));
+      outcomes.push({
+        entryName: entry.name,
+        outcome: invalidProposalOutcome(entry.name, "invalid_proposal"),
+      });
       continue;
     }
     const record = {
@@ -110,29 +155,29 @@ async function reconcileWhileLocked({ workspaceRoot, proposalsRoot, missing }) {
     const { data } = record.proposal;
     if (isTerminalProposalStatus(data.status)) continue;
 
-    inspectedCount += 1;
     if (duplicateIds.has(data.id)) {
-      outcomes.push(invalidProposalOutcome(record.name, "duplicate_proposal_id"));
+      outcomes.push({
+        entryName: record.name,
+        outcome: invalidProposalOutcome(
+          record.name,
+          "duplicate_proposal_id",
+        ),
+      });
       continue;
     }
-    outcomes.push(
-      await reconcileProposal({
+    outcomes.push({
+      entryName: record.name,
+      outcome: await reconcileProposal({
         workspaceRoot,
         proposalPath: record.proposalPath,
         source: record.source,
         proposal: record.proposal,
         proposalsById,
       }),
-    );
+    });
   }
 
-  const status = deriveLifecycleReconciliationStatus(outcomes);
-  if (status === undefined) throw new TypeError("invalid_lifecycle_outcome");
-  return {
-    status,
-    inspectedCount,
-    outcomes,
-  };
+  return outcomes;
 }
 
 async function reconcileProposal({

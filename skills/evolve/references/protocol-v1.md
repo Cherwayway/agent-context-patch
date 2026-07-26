@@ -140,6 +140,15 @@ and workspace-relative targets. It never returns target or PatchPlan content or
 an absolute path. It never generates wording, replaces a stale plan, creates a
 new proposal, or claims to repair an unknown audit gap.
 
+When an exact plan reaches `applied`, reconciliation repeats over the stable
+proposal cohort until one pass performs no new successful application. Each
+proposal contributes only its latest outcome, while an applied transition is
+retained after that proposal becomes terminal. The returned status therefore
+describes state after the coordinator's own writes rather than the order in
+which proposal filenames were inspected. If the call applied work, it returns
+`postApplicationVerified: true` only after the final pass observes no new
+successful application.
+
 A result may be `settled` while listing `approval_required`: ordinary current
 approval-only proposals are intentionally waiting for review and do not block
 unrelated evolve workflows. Unsafe auto, stale, mixed, malformed, or audit-gap
@@ -326,7 +335,9 @@ Every other combination fails closed as `invalid_evolution_outcome`. An
 `applied` outcome additionally requires a valid proposal ID, settled
 reconciliation, one exact Coordinator outcome, a non-terminal-to-applied exact
 resume action, reason `applied`, consistent Coordinator accounting, and at
-least one safe relative target. Every inspected Coordinator outcome must also
+least one safe relative target. Reconciliation containing an applied transition
+must also prove it completed its post-application observation pass with
+`postApplicationVerified: true`. Every inspected Coordinator outcome must also
 have its complete content-safe shape and a valid action/status relationship.
 Matching target bytes, a terminal-to-terminal pseudo transition, missing audit
 evidence, or one applied proposal inside an otherwise blocked workspace cannot

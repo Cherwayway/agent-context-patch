@@ -10,6 +10,10 @@ import {
   inspectProposalDocument,
   validateProposalDocument,
 } from "../../skills/evolve/runtime/proposal.mjs";
+import {
+  replacePatchPlan,
+  replaceSectionContent,
+} from "../support/proposal-fixture-helpers.mjs";
 
 const fixtureRoot = join(import.meta.dirname, "..", "verification", "fixtures");
 
@@ -35,6 +39,7 @@ test("reconciliation resumes an exact interrupted auto proposal and completes it
   assert.deepEqual(result, {
     status: "settled",
     inspectedCount: 1,
+    postApplicationVerified: true,
     outcomes: [
       {
         proposalId: "fixture-valid-auto",
@@ -94,6 +99,7 @@ test("reconciliation preserves exact human approval while every beforeHash still
   assert.deepEqual(result, {
     status: "settled",
     inspectedCount: 1,
+    postApplicationVerified: true,
     outcomes: [
       {
         proposalId: "fixture-valid-auto",
@@ -182,6 +188,149 @@ test("a current approval-only proposal is actionable without blocking unrelated 
     ],
   });
   assert.equal(await readFile(proposalPath, "utf8"), proposal);
+});
+
+test("reconciliation reports a sibling made stale by an auto apply in the same call", async (t) => {
+  const workspaceRoot = await createWorkspace(t, { policy: "auto" });
+  const before = "# Project Profile\n\nShared baseline.\n";
+  await writeFile(
+    join(workspaceRoot, ".agent-context", "PROJECT_PROFILE.md"),
+    before,
+    "utf8",
+  );
+  await writeFile(
+    join(
+      workspaceRoot,
+      ".agent-context",
+      "proposals",
+      "a-approval-waiting.md",
+    ),
+    await approvalWaitingTightenFixture({ before }),
+    "utf8",
+  );
+  await writeFile(
+    join(workspaceRoot, ".agent-context", "proposals", "b-auto-add.md"),
+    await interruptedAutoUpdateFixture({
+      before,
+      content: "# Project Profile\n\nShared baseline.\nAuto addition.\n",
+    }),
+    "utf8",
+  );
+
+  const result = await reconcileWorkspaceProposalLifecycles({ workspaceRoot });
+
+  assert.equal(result.status, "blocked");
+  assert.equal(result.inspectedCount, 2);
+  assert.equal(result.postApplicationVerified, true);
+  assert.deepEqual(result.outcomes, [
+    {
+      proposalId: "fixture-approval-waiting",
+      beforeStatus: "proposed",
+      afterStatus: "proposed",
+      targets: [".agent-context/PROJECT_PROFILE.md"],
+      action: "regenerate_required",
+      reason: "target_state_changed",
+    },
+    {
+      proposalId: "fixture-auto-update",
+      beforeStatus: "proposed",
+      afterStatus: "applied",
+      action: "resume_exact_auto",
+      reason: "applied",
+      targets: [".agent-context/PROJECT_PROFILE.md"],
+    },
+  ]);
+});
+
+test("post-application reconciliation is independent of proposal filename order", async (t) => {
+  const workspaceRoot = await createWorkspace(t, { policy: "auto" });
+  const before = "# Project Profile\n\nShared baseline.\n";
+  await writeFile(
+    join(workspaceRoot, ".agent-context", "PROJECT_PROFILE.md"),
+    before,
+    "utf8",
+  );
+  await writeFile(
+    join(workspaceRoot, ".agent-context", "proposals", "a-auto-add.md"),
+    await interruptedAutoUpdateFixture({
+      before,
+      content: "# Project Profile\n\nShared baseline.\nAuto addition.\n",
+    }),
+    "utf8",
+  );
+  await writeFile(
+    join(
+      workspaceRoot,
+      ".agent-context",
+      "proposals",
+      "b-approval-waiting.md",
+    ),
+    await approvalWaitingTightenFixture({ before }),
+    "utf8",
+  );
+
+  const result = await reconcileWorkspaceProposalLifecycles({ workspaceRoot });
+  const outcomesById = new Map(
+    result.outcomes.map((outcome) => [outcome.proposalId, outcome]),
+  );
+
+  assert.equal(result.status, "blocked");
+  assert.equal(result.inspectedCount, 2);
+  assert.equal(result.postApplicationVerified, true);
+  assert.equal(outcomesById.get("fixture-auto-update")?.reason, "applied");
+  assert.equal(
+    outcomesById.get("fixture-approval-waiting")?.reason,
+    "target_state_changed",
+  );
+});
+
+test("post-application reconciliation leaves unrelated approval work actionable", async (t) => {
+  const workspaceRoot = await createWorkspace(t, { policy: "auto" });
+  const profileBefore = "# Project Profile\n\nApproval baseline.\n";
+  const indexBefore = "# Project Context Index\n\nCurrent index.\n";
+  await writeFile(
+    join(workspaceRoot, ".agent-context", "PROJECT_PROFILE.md"),
+    profileBefore,
+    "utf8",
+  );
+  await writeFile(
+    join(workspaceRoot, ".agent-context", "PROJECT_CONTEXT_INDEX.md"),
+    indexBefore,
+    "utf8",
+  );
+  await writeFile(
+    join(
+      workspaceRoot,
+      ".agent-context",
+      "proposals",
+      "a-approval-waiting.md",
+    ),
+    await approvalWaitingTightenFixture({ before: profileBefore }),
+    "utf8",
+  );
+  await writeFile(
+    join(workspaceRoot, ".agent-context", "proposals", "b-auto-add.md"),
+    await interruptedAutoUpdateFixture({
+      target: ".agent-context/PROJECT_CONTEXT_INDEX.md",
+      before: indexBefore,
+      content: "# Project Context Index\n\nCurrent index.\nAuto addition.\n",
+    }),
+    "utf8",
+  );
+
+  const result = await reconcileWorkspaceProposalLifecycles({ workspaceRoot });
+  const outcomesById = new Map(
+    result.outcomes.map((outcome) => [outcome.proposalId, outcome]),
+  );
+
+  assert.equal(result.status, "settled");
+  assert.equal(result.inspectedCount, 2);
+  assert.equal(result.postApplicationVerified, true);
+  assert.equal(
+    outcomesById.get("fixture-approval-waiting")?.action,
+    "approval_required",
+  );
+  assert.equal(outcomesById.get("fixture-auto-update")?.reason, "applied");
 });
 
 test("a stale approval-waiting tighten proposal is marked for regeneration before approval", async (t) => {
@@ -432,6 +581,7 @@ test("a blocked auto attempt is audited and the exact decision can resume later"
   );
   const resumed = await reconcileWorkspaceProposalLifecycles({ workspaceRoot });
 
+  assert.equal(resumed.postApplicationVerified, true);
   assert.deepEqual(resumed.outcomes, [
     {
       proposalId: "fixture-valid-auto",
@@ -463,15 +613,6 @@ async function createWorkspace(t, { policy }) {
     "utf8",
   );
   return workspaceRoot;
-}
-
-function replaceSectionContent(source, heading, content) {
-  const headingMarker = `## ${heading}`;
-  const start = source.indexOf(headingMarker);
-  assert.notEqual(start, -1, `fixture is missing ${headingMarker}`);
-  const next = source.indexOf("\n## ", start + headingMarker.length);
-  const end = next === -1 ? source.length : next;
-  return `${source.slice(0, start + headingMarker.length)}\n\n${content}\n${source.slice(end)}`;
 }
 
 async function interruptedAutoFixture() {
@@ -545,11 +686,34 @@ async function approvalWaitingTightenFixture({ before }) {
   );
 }
 
-function replacePatchPlan(source, plan) {
-  const opening = source.indexOf("~~~~json");
-  assert.notEqual(opening, -1);
-  const jsonStart = source.indexOf("\n", opening) + 1;
-  const closing = source.indexOf("\n~~~~", jsonStart);
-  assert.notEqual(closing, -1);
-  return `${source.slice(0, jsonStart)}${JSON.stringify(plan, null, 2)}${source.slice(closing)}`;
+async function interruptedAutoUpdateFixture({
+  target = ".agent-context/PROJECT_PROFILE.md",
+  before,
+  content,
+}) {
+  const source = await interruptedAutoFixture();
+  const inspected = inspectProposalDocument(source, "auto update fixture base");
+  assert.deepEqual(inspected.failures, []);
+  const plan = structuredClone(inspected.value.plan);
+  plan.planId = "plan-fixture-auto-update";
+  plan.proposalId = "fixture-auto-update";
+  plan.operations = [
+    {
+      type: "update",
+      target,
+      beforeHash: sha256Text(before),
+      content,
+    },
+  ];
+  const planHash = computePlanHash(plan);
+  return replacePatchPlan(
+    source
+      .replace("id: fixture-valid-auto", "id: fixture-auto-update")
+      .replace(
+        "  - .agent-context/PROJECT_PROFILE.md",
+        `  - ${target}`,
+      )
+      .replace(/^plan_hash:[^\r\n]*$/mu, `plan_hash: ${planHash}`),
+    plan,
+  );
 }

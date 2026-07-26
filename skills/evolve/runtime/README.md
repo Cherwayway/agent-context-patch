@@ -95,6 +95,14 @@ proposal ID, before/after status, action, machine-readable reason, and relative
 targets. A workspace-level failure may add `blockingReason`. No outcome includes
 proposal prose, PatchPlan content, target content, or an absolute path.
 
+If reconciliation applies exact work, it re-reads the stable proposal cohort
+until a pass performs no new successful application. The final result therefore
+reflects target and policy state after the coordinator's own writes, independent
+of proposal filename order. It retains one latest outcome per inspected
+proposal, including the applied transition for a proposal that became terminal.
+Such a result includes `postApplicationVerified: true` only after a successful
+application is followed by a pass with no new successful application.
+
 `status: settled` means no unsafe mechanical lifecycle gap remains. It can still
 contain `approval_required` outcomes; those proposals are intentionally waiting
 for informed human review and do not block unrelated reconciliation, weekly
@@ -141,10 +149,12 @@ optional content-safe `proposalId`, optional sorted workspace-relative
 `targets`, and one fixed-format `receipt`. It rejects invalid state families and
 cannot report `applied` unless settled Coordinator evidence proves one exact
 non-terminal-to-applied resume with an applied audit and at least one safe
-target. Every inspected outcome must have the complete content-safe Coordinator
-shape and a valid action/status relationship. Missing, malformed, ambiguous,
-blocked, or partially consistent evidence becomes a content-safe blocker
-instead of a success claim.
+target. Applied evidence must also carry `postApplicationVerified: true`; this
+prevents a pre-fixed-point result from authorizing success. Every inspected
+outcome must have the complete content-safe Coordinator shape and a valid
+action/status relationship. Missing, malformed, ambiguous, blocked, or
+partially consistent evidence becomes a content-safe blocker instead of a
+success claim.
 
 The module copies no proposal prose, PatchPlan content, target content,
 conversation data, or absolute path. Unsafe lifecycle targets are removed. It
