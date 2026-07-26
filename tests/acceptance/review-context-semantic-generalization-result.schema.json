@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Fresh Agent semantic generalization result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "caseId",
+    "freshContext",
+    "inputDigests",
+    "decision",
+    "invariant",
+    "includedRuleIds",
+    "includedProposalIds",
+    "excludedRuleIds",
+    "excludedProposalIds",
+    "preservedDomainDetails",
+    "counterexamples",
+    "behaviorLostIfApproved",
+    "netActiveContextChange",
+    "approvalRequired",
+    "proposalWouldBeCreated",
+    "repositoryMutated",
+    "privacy"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "caseId": {
+      "type": "string"
+    },
+    "freshContext": {
+      "const": true
+    },
+    "inputDigests": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "decision": {
+      "enum": [
+        "candidate",
+        "no_candidate"
+      ]
+    },
+    "invariant": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "when",
+            "require",
+            "verify"
+          ],
+          "properties": {
+            "when": {
+              "type": "string"
+            },
+            "require": {
+              "type": "string"
+            },
+            "verify": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "includedRuleIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "includedProposalIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "excludedRuleIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "excludedProposalIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "preservedDomainDetails": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "proposalId",
+          "detail"
+        ],
+        "properties": {
+          "proposalId": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "counterexamples": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "behaviorLostIfApproved": {
+      "type": "string"
+    },
+    "netActiveContextChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "replacedRuleCount",
+        "replacementRuleCount",
+        "delta"
+      ],
+      "properties": {
+        "replacedRuleCount": {
+          "type": "integer"
+        },
+        "replacementRuleCount": {
+          "type": "integer"
+        },
+        "delta": {
+          "type": "integer"
+        }
+      }
+    },
+    "approvalRequired": {
+      "type": "boolean"
+    },
+    "proposalWouldBeCreated": {
+      "type": "boolean"
+    },
+    "repositoryMutated": {
+      "const": false
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rawTraceStored",
+        "absolutePathStored",
+        "secretsStored"
+      ],
+      "properties": {
+        "rawTraceStored": {
+          "const": false
+        },
+        "absolutePathStored": {
+          "const": false
+        },
+        "secretsStored": {
+          "const": false
+        }
+      }
+    }
+  }
+}

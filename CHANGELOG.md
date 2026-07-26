@@ -5,6 +5,30 @@ semantic versions for the Kit independently from the Workspace Schema version.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-07-26
+
+### Added
+
+- An Agent-owned behavior-shape review contract that compares responsibility,
+  trigger, execution path, intended effect, and observable verification across
+  different implementation nouns.
+- A reusable cross-domain review fixture plus positive and negative
+  fresh-context acceptance: one repeated execution-path family consolidates,
+  while superficially similar accessibility, privacy, idempotency, and timing
+  failures remain separate.
+
+### Changed
+
+- `$evolve after-failure` reads only related applied-proposal summaries when
+  Active Context suggests a recurring responsibility or failure shape.
+- `$evolve review-context` now uses summary-first shortlisting before deep
+  proposal reads and requires subsumption evidence, preserved domain details,
+  counterexamples, behavior loss, and net active-context change.
+- `$evolve weekly` may surface semantic-generalization candidates but cannot
+  merge them. Semantic replacement remains approval-required, with no new
+  runtime heuristic, public command, background scan, or Workspace Schema
+  change.
+
 ## [0.5.2] - 2026-07-26
 
 ### Fixed

@@ -1,0 +1,197 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Fresh-context review fixture for deciding whether repeated applied lessons share one testable behavior failure shape.",
+  "cases": [
+    {
+      "id": "case-a",
+      "currentSources": [
+        "Acceptance evidence must come from observable product behavior and current executable checks.",
+        "When simplifying Active Context, retain any domain-specific verification detail that still changes acceptance."
+      ],
+      "activeRules": [
+        {
+          "id": "rule-web-control",
+          "sourceProposalId": "2026-07-01-visible-control-dispatch",
+          "text": "Reload the page after changing a preference from a visible control and verify the durable value."
+        },
+        {
+          "id": "rule-cli-option",
+          "sourceProposalId": "2026-07-02-cli-option-execution",
+          "text": "Verify that a parsed export option reaches the report service and creates the requested artifact."
+        },
+        {
+          "id": "rule-extension-hook",
+          "sourceProposalId": "2026-07-03-extension-hook-invocation",
+          "text": "Exercise the extension event and verify that the registered handler records the expected domain event."
+        },
+        {
+          "id": "rule-scheduled-job",
+          "sourceProposalId": "2026-07-04-scheduled-job-execution",
+          "text": "Advance the test clock and verify that the registered maintenance job actually runs its worker."
+        },
+        {
+          "id": "rule-web-keyboard-access",
+          "sourceProposalId": "2026-07-09-web-keyboard-access",
+          "text": "Verify that the preference control exposes focus, role, and keyboard activation."
+        },
+        {
+          "id": "rule-hook-retry-idempotency",
+          "sourceProposalId": "2026-07-10-hook-retry-idempotency",
+          "text": "Retry one delivered extension event and verify that its domain side effect occurs once."
+        }
+      ],
+      "appliedProposals": [
+        {
+          "id": "2026-07-01-visible-control-dispatch",
+          "status": "applied",
+          "surface": "browser preference control",
+          "responsibility": "make a user-invoked preference change durable",
+          "trigger": "the user activates the visible save control",
+          "executionPath": "control to click handler to preference command",
+          "intendedEffect": "persist the selected preference",
+          "observableVerification": "reload shows the persisted value",
+          "failureStage": "the visible control changes only local presentation and never dispatches its command",
+          "domainDetail": "browser reload is required to distinguish persistence from cosmetic state"
+        },
+        {
+          "id": "2026-07-02-cli-option-execution",
+          "status": "applied",
+          "surface": "command-line export option",
+          "responsibility": "honor an operator-requested export",
+          "trigger": "the operator passes the documented export option",
+          "executionPath": "argument parser to command handler to report service",
+          "intendedEffect": "write the requested report artifact",
+          "observableVerification": "the report exists with the requested records",
+          "failureStage": "the parser accepts the option but the command handler drops the request",
+          "domainDetail": "the artifact content must reflect the selected export scope"
+        },
+        {
+          "id": "2026-07-03-extension-hook-invocation",
+          "status": "applied",
+          "surface": "extension hook registration",
+          "responsibility": "deliver extension-triggered work to its implementation",
+          "trigger": "the host emits the documented extension event",
+          "executionPath": "event dispatcher to registered hook to domain handler",
+          "intendedEffect": "record the extension domain event",
+          "observableVerification": "the event store contains the expected event",
+          "failureStage": "registration succeeds but the host dispatcher never invokes the hook",
+          "domainDetail": "the test must emit through the host dispatcher rather than call the handler directly"
+        },
+        {
+          "id": "2026-07-04-scheduled-job-execution",
+          "status": "applied",
+          "surface": "scheduled maintenance job",
+          "responsibility": "execute configured background maintenance",
+          "trigger": "the scheduler reaches the configured due time",
+          "executionPath": "scheduler registry to runner to maintenance worker",
+          "intendedEffect": "remove expired temporary records",
+          "observableVerification": "expired records are absent after the run",
+          "failureStage": "the schedule is stored but the runner never calls the maintenance worker",
+          "domainDetail": "the test clock must advance through the scheduler boundary"
+        },
+        {
+          "id": "2026-07-09-web-keyboard-access",
+          "status": "applied",
+          "surface": "browser preference control",
+          "responsibility": "provide equivalent keyboard access",
+          "trigger": "a keyboard user tabs to and activates the control",
+          "executionPath": "focus order to keyboard event to existing working handler",
+          "intendedEffect": "perform the action without pointer input",
+          "observableVerification": "keyboard-only acceptance completes the action",
+          "failureStage": "input accessibility",
+          "domainDetail": "focus visibility and semantic role remain required"
+        },
+        {
+          "id": "2026-07-10-hook-retry-idempotency",
+          "status": "applied",
+          "surface": "extension hook registration",
+          "responsibility": "keep retryable side effects idempotent",
+          "trigger": "the host retries one delivered extension event",
+          "executionPath": "hook invocation to retry wrapper to domain handler",
+          "intendedEffect": "record one domain event",
+          "observableVerification": "the event store contains exactly one event",
+          "failureStage": "duplicate side effect",
+          "domainDetail": "the event identity key must survive the retry boundary"
+        }
+      ]
+    },
+    {
+      "id": "case-b",
+      "currentSources": [
+        "Every retained Active Context rule must remain testable and traceable to verified evidence."
+      ],
+      "activeRules": [
+        {
+          "id": "rule-keyboard-access",
+          "sourceProposalId": "2026-07-05-keyboard-access",
+          "text": "Verify that every visible control can be reached and activated from the keyboard."
+        },
+        {
+          "id": "rule-cli-redaction",
+          "sourceProposalId": "2026-07-06-cli-redaction",
+          "text": "Verify that command failures redact credentials from terminal output."
+        },
+        {
+          "id": "rule-hook-idempotency",
+          "sourceProposalId": "2026-07-07-hook-idempotency",
+          "text": "Verify that hook retries do not duplicate the domain side effect."
+        },
+        {
+          "id": "rule-scheduler-timezone",
+          "sourceProposalId": "2026-07-08-scheduler-timezone",
+          "text": "Verify scheduled execution across configured time-zone boundaries."
+        }
+      ],
+      "appliedProposals": [
+        {
+          "id": "2026-07-05-keyboard-access",
+          "status": "applied",
+          "surface": "browser preference control",
+          "responsibility": "provide equivalent keyboard access",
+          "trigger": "a keyboard user tabs to and activates the control",
+          "executionPath": "focus order to keyboard event to existing handler",
+          "intendedEffect": "perform the already-working action without a pointer",
+          "observableVerification": "keyboard-only acceptance completes the action",
+          "failureStage": "input accessibility",
+          "domainDetail": "focus visibility and semantic role remain required"
+        },
+        {
+          "id": "2026-07-06-cli-redaction",
+          "status": "applied",
+          "surface": "command-line export option",
+          "responsibility": "prevent credential disclosure",
+          "trigger": "the command fails after receiving a credential",
+          "executionPath": "error boundary to terminal formatter",
+          "intendedEffect": "emit a useful error without the credential",
+          "observableVerification": "captured stderr contains no secret value",
+          "failureStage": "privacy-safe output",
+          "domainDetail": "test both structured and fallback error formatting"
+        },
+        {
+          "id": "2026-07-07-hook-idempotency",
+          "status": "applied",
+          "surface": "extension hook registration",
+          "responsibility": "keep retryable side effects idempotent",
+          "trigger": "the host retries one delivered extension event",
+          "executionPath": "hook invocation to retry wrapper to domain handler",
+          "intendedEffect": "record one domain event",
+          "observableVerification": "the event store contains exactly one event",
+          "failureStage": "duplicate side effect",
+          "domainDetail": "the event identity key must survive the retry boundary"
+        },
+        {
+          "id": "2026-07-08-scheduler-timezone",
+          "status": "applied",
+          "surface": "scheduled maintenance job",
+          "responsibility": "honor configured wall-clock semantics",
+          "trigger": "the clock crosses a daylight-saving boundary",
+          "executionPath": "time-zone conversion to due-time calculation to runner",
+          "intendedEffect": "run once at the configured local time",
+          "observableVerification": "the execution timestamp matches the configured zone",
+          "failureStage": "time calculation",
+          "domainDetail": "cover both skipped and repeated local times"
+        }
+      ]
+    }
+  ]
+}
