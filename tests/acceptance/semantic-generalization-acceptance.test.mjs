@@ -5,6 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { validateJsonSchema } from "./json-schema-subset.mjs";
+
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 const runnerPath =
   "tests/acceptance/review-context-semantic-generalization.runner.json";
@@ -67,16 +69,26 @@ test("fresh Agents distinguish a cross-noun failure family from noun-level decoy
   const fixture = readJson(
     "tests/acceptance/fixtures/review-context-semantic-generalization.json",
   );
+  const resultSchema = readJson(runner.resultSchemaPath);
   const casesById = new Map(fixture.cases.map((scenario) => [scenario.id, scenario]));
   const results = runner.runs.map(({ caseId, resultPath }) => {
     const result = readJson(resultPath);
+    assert.deepEqual(validateJsonSchema(result, resultSchema), []);
+    assert.match(
+      validateJsonSchema({ ...result, rawTrace: "must be rejected" }, resultSchema)
+        .join("\n"),
+      /additional property.*rawTrace/iu,
+    );
     assert.equal(result.schemaVersion, 1);
     assert.equal(result.caseId, caseId);
     assert.equal(result.freshContext, true);
     assert.deepEqual(
       result.inputDigests,
       Object.fromEntries(
-        runner.allowedInputs.map((path) => [path, sha256(read(path))]),
+        [...runner.allowedInputs, ...runner.harnessInputs].map((path) => [
+          path,
+          sha256(read(path)),
+        ]),
       ),
       "fresh-Agent result is not bound to the current semantic inputs",
     );
