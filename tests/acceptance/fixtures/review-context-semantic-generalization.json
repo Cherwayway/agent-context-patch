@@ -5,8 +5,8 @@
     {
       "id": "case-a",
       "currentSources": [
-        "Every exposed action must reach the implementation that owns its promised effect.",
-        "Acceptance must observe the promised state, output, or side effect rather than only the visible surface."
+        "Acceptance evidence must come from observable product behavior and current executable checks.",
+        "When simplifying Active Context, retain any domain-specific verification detail that still changes acceptance."
       ],
       "activeRules": [
         {
@@ -28,6 +28,16 @@
           "id": "rule-scheduled-job",
           "sourceProposalId": "2026-07-04-scheduled-job-execution",
           "text": "Advance the test clock and verify that the registered maintenance job actually runs its worker."
+        },
+        {
+          "id": "rule-web-keyboard-access",
+          "sourceProposalId": "2026-07-09-web-keyboard-access",
+          "text": "Verify that the preference control exposes focus, role, and keyboard activation."
+        },
+        {
+          "id": "rule-hook-retry-idempotency",
+          "sourceProposalId": "2026-07-10-hook-retry-idempotency",
+          "text": "Retry one delivered extension event and verify that its domain side effect occurs once."
         }
       ],
       "appliedProposals": [
@@ -40,7 +50,7 @@
           "executionPath": "control to click handler to preference command",
           "intendedEffect": "persist the selected preference",
           "observableVerification": "reload shows the persisted value",
-          "failureStage": "reachable execution path",
+          "failureStage": "the visible control changes only local presentation and never dispatches its command",
           "domainDetail": "browser reload is required to distinguish persistence from cosmetic state"
         },
         {
@@ -52,7 +62,7 @@
           "executionPath": "argument parser to command handler to report service",
           "intendedEffect": "write the requested report artifact",
           "observableVerification": "the report exists with the requested records",
-          "failureStage": "reachable execution path",
+          "failureStage": "the parser accepts the option but the command handler drops the request",
           "domainDetail": "the artifact content must reflect the selected export scope"
         },
         {
@@ -64,7 +74,7 @@
           "executionPath": "event dispatcher to registered hook to domain handler",
           "intendedEffect": "record the extension domain event",
           "observableVerification": "the event store contains the expected event",
-          "failureStage": "reachable execution path",
+          "failureStage": "registration succeeds but the host dispatcher never invokes the hook",
           "domainDetail": "the test must emit through the host dispatcher rather than call the handler directly"
         },
         {
@@ -76,15 +86,39 @@
           "executionPath": "scheduler registry to runner to maintenance worker",
           "intendedEffect": "remove expired temporary records",
           "observableVerification": "expired records are absent after the run",
-          "failureStage": "reachable execution path",
+          "failureStage": "the schedule is stored but the runner never calls the maintenance worker",
           "domainDetail": "the test clock must advance through the scheduler boundary"
+        },
+        {
+          "id": "2026-07-09-web-keyboard-access",
+          "status": "applied",
+          "surface": "browser preference control",
+          "responsibility": "provide equivalent keyboard access",
+          "trigger": "a keyboard user tabs to and activates the control",
+          "executionPath": "focus order to keyboard event to existing working handler",
+          "intendedEffect": "perform the action without pointer input",
+          "observableVerification": "keyboard-only acceptance completes the action",
+          "failureStage": "input accessibility",
+          "domainDetail": "focus visibility and semantic role remain required"
+        },
+        {
+          "id": "2026-07-10-hook-retry-idempotency",
+          "status": "applied",
+          "surface": "extension hook registration",
+          "responsibility": "keep retryable side effects idempotent",
+          "trigger": "the host retries one delivered extension event",
+          "executionPath": "hook invocation to retry wrapper to domain handler",
+          "intendedEffect": "record one domain event",
+          "observableVerification": "the event store contains exactly one event",
+          "failureStage": "duplicate side effect",
+          "domainDetail": "the event identity key must survive the retry boundary"
         }
       ]
     },
     {
       "id": "case-b",
       "currentSources": [
-        "Accessibility, privacy, idempotency, and time semantics are separate responsibilities and retain their domain-specific acceptance."
+        "Every retained Active Context rule must remain testable and traceable to verified evidence."
       ],
       "activeRules": [
         {

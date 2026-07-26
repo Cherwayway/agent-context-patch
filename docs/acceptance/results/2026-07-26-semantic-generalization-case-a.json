@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "caseId": "case-a",
+  "freshContext": true,
+  "inputDigests": {
+    "skills/evolve/SKILL.md": "0deeefcb744841cdb1d82352c43b4668894bc4cba5a74fc520aca39ba96278f7",
+    "skills/evolve/references/cleanup-policy.md": "16dce06b16e96c32dc444e22c87d576ca4ee9f519d83ce09bed9021b73379c67",
+    "tests/acceptance/fixtures/review-context-semantic-generalization.json": "038cca94e9582fa514f29a72bafa1328baa7f56201acbae61e32d1f23836581c"
+  },
+  "decision": "candidate",
+  "invariant": {
+    "when": "A documented trigger is accepted, exposed, or registered and acceptance depends on whether its requested operation actually executes.",
+    "require": "The trigger must traverse the production dispatch path to the responsible implementation and produce the intended domain effect.",
+    "verify": "Exercise the real trigger path and observe the durable domain result, retaining any surface-specific check needed to distinguish execution from cosmetic state, parsing, registration, or scheduling alone."
+  },
+  "includedRuleIds": [
+    "rule-web-control",
+    "rule-cli-option",
+    "rule-extension-hook",
+    "rule-scheduled-job"
+  ],
+  "includedProposalIds": [
+    "2026-07-01-visible-control-dispatch",
+    "2026-07-02-cli-option-execution",
+    "2026-07-03-extension-hook-invocation",
+    "2026-07-04-scheduled-job-execution"
+  ],
+  "excludedRuleIds": [
+    "rule-web-keyboard-access",
+    "rule-hook-retry-idempotency"
+  ],
+  "excludedProposalIds": [
+    "2026-07-09-web-keyboard-access",
+    "2026-07-10-hook-retry-idempotency"
+  ],
+  "preservedDomainDetails": [
+    {
+      "proposalId": "2026-07-01-visible-control-dispatch",
+      "detail": "Reload the browser to distinguish durable preference persistence from cosmetic local state."
+    },
+    {
+      "proposalId": "2026-07-02-cli-option-execution",
+      "detail": "Verify that the artifact content reflects the selected export scope."
+    },
+    {
+      "proposalId": "2026-07-03-extension-hook-invocation",
+      "detail": "Emit through the host dispatcher instead of calling the domain handler directly."
+    },
+    {
+      "proposalId": "2026-07-04-scheduled-job-execution",
+      "detail": "Advance the test clock through the scheduler boundary before checking that expired records were removed."
+    }
+  ],
+  "counterexamples": [
+    "Keyboard accessibility is not an execution-reachability failure: the existing handler may work while focus visibility, semantic role, or keyboard activation remains unavailable.",
+    "Retry idempotency is not an execution-reachability failure: the hook may reach its handler on every delivery while producing a duplicate side effect because event identity is not preserved across the retry boundary."
+  ],
+  "behaviorLostIfApproved": "No verified behavior from the four included rules is lost if the listed domain checks remain attached to the replacement; only repetitive surface-specific wording is removed. The independent accessibility and retry-idempotency guarantees remain active as separate rules.",
+  "netActiveContextChange": {
+    "replacedRuleCount": 4,
+    "replacementRuleCount": 1,
+    "delta": -3
+  },
+  "approvalRequired": true,
+  "proposalWouldBeCreated": true,
+  "repositoryMutated": false,
+  "privacy": {
+    "rawTraceStored": false,
+    "absolutePathStored": false,
+    "secretsStored": false
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Run one isolated fresh Agent per case and retain a mechanically verifiable semantic-review result.",
+  "allowedInputs": [
+    "skills/evolve/SKILL.md",
+    "skills/evolve/references/cleanup-policy.md",
+    "tests/acceptance/fixtures/review-context-semantic-generalization.json"
+  ],
+  "harnessInputs": [
+    "tests/acceptance/review-context-semantic-generalization.runner.json",
+    "tests/acceptance/review-context-semantic-generalization-result.schema.json"
+  ],
+  "forbiddenInputs": [
+    "GitHub issues",
+    "changelog",
+    "prior acceptance records",
+    "conversation context",
+    "results from another case"
+  ],
+  "instruction": "Start without prior conversation. Read the candidate Skill, cleanup policy, and only the named fixture case. Act as $evolve review-context. Decide candidate or no_candidate by responsibility and behavior failure shape, not nouns. Return only the Agent-owned fields in the result schema. Partition every rule and proposal into included or excluded, preserve necessary domain details, name counterexamples, describe behavior loss and net context change, and keep semantic replacement approval-required. Do not edit the repository. The maintainer harness binds the retained result to SHA-256 digests of every allowed input.",
+  "resultSchemaPath": "tests/acceptance/review-context-semantic-generalization-result.schema.json",
+  "runs": [
+    {
+      "caseId": "case-a",
+      "resultPath": "docs/acceptance/results/2026-07-26-semantic-generalization-case-a.json"
+    },
+    {
+      "caseId": "case-b",
+      "resultPath": "docs/acceptance/results/2026-07-26-semantic-generalization-case-b.json"
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "caseId": "case-b",
+  "freshContext": true,
+  "inputDigests": {
+    "skills/evolve/SKILL.md": "0deeefcb744841cdb1d82352c43b4668894bc4cba5a74fc520aca39ba96278f7",
+    "skills/evolve/references/cleanup-policy.md": "16dce06b16e96c32dc444e22c87d576ca4ee9f519d83ce09bed9021b73379c67",
+    "tests/acceptance/fixtures/review-context-semantic-generalization.json": "038cca94e9582fa514f29a72bafa1328baa7f56201acbae61e32d1f23836581c"
+  },
+  "decision": "no_candidate",
+  "invariant": null,
+  "includedRuleIds": [],
+  "includedProposalIds": [],
+  "excludedRuleIds": [
+    "rule-keyboard-access",
+    "rule-cli-redaction",
+    "rule-hook-idempotency",
+    "rule-scheduler-timezone"
+  ],
+  "excludedProposalIds": [
+    "2026-07-05-keyboard-access",
+    "2026-07-06-cli-redaction",
+    "2026-07-07-hook-idempotency",
+    "2026-07-08-scheduler-timezone"
+  ],
+  "preservedDomainDetails": [
+    {
+      "proposalId": "2026-07-05-keyboard-access",
+      "detail": "Focus visibility and semantic role remain necessary to verify equivalent keyboard access."
+    },
+    {
+      "proposalId": "2026-07-06-cli-redaction",
+      "detail": "Structured and fallback error formatting must both be tested for credential disclosure."
+    },
+    {
+      "proposalId": "2026-07-07-hook-idempotency",
+      "detail": "The event identity key must survive the retry boundary to prevent duplicate effects."
+    },
+    {
+      "proposalId": "2026-07-08-scheduler-timezone",
+      "detail": "Skipped and repeated local times must both be covered to verify wall-clock behavior."
+    }
+  ],
+  "counterexamples": [
+    "A control may execute its action correctly while remaining unreachable by keyboard, so generic execution-success verification does not preserve accessibility.",
+    "A CLI failure may follow the intended error path while leaking a credential, so privacy-safe output is not equivalent to reachability or effect completion.",
+    "A retried hook may reach its handler successfully twice and duplicate the domain event, so successful execution does not preserve idempotency.",
+    "A scheduled job may run exactly once yet at the wrong local time across a daylight-saving boundary, so single execution does not preserve time-zone semantics."
+  ],
+  "behaviorLostIfApproved": "A forced merge would erase distinct, observable guarantees for keyboard accessibility, credential redaction, retry idempotency, and configured wall-clock timing; a generic execution rule would not test the failure stage of any case precisely.",
+  "netActiveContextChange": {
+    "replacedRuleCount": 0,
+    "replacementRuleCount": 0,
+    "delta": 0
+  },
+  "approvalRequired": false,
+  "proposalWouldBeCreated": false,
+  "repositoryMutated": false,
+  "privacy": {
+    "rawTraceStored": false,
+    "absolutePathStored": false,
+    "secretsStored": false
+  }
+}
