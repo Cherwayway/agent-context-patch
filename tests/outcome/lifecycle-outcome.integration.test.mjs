@@ -14,7 +14,7 @@ import { inspectProposalDocument } from "../../skills/evolve/runtime/proposal.mj
 import {
   replacePatchPlan,
   replaceSectionContent,
-} from "../lifecycle/proposal-fixture-helpers.mjs";
+} from "../support/proposal-fixture-helpers.mjs";
 
 const fixtureRoot = join(import.meta.dirname, "..", "verification", "fixtures");
 

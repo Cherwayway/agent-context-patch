@@ -13,7 +13,7 @@ import {
 import {
   replacePatchPlan,
   replaceSectionContent,
-} from "./proposal-fixture-helpers.mjs";
+} from "../support/proposal-fixture-helpers.mjs";
 
 const fixtureRoot = join(import.meta.dirname, "..", "verification", "fixtures");
 
