@@ -362,6 +362,7 @@ function normalizeEvidence(value, experiment, reportedUniqueVisitors, measuremen
       metrics,
       experiment.thresholds,
       measurementWindow.capturedAt,
+      experiment.startsAt,
       experiment.endsAt,
     ),
   };
@@ -393,8 +394,10 @@ function emptyEvidenceMetrics(githubAdjustedExternalUniqueVisitors) {
   };
 }
 
-function decideExperiment(metrics, thresholds, capturedAt, endsAt) {
-  if (endsAt === null) return "not_started";
+function decideExperiment(metrics, thresholds, capturedAt, startsAt, endsAt) {
+  if (startsAt === null || endsAt === null || capturedAt < new Date(startsAt)) {
+    return "not_started";
+  }
   if (metrics.githubAdjustedExternalUniqueVisitors === null) return "insufficient_evidence";
   if (capturedAt < new Date(endsAt)) return "in_progress";
   if (metrics.githubAdjustedExternalUniqueVisitors < thresholds.externalUniqueVisitors) {

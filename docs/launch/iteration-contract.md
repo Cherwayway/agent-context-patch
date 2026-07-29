@@ -1,6 +1,6 @@
 # Discoverability Launch Iteration Contract
 
-- Status: Day 0 implementation and verification; distribution not started
+- Status: seven-day experiment in progress since 2026-07-29T16:36:11Z
 - Target Kit Version: 0.5.4
 - Workspace Schema: unchanged at 1
 - GitHub issue: [#15](https://github.com/Cherwayway/agent-context-patch/issues/15)
@@ -86,8 +86,11 @@ authority.
 
 ## External execution gates
 
-Repository changes and Day 0 evidence can be completed locally. Marketplace
-submission, public community posting, and direct invitations speak under a
-maintainer's identity and remain pending until the maintainer explicitly
-approves those external actions and target audiences. Their results must be
-appended as new evidence records; historical records are never rewritten.
+The maintainer approved external distribution. The first live channel is the
+[Codex Show and tell discussion](https://github.com/openai/codex/discussions/35991),
+published at 2026-07-29T16:36:11Z with the terminal demo landing path. That
+timestamp starts the seven-day experiment; Anthropic marketplace submission
+and direct design-partner invitations remain separate channel actions. Channel
+actions are appended to `docs/launch/distribution-log.jsonl`; participant
+results are appended as new evidence records and historical records are never
+rewritten.

@@ -170,6 +170,31 @@ test("the Claude marketplace resolves one invocable install skill", () => {
   });
 });
 
+test("the discoverability clock is bound to the first external distribution event", () => {
+  const experiment = readJson("docs/launch/experiment.json");
+  const records = read("docs/launch/distribution-log.jsonl")
+    .trim()
+    .split(/\r?\n/u)
+    .map((line) => JSON.parse(line));
+  const channelById = new Map(
+    experiment.channels.map((channel) => [channel.id, channel]),
+  );
+
+  assert.ok(records.length > 0);
+  assert.equal(records[0].occurredAt, experiment.startsAt);
+  assert.equal(records[0].externalPublication, true);
+  assert.equal(
+    records[0].landingPath,
+    channelById.get(records[0].channel)?.landingPath,
+  );
+  assert.match(records[0].destination, /^https:\/\/github\.com\/openai\/codex\/discussions\//u);
+  assert.equal(new Set(records.map((record) => record.eventId)).size, records.length);
+  assert.deepEqual(
+    records.map((record) => record.occurredAt),
+    records.map((record) => record.occurredAt).toSorted(),
+  );
+});
+
 test("template config expresses the v1 policy and health thresholds", () => {
   const path = "templates/.agent-context/config.yml";
   assert.deepEqual(validateConfigDocument(read(path), path), []);
