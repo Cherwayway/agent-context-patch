@@ -1,13 +1,9 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const repositoryRoot = resolve(import.meta.dirname, "..");
-const checkOnly = process.argv.slice(2).includes("--check");
-const unknownArguments = process.argv.slice(2).filter((value) => value !== "--check");
-
-if (unknownArguments.length > 0) {
-  throw new Error(`Unknown argument: ${unknownArguments[0]}`);
-}
+const options = parseArguments(process.argv.slice(2));
+const repositoryRoot = resolve(options.root ?? resolve(import.meta.dirname, ".."));
+const checkOnly = options.check;
 
 const kitVersion = readJson("package.json").version;
 const changes = [];
@@ -27,13 +23,13 @@ updateJson("docs/launch/experiment.json", (document) => {
 });
 updateText("templates/.agent-context/config.yml", (source) =>
   source.replace(
-    /^created_with_kit_version: ".*"$/mu,
+    /^created_with_kit_version: "[^"\r\n]*"(?=\r?$)/mu,
     `created_with_kit_version: "${kitVersion}"`,
   ),
 );
 updateText("skills/evolve/references/config-schema.md", (source) =>
   source.replace(
-    /^created_with_kit_version: ".*"$/mu,
+    /^created_with_kit_version: "[^"\r\n]*"(?=\r?$)/mu,
     `created_with_kit_version: "${kitVersion}"`,
   ),
 );
@@ -51,9 +47,17 @@ console.log(
 );
 
 function updateJson(relativePath, update) {
-  const document = readJson(relativePath);
+  const path = resolve(repositoryRoot, relativePath);
+  const before = readFileSync(path, "utf8");
+  const document = JSON.parse(before);
+  const beforeSemantic = JSON.stringify(document);
   update(document);
-  updateText(relativePath, () => `${JSON.stringify(document, null, 2)}\n`);
+  if (JSON.stringify(document) === beforeSemantic) return;
+  changes.push(relativePath);
+  if (checkOnly) return;
+  const newline = before.includes("\r\n") ? "\r\n" : "\n";
+  const serialized = JSON.stringify(document, null, 2).replaceAll("\n", newline);
+  writeFileSync(path, `${serialized}${newline}`, "utf8");
 }
 
 function updateText(relativePath, update) {
@@ -67,4 +71,24 @@ function updateText(relativePath, update) {
 
 function readJson(relativePath) {
   return JSON.parse(readFileSync(resolve(repositoryRoot, relativePath), "utf8"));
+}
+
+function parseArguments(arguments_) {
+  const parsed = { check: false };
+  for (let index = 0; index < arguments_.length; index += 1) {
+    const argument = arguments_[index];
+    if (argument === "--check") {
+      parsed.check = true;
+      continue;
+    }
+    if (argument === "--root") {
+      const value = arguments_[index + 1];
+      if (!value || value.startsWith("--")) throw new Error("--root requires a value");
+      parsed.root = value;
+      index += 1;
+      continue;
+    }
+    throw new Error(`Unknown argument: ${argument}`);
+  }
+  return parsed;
 }

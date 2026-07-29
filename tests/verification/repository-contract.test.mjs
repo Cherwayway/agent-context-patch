@@ -1,8 +1,18 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -87,6 +97,35 @@ test("the public update surface is release-based, explicit, and workspace-indepe
   assert.match(updatePolicy, /Create a draft/iu);
   assert.match(installGuide, /One-time handoff from v0\.2\.0/iu);
   assert.match(readme, /v0\.2\.0 skill predates `\$evolve update`/iu);
+});
+
+test("Kit Version check treats CRLF JSON as semantically synchronized", () => {
+  const temporaryRoot = mkdtempSync(join(tmpdir(), "agent-context-version-sync-"));
+  const versionSurfaces = [
+    "package.json",
+    "skills/evolve/manifest.json",
+    ".claude-plugin/marketplace.json",
+    "plugins/agent-context-patch/.claude-plugin/plugin.json",
+    "docs/launch/experiment.json",
+    "templates/.agent-context/config.yml",
+    "skills/evolve/references/config-schema.md",
+  ];
+
+  try {
+    for (const relativePath of versionSurfaces) {
+      const target = join(temporaryRoot, relativePath);
+      mkdirSync(dirname(target), { recursive: true });
+      const crlfSource = read(relativePath).replaceAll("\r\n", "\n").replaceAll("\n", "\r\n");
+      writeFileSync(target, crlfSource, "utf8");
+    }
+    execFileSync(
+      process.execPath,
+      ["scripts/sync-kit-version.mjs", "--check", "--root", temporaryRoot],
+      { cwd: repositoryRoot, stdio: "pipe" },
+    );
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
 });
 
 test("the Claude marketplace resolves one invocable install skill", () => {

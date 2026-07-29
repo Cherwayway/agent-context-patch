@@ -65,7 +65,8 @@ that clone traffic represents people.
 
 Completed on 2026-07-29:
 
-- `npm test`: 203 tests, 183 passed, 20 expected platform skips, zero failed;
+- `npm test`: 204 tests, 184 passed, 20 expected platform skips, zero failed,
+  including a CRLF checkout regression for Kit Version synchronization;
 - deterministic plugin resolution smoke test plus official Claude marketplace
   and strict plugin validation: passed;
 - executed demo generation: nine frames / 74 seconds plus four frames / eight
