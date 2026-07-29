@@ -5,6 +5,8 @@ semantic versions for the Kit independently from the Workspace Schema version.
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-07-29
+
 ### Added
 
 - A Claude Code marketplace adapter that discovers the immutable-Release
@@ -13,6 +15,8 @@ semantic versions for the Kit independently from the Workspace Schema version.
   privacy-minimized evidence records, daily GitHub snapshots, and a real
   fail-to-pass terminal demo asset.
 - A focused comparison with Claude Code Auto Memory in English and Chinese.
+- A deterministic release-preparation command that binds the named archive and
+  SHA-256 checksum to one exact commit.
 
 ### Changed
 
