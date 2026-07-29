@@ -98,6 +98,15 @@ Publish a stable Release in this order:
    and asset digest. Never replace a published tag or asset; publish a new
    version for corrections.
 
+Maintainers can create the commit-bound archive and checksum with:
+
+```text
+npm run release:prepare -- <version> <40-character-sha> <output-directory>
+```
+
+The command refuses mismatched public version surfaces, a missing dated
+changelog section, a non-exact commit, or an existing output artifact.
+
 The default response to an update is notification and a plan, never silent
 installation. Urgent security releases may disable a known-unsafe write path,
 but still require explicit approval before replacing local files.
