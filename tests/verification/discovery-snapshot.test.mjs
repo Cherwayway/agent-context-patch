@@ -55,8 +55,8 @@ test("discovery snapshot preserves GitHub facts without treating clones as peopl
     assert.deepEqual(snapshot.experiment, {
       id: "discoverability-2026-07-29",
       targetKitVersion: "0.5.4",
-      startsAt: null,
-      endsAt: null,
+      startsAt: "2026-07-29T16:36:11.000Z",
+      endsAt: "2026-08-05T16:36:11.000Z",
       durationDays: 7,
       channels: [
         {
