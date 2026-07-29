@@ -1,6 +1,7 @@
 node_modules/
 .DS_Store
 *.log
+.artifacts/
 .agent-context/proposals/*.tmp
 .agent-context/.commit-kernel.lock
 .agent-context/.lifecycle-coordinator.lock

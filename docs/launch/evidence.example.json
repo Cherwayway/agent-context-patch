@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "knownTeamCoverageComplete": true,
+  "records": [
+    {
+      "id": "day0-team-visit",
+      "participantId": "team-01",
+      "actorClass": "known_team",
+      "sourceChannel": "unattributed",
+      "evidenceType": "user_confirmation",
+      "occurredAt": "2026-07-25T12:00:00.000Z",
+      "outcome": {
+        "visited": true,
+        "installed": false,
+        "initVerified": false,
+        "realEvolution": false,
+        "reuseVerified": false
+      }
+    }
+  ]
+}

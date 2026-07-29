@@ -19,6 +19,10 @@ lesson instead of rediscovering it from an old chat.
 It is local and inspectable: no hosted service, no daemon, no telemetry, and no
 silent global instruction edits.
 
+Already using Claude Code Auto Memory? It is useful personal recall; Agent
+Context Patch adds verified-failure gating, cross-Agent sharing, and an audited
+workspace write lifecycle. [See the exact boundary](docs/why-agent-context-patch.md).
+
 ## See The Difference
 
 | Without Agent Context Patch | With Agent Context Patch |
@@ -45,9 +49,28 @@ The useful path stays short:
 verified failure -> reusable lesson -> safe context patch -> later Agent tasks
 ```
 
+[![Short terminal demo: verified failure to safe context reuse](docs/assets/agent-context-patch-terminal-demo.gif)](docs/launch/terminal-demo.md)
+
 Ordinary one-off work stays out of the loop.
 
 ## Quick Install
+
+### Claude Code plugin
+
+Add the project marketplace and install the lightweight safe-install adapter:
+
+```text
+/plugin marketplace add Cherwayway/agent-context-patch
+/plugin install agent-context-patch@agent-context-patch
+/agent-context-patch:install
+```
+
+The plugin discovers the product inside Claude Code, but it does not silently
+install the runtime or edit a workspace. The install skill resolves the latest
+GitHub-enforced immutable Release, verifies its published checksum, and shows
+the Bootstrap plan plus instruction patch for approval.
+
+### Codex and other Agents
 
 Copy this prompt into Codex or Claude Code:
 

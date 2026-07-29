@@ -16,6 +16,10 @@ Agent Context Patch 把已经验证过的纠正，变成 **Claude Code 和 OpenA
 
 它完全本地、可以审阅：没有托管服务、后台守护进程和遥测，也不会静默修改全局指令。
 
+已经在使用 Claude Code Auto Memory？它适合个人记忆；Agent Context Patch 补充的是
+已验证失败门禁、跨 Agent 共享和可审计的 workspace 写入生命周期。
+[查看准确边界](docs/why-agent-context-patch.zh-CN.md)。
+
 ## 使用前后
 
 | 没有 Agent Context Patch | 使用 Agent Context Patch |
@@ -40,9 +44,27 @@ Evolution outcome: detect=candidate; propose=created; apply=applied; proposal=20
 验证过的失败 -> 可复用经验 -> 安全 context patch -> 后续 Agent 任务
 ```
 
+[![短版终端演示：从验证失败到安全复用](docs/assets/agent-context-patch-terminal-demo.gif)](docs/launch/terminal-demo.md)
+
 普通的一次性工作不会进入这个循环。
 
 ## 快速安装
+
+### Claude Code 插件
+
+在 Claude Code 中添加项目 marketplace，并安装轻量的安全安装适配器：
+
+```text
+/plugin marketplace add Cherwayway/agent-context-patch
+/plugin install agent-context-patch@agent-context-patch
+/agent-context-patch:install
+```
+
+这个插件让用户可以在 Claude Code 内发现项目，但不会静默安装 runtime 或修改
+workspace。安装 skill 会解析由 GitHub 强制不可变的最新 Release、验证发布 checksum，
+然后展示 Bootstrap 计划和 instruction patch，等待批准。
+
+### Codex 与其他 Agent
 
 把下面这段话交给 Codex 或 Claude Code：
 

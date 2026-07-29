@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -16,7 +17,10 @@ test("package, skill manifest, and context schema versions agree", () => {
   const manifest = readJson("skills/evolve/manifest.json");
   const config = parseYamlSubset(read("templates/.agent-context/config.yml"), "template config");
 
-  assert.equal(packageJson.version, "0.5.3");
+  execFileSync(process.execPath, ["scripts/sync-kit-version.mjs", "--check"], {
+    cwd: repositoryRoot,
+    stdio: "pipe",
+  });
   assert.equal(packageJson.engines?.node, ">=20");
   assert.equal(manifest.kit, "agent-context-patch");
   assert.equal(manifest.version, packageJson.version);
@@ -83,6 +87,48 @@ test("the public update surface is release-based, explicit, and workspace-indepe
   assert.match(updatePolicy, /Create a draft/iu);
   assert.match(installGuide, /One-time handoff from v0\.2\.0/iu);
   assert.match(readme, /v0\.2\.0 skill predates `\$evolve update`/iu);
+});
+
+test("the Claude marketplace resolves one invocable install skill", () => {
+  const packageJson = readJson("package.json");
+  const marketplace = readJson(".claude-plugin/marketplace.json");
+  const marketplaceEntry = marketplace.plugins[0];
+  const pluginRoot = join(repositoryRoot, marketplaceEntry.source);
+  const plugin = JSON.parse(
+    readFileSync(join(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"),
+  );
+  const skillsRoot = join(pluginRoot, plugin.skills);
+  const skillEntries = readdirSync(skillsRoot, { withFileTypes: true }).filter(
+    (entry) => entry.isDirectory(),
+  );
+
+  assert.equal(marketplace.name, "agent-context-patch");
+  assert.deepEqual(
+    marketplace.plugins.map(({ name, source, version }) => ({ name, source, version })),
+    [
+      {
+        name: "agent-context-patch",
+        source: "./plugins/agent-context-patch",
+        version: packageJson.version,
+      },
+    ],
+  );
+  assert.equal(plugin.name, "agent-context-patch");
+  assert.equal(plugin.version, packageJson.version);
+  assert.equal(plugin.skills, "./skills/");
+  assert.equal(
+    plugin.homepage,
+    "https://github.com/Cherwayway/agent-context-patch/blob/main/docs/why-agent-context-patch.md",
+  );
+  assert.deepEqual(skillEntries.map((entry) => entry.name), ["install"]);
+  const skillPath = join(skillsRoot, "install", "SKILL.md");
+  const { data } = parseMarkdownFrontmatter(readFileSync(skillPath, "utf8"), skillPath);
+  assert.deepEqual({ ...data }, {
+    name: "install",
+    description:
+      "Safely install or inspect Agent Context Patch when the user asks for durable, reviewable workspace memory for Claude Code or Codex.",
+    "disable-model-invocation": true,
+  });
 });
 
 test("template config expresses the v1 policy and health thresholds", () => {

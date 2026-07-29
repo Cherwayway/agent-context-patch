@@ -37,6 +37,7 @@ test(
   { skip: powershell === undefined ? "PowerShell is not available on this platform" : false },
   () => {
     assertFreshInstallerDefaultsToAuto({
+      repositoryRoot,
       runDryRun(workspace) {
         return invoke(["-Mode", "DryRun", "-WorkspacePath", workspace]);
       },

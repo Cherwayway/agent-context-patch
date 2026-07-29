@@ -1,6 +1,6 @@
 {
   "name": "agent-context-patch",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "private": true,
   "description": "Turn AI agent mistakes into durable project context patches.",
   "type": "module",
@@ -8,7 +8,10 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node scripts/run-verification.mjs"
+    "test": "node scripts/run-verification.mjs",
+    "metrics:discovery": "node scripts/capture-discovery-snapshot.mjs",
+    "version:sync": "node scripts/sync-kit-version.mjs",
+    "version:check": "node scripts/sync-kit-version.mjs --check"
   },
   "license": "MIT"
 }
