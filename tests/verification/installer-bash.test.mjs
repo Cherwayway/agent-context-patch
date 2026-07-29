@@ -42,6 +42,7 @@ test(
   },
   () => {
     assertFreshInstallerDefaultsToAuto({
+      repositoryRoot,
       runDryRun(workspace) {
         return invokeAt(installer, ["--mode", "dry-run", "--workspace", workspace]);
       },

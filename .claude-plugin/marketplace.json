@@ -1,0 +1,19 @@
+{
+  "name": "agent-context-patch",
+  "owner": {
+    "name": "Cherwayway",
+    "url": "https://github.com/Cherwayway"
+  },
+  "metadata": {
+    "description": "Safe, reviewable workspace memory for coding agents",
+    "version": "0.5.4"
+  },
+  "plugins": [
+    {
+      "name": "agent-context-patch",
+      "source": "./plugins/agent-context-patch",
+      "description": "Install Agent Context Patch from a verified immutable Release without silently changing workspace instructions.",
+      "version": "0.5.4"
+    }
+  ]
+}

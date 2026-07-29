@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "discoverability-2026-07-29",
+  "targetKitVersion": "0.5.4",
+  "startsAt": null,
+  "durationDays": 7,
+  "channels": [
+    {
+      "id": "anthropic_marketplace",
+      "landingPath": "docs/why-agent-context-patch.md"
+    },
+    {
+      "id": "technical_community",
+      "landingPath": "docs/launch/terminal-demo.md"
+    },
+    {
+      "id": "direct_outreach",
+      "landingPath": "AGENT_INSTALL.md"
+    }
+  ],
+  "thresholds": {
+    "externalUniqueVisitors": 30,
+    "validActivations": 3,
+    "realEvolutions": 3,
+    "reuseEvidence": 1
+  }
+}

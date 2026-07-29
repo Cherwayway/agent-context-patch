@@ -117,7 +117,7 @@ export function assertInstallerContract({ repositoryRoot, runDryRun, runApply })
   }
 }
 
-export function assertFreshInstallerDefaultsToAuto({ runDryRun, runApply }) {
+export function assertFreshInstallerDefaultsToAuto({ repositoryRoot, runDryRun, runApply }) {
   const workspace = mkdtempSync(join(tmpdir(), "agent-context-patch-fresh-install-"));
   try {
     const dryRun = runDryRun(workspace);
@@ -126,7 +126,13 @@ export function assertFreshInstallerDefaultsToAuto({ runDryRun, runApply }) {
     assertCommandSucceeded(apply, "fresh installer apply");
 
     const config = readFileSync(join(workspace, ".agent-context", "config.yml"), "utf8");
-    assert.match(config, /^created_with_kit_version: "0\.5\.3"$/mu);
+    const kitVersion = JSON.parse(
+      readFileSync(join(repositoryRoot, "package.json"), "utf8"),
+    ).version;
+    assert.match(
+      config,
+      new RegExp(`^created_with_kit_version: "${escapeRegExp(kitVersion)}"$`, "mu"),
+    );
     assert.match(config, /^context_write_policy: auto$/mu);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
@@ -187,6 +193,11 @@ export function assertV1ConfigBootstrapContract({ repositoryRoot, runDryRun, run
     join(repositoryRoot, "templates", ".agent-context", "config.yml"),
     "utf8",
   );
+  const createdVersionLine = templateConfig.match(
+    /^created_with_kit_version: "([^"]+)"$/mu,
+  );
+  assert.ok(createdVersionLine, "template config is missing created Kit Version");
+  const createdVersion = createdVersionLine[1];
   const invalidScenarios = [
     {
       name: "incomplete v1 config",
@@ -218,7 +229,7 @@ export function assertV1ConfigBootstrapContract({ repositoryRoot, runDryRun, run
     {
       name: "invalid created kit version",
       config: templateConfig.replace(
-        'created_with_kit_version: "0.5.3"',
+        `created_with_kit_version: "${createdVersion}"`,
         'created_with_kit_version: "v0.2.0"',
       ),
     },
@@ -232,8 +243,8 @@ export function assertV1ConfigBootstrapContract({ repositoryRoot, runDryRun, run
     {
       name: "created kit version with decoded trailing newline",
       config: templateConfig.replace(
-        'created_with_kit_version: "0.5.3"',
-        'created_with_kit_version: "0.5.3\\n"',
+        `created_with_kit_version: "${createdVersion}"`,
+        `created_with_kit_version: "${createdVersion}\\n"`,
       ),
     },
   ];
@@ -545,6 +556,10 @@ function snapshotTree(root) {
     snapshot[relative(root, path).replaceAll("\\", "/")] = readFileSync(path).toString("base64");
   }
   return snapshot;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function createDirectoryLink(target, link) {

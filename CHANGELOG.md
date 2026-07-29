@@ -5,6 +5,22 @@ semantic versions for the Kit independently from the Workspace Schema version.
 
 ## [Unreleased]
 
+### Added
+
+- A Claude Code marketplace adapter that discovers the immutable-Release
+  installer without silently editing a workspace.
+- A seven-day discoverability experiment with channel-specific landing paths,
+  privacy-minimized evidence records, daily GitHub snapshots, and a real
+  fail-to-pass terminal demo asset.
+- A focused comparison with Claude Code Auto Memory in English and Chinese.
+
+### Changed
+
+- Prepared Kit Version 0.5.4 without changing Workspace Schema 1 or the runtime
+  write-authority boundary.
+- Made `package.json` the source of truth for synchronized public Kit Version
+  surfaces.
+
 ## [0.5.3] - 2026-07-26
 
 ### Added

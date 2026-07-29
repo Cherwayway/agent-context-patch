@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "agent-context-patch",
+  "displayName": "Agent Context Patch",
+  "version": "0.5.4",
+  "description": "Install safe, reviewable workspace memory for Claude Code and OpenAI Codex from a verified immutable Release.",
+  "author": {
+    "name": "Cherwayway",
+    "url": "https://github.com/Cherwayway"
+  },
+  "homepage": "https://github.com/Cherwayway/agent-context-patch/blob/main/docs/why-agent-context-patch.md",
+  "repository": "https://github.com/Cherwayway/agent-context-patch",
+  "license": "MIT",
+  "keywords": [
+    "agent-memory",
+    "claude-code",
+    "codex",
+    "context-management"
+  ],
+  "skills": "./skills/"
+}
