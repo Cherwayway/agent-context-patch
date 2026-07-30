@@ -90,7 +90,8 @@ The maintainer approved external distribution. The first live channel is the
 [Codex Show and tell discussion](https://github.com/openai/codex/discussions/35991),
 published at 2026-07-29T16:36:11Z with the terminal demo landing path. That
 timestamp starts the seven-day experiment; Anthropic marketplace submission
-and direct design-partner invitations remain separate channel actions. Channel
+was confirmed received at 2026-07-30T02:38:10Z and is pending review, while
+direct design-partner invitations remain a separate channel action. Channel
 actions are appended to `docs/launch/distribution-log.jsonl`; participant
 results are appended as new evidence records and historical records are never
 rewritten.
