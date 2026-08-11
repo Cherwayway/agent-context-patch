@@ -3,17 +3,17 @@
   "caseId": "case-a",
   "freshContext": true,
   "inputDigests": {
-    "skills/evolve/SKILL.md": "90e56864aa15560d447f7c435634c90ddf848507832ba60827a9a5dd0855f10b",
-    "skills/evolve/references/cleanup-policy.md": "592735477b24f215c4def0f6ad1d4c5bf9e2a4ab62330950d5782e7b4d40de7d",
+    "skills/evolve/SKILL.md": "c74df4fb149aac71f639ab9d3cee552149201a47716d18d180c37ab12e3bc7e4",
+    "skills/evolve/references/cleanup-policy.md": "93891ab0914c96da2817a790302f5783ffcf2032e3f3103beab9c95bd0f06502",
     "tests/acceptance/fixtures/review-context-semantic-generalization.json": "038cca94e9582fa514f29a72bafa1328baa7f56201acbae61e32d1f23836581c",
     "tests/acceptance/review-context-semantic-generalization.runner.json": "6fe7d783080be40c268d78bef1fd9159d918cff0c33ca0975978930de216eede",
     "tests/acceptance/review-context-semantic-generalization-result.schema.json": "e3b84da818b93a9c65bd783ca9b88f35fdc87f0759ab7a685380d5e36dd822fa"
   },
   "decision": "candidate",
   "invariant": {
-    "when": "A documented trigger is accepted, exposed, or registered and acceptance depends on whether its requested operation actually executes.",
-    "require": "The trigger must traverse the production dispatch path to the responsible implementation and produce the intended domain effect.",
-    "verify": "Exercise the real trigger path and observe the durable domain result, retaining any surface-specific check needed to distinguish execution from cosmetic state, parsing, registration, or scheduling alone."
+    "when": "A user action, command option, host event, or scheduled boundary is documented or configured to trigger behavior through an execution path.",
+    "require": "The real trigger must traverse its dispatch path to the responsible implementation and produce the intended durable or domain effect.",
+    "verify": "Exercise the trigger through its actual boundary and observe the downstream effect rather than accepting parsing, registration, scheduling, or local presentation as proof of execution."
   },
   "includedRuleIds": [
     "rule-web-control",
@@ -38,26 +38,26 @@
   "preservedDomainDetails": [
     {
       "proposalId": "2026-07-01-visible-control-dispatch",
-      "detail": "Reload the browser to distinguish durable preference persistence from cosmetic local state."
+      "detail": "Reload the browser and confirm the durable preference value so cosmetic local state cannot satisfy acceptance."
     },
     {
       "proposalId": "2026-07-02-cli-option-execution",
-      "detail": "Verify that the artifact content reflects the selected export scope."
+      "detail": "Confirm that the generated artifact contains the records selected by the requested export scope."
     },
     {
       "proposalId": "2026-07-03-extension-hook-invocation",
-      "detail": "Emit through the host dispatcher instead of calling the domain handler directly."
+      "detail": "Emit the event through the host dispatcher instead of directly invoking the registered handler."
     },
     {
       "proposalId": "2026-07-04-scheduled-job-execution",
-      "detail": "Advance the test clock through the scheduler boundary before checking that expired records were removed."
+      "detail": "Advance the test clock through the scheduler boundary and confirm that expired records are removed."
     }
   ],
   "counterexamples": [
-    "Keyboard accessibility is not an execution-reachability failure: the existing handler may work while focus visibility, semantic role, or keyboard activation remains unavailable.",
-    "Retry idempotency is not an execution-reachability failure: the hook may reach its handler on every delivery while producing a duplicate side effect because event identity is not preserved across the retry boundary."
+    "rule-web-keyboard-access and proposal 2026-07-09-web-keyboard-access concern input accessibility: focus, semantic role, and keyboard equivalence can fail even when dispatch and durable execution work correctly.",
+    "rule-hook-retry-idempotency and proposal 2026-07-10-hook-retry-idempotency concern duplicate side effects across retries: the handler may execute successfully while still producing the effect more than once."
   ],
-  "behaviorLostIfApproved": "No verified behavior from the four included rules is lost if the listed domain checks remain attached to the replacement; only repetitive surface-specific wording is removed. The independent accessibility and retry-idempotency guarantees remain active as separate rules.",
+  "behaviorLostIfApproved": "No verified acceptance guarantee is intentionally removed: the four surface-specific execution rules become one shared dispatch-to-effect invariant, while their browser reload, export-scope content, host-dispatcher, and scheduler-clock checks remain explicit domain details. The lost content is only repeated surface-specific phrasing.",
   "netActiveContextChange": {
     "replacedRuleCount": 4,
     "replacementRuleCount": 1,

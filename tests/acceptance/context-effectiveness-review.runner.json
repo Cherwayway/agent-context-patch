@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Run one isolated fresh Agent per case and retain a mechanically verifiable bounded effectiveness review.",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "textNormalization": "lf"
+  },
+  "allowedInputs": [
+    "docs/adr/0007-agent-owned-context-effectiveness-review.md",
+    "skills/evolve/SKILL.md",
+    "skills/evolve/references/cleanup-policy.md",
+    "tests/acceptance/fixtures/context-effectiveness-review.json"
+  ],
+  "harnessInputs": [
+    "tests/acceptance/context-effectiveness-review.runner.json",
+    "tests/acceptance/context-effectiveness-review-result.schema.json"
+  ],
+  "forbiddenInputs": [
+    "GitHub issues",
+    "changelog",
+    "prior acceptance records",
+    "conversation context",
+    "results from another case",
+    "raw task transcripts"
+  ],
+  "instruction": "Start without prior conversation. Read only the candidate ADR, Skill, cleanup policy, and the named fixture case. Act as a bounded $evolve weekly effectiveness review. Return only the Agent-owned fields in the result schema. Review every active rule exactly once. Distinguish material use from a context read, treat an irrelevant task as not_applicable, and treat missing opportunity evidence as unknown rather than zero use. A repeated preventable failure after activation schedules semantic review. Low use never authorizes cleanup, and any cleanup remains approval-required. Do not edit the repository. The maintainer harness binds the retained result to canonical-LF SHA-256 digests of every allowed and harness input.",
+  "resultSchemaPath": "tests/acceptance/context-effectiveness-review-result.schema.json",
+  "runs": [
+    {
+      "caseId": "mixed-bounded-evidence",
+      "resultPath": "docs/acceptance/results/2026-08-11-context-effectiveness-mixed.json"
+    },
+    {
+      "caseId": "absence-is-not-disuse",
+      "resultPath": "docs/acceptance/results/2026-08-11-context-effectiveness-absence.json"
+    }
+  ]
+}

@@ -84,6 +84,39 @@ Judge retention value as high, medium, or low with evidence. Consider:
 
 Do not compute a mechanical score.
 
+## Effectiveness evidence
+
+When a rule has a stable `acp-rule` marker and bounded task evidence is
+available, separate applicability from influence:
+
+- `material_use`: a relevant task shows that the rule changed planning,
+  execution, or verification and records an observable result
+- `loaded_only`: the rule was available or read, but no changed action is
+  established
+- `relevant_but_missed`: the rule applied but was not followed, or the same
+  preventable failure recurred
+- `not_applicable`: the reviewed task had no opportunity to use the rule
+- `unknown`: retained evidence is insufficient
+
+Do not infer effectiveness from an Active Context read. Do not turn unobserved
+tasks into zero hits. A report may aggregate only the bounded opportunities it
+actually reviewed and must state unknown coverage.
+
+Recommendations are semantic: `retain`, `observe`, `narrow_route`,
+`rewrite_candidate`, or `cleanup_candidate`. Low use or repeated
+`not_applicable` evidence can schedule review, but no count or ratio authorizes
+removal.
+
+For new rules, use a stable marker immediately above the active Markdown rule:
+
+~~~md
+<!-- acp-rule: <proposal-id>#<ordinal>; source: <proposal-id>; subsumes: none -->
+~~~
+
+A replacement receives a new ID and lists the old IDs in `subsumes`. Existing
+unmarked rules remain valid; assign IDs only as part of an otherwise justified
+and approved semantic review, never through a silent migration.
+
 ## Cleanup triggers
 
 Generate a cleanup proposal when:
@@ -97,6 +130,12 @@ Generate a cleanup proposal when:
 - a domain is being disabled
 - a new proposal can replace or tighten existing context
 - a configured warn or block_auto threshold is crossed
+- the same preventable failure recurs after a rule was activated
+- repeated bounded observations show loaded-only or irrelevant default loading
+- active additions accelerate or automatic adds continue without a cleanup or
+  effectiveness review
+- retention declarations remain uniformly high while effectiveness coverage is
+  mostly unknown
 
 ## Cleanup proposal
 
@@ -112,6 +151,8 @@ For every affected rule, include:
 - exclusions and counterexamples
 - behavior lost if approved
 - net active-context change
+- bounded effectiveness state, evidence coverage, and last material-use pointer
+  when known
 
 Allowed semantic actions are tighten, merge, rewrite, supersede,
 demote_to_checklist, archive_example, and archive_rule. Any operation that

@@ -92,9 +92,18 @@ Proposal 必须包含具体证据。单纯觉得“以后也许有用”不算�
 3. 只审核被安全门禁拦下的 pending Proposal：批准、拒绝、继续观察或合并。
 4. 对每个问题选择：context、checklist、skill、功能、清理、暂不处理。
 5. 检查已应用改进是否仍然复发；无效则提出精确的回滚或重写 Proposal，获批后执行。
-6. 提出删除或归档候选；只有在精确计划获批后才处理过时、重复、过长且不再改变
+6. 对本周确有相关任务机会的规则，区分 `material_use`、`loaded_only`、
+   `relevant_but_missed`、`not_applicable` 和 `unknown`。只读过 context 不等于规则改变了
+   行为；没有覆盖到的任务记为 `unknown`，不能算零使用。
+7. 对有稳定 rule ID 的规则，只汇总内容安全的机会数、实际改变行为的次数、激活后复发、
+   最近一次有效证据指针、无关加载和未知覆盖；不保存原始任务、对话或完整轨迹。
+8. 提出删除或归档候选；只有在精确计划获批后才处理过时、重复、过长且不再改变
    agent 行为的 context。
-7. 只保留一个下周 watch item，避免待观察事项无限增长。
+9. 只保留一个下周 watch item，避免待观察事项无限增长。
+
+除了 500/800 行预算外，激活后仍复发、反复只加载未使用、短期快速连续 auto-add、长期没有
+rewrite/cleanup，以及几乎所有规则都声明高 retention 但有效性覆盖大多未知，也应触发一次
+语义 review。它们只触发检查，不得自动删除规则。
 
 ## Promotion Gate
 
@@ -129,8 +138,13 @@ Proposal 必须包含具体证据。单纯觉得“以后也许有用”不算�
 - Proposal 是否长期积压。
 - context 是否只增不减。
 - 一条规则是否真的改变了 agent 的计划、执行或验证行为。
+- 有多少判断仍因任务机会或证据覆盖不足而是 `unknown`。
 
 功能数量、Proposal 数量和 context 总行数都不是成功指标。
+
+对高价值规则，优先使用 paired fresh-Agent case：相同的脱敏任务与预算，一个不加载候选规则，
+一个加载候选规则；由外部 harness 检查可观察结果，而不是相信 Agent 自述“使用了规则”。同时
+增加一个无关任务，验证候选规则不会扩大约束范围。只保留结构化结果、输入 digest 和脱敏摘要。
 
 ## Fresh-Context Acceptance Cases
 

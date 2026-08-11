@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "caseId": "package-metadata-change",
+  "variant": "candidate",
+  "freshContext": true,
+  "inputDigests": [
+    {
+      "path": "tests/acceptance/fixtures/context-rule-impact-package-candidate.json",
+      "digest": "3d38730804ae1741cc86f27fe34d83ff6bef572b3574b5b5d78504028587e20f"
+    },
+    {
+      "path": "tests/acceptance/context-rule-impact.runner.json",
+      "digest": "1ee0032c45c73fcf657a4887811d2848441cf6298b74ebeeb98c37e4e60f3901"
+    },
+    {
+      "path": "tests/acceptance/context-rule-impact-result.schema.json",
+      "digest": "29b8b8a401cf8dea3b1415078257f10411a58622c7d03ad0fde700493e3d5dd9"
+    }
+  ],
+  "selectedAction": "distribution_check",
+  "reason": "Active Context requires distribution_check after package metadata changes because it validates the packaged manifest and satisfies packageMetadataValidated=true.",
+  "repositoryMutated": false,
+  "privacy": {
+    "rawTraceStored": false,
+    "absolutePathStored": false,
+    "secretsStored": false
+  }
+}

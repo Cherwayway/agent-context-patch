@@ -228,17 +228,22 @@ invoke this command manually:
 7. Keep evidence as workspace-relative pointers and short result summaries.
 8. Evaluate authority, retention value, privacy, and the net active-context
    change.
-9. For a workspace proposal, persist the full JSON PatchPlan under Proposed
+9. When the patch adds an Active Context rule, give each new rule a stable ID
+   using the source proposal ID plus a one-based ordinal. Place a compact
+   `acp-rule` Markdown comment immediately above it with its source proposal and
+   `subsumes: none`. A replacement uses a new ID and names the replaced IDs;
+   never retrofit IDs through an unapproved bulk migration.
+10. For a workspace proposal, persist the full JSON PatchPlan under Proposed
    Patch and compute plan_hash from its canonical JSON.
-10. Evaluate policy and all auto gates. When eligible, invoke Lifecycle
+11. Evaluate policy and all auto gates. When eligible, invoke Lifecycle
     Reconciliation again. It persists the `policy_auto` Decision, enters
     approved, calls the Commit Kernel with the exact runtime plan, appends the
     Apply Attempt, and enters applied only after success.
-11. Finalize the Agent-owned `detect` and `propose` stages with the exact
+12. Finalize the Agent-owned `detect` and `propose` stages with the exact
     reconciliation result through `finalizeEvolutionOutcome`. Print only
     `outcome.receipt.text`; do not request approval, wait for a reply, or print
     the full PatchPlan or plan hash on an applied path.
-12. If an auto gate fails, keep the exact proposal and let the Outcome Interface
+13. If an auto gate fails, keep the exact proposal and let the Outcome Interface
     report `approval_required` or `blocked` with one machine-readable reason and
     a safe next action when known. Ask for a decision only when the operation is
     an allowed approval-only exception.
@@ -306,6 +311,12 @@ references/cleanup-policy.md and references/context-budget.md.
   rules and proposal IDs, preserved domain details, exclusions or
   counterexamples, behavior lost, and net active-context change.
 - Prefer tighten, merge, rewrite, supersede, or archive over another append.
+- When bounded, content-safe task evidence is available for a stable rule ID,
+  distinguish `material_use`, `loaded_only`, `relevant_but_missed`,
+  `not_applicable`, and `unknown`. Reading a context file alone is
+  `loaded_only`; absent task coverage is `unknown`, not evidence of disuse.
+- Recommend only `retain`, `observe`, `narrow_route`, `rewrite_candidate`, or
+  `cleanup_candidate`. Low use schedules review and never authorizes removal.
 - Produce an exact cleanup proposal with what behavior would be lost and the
   net context change.
 - Require human approval for every semantic removal or replacement.
@@ -321,12 +332,21 @@ report in reports/ covering:
 2. applied improvements
 3. proposal triage
 4. stale, redundant, or conflicting active context
-5. recommended patches, cleanup, and possible cross-noun generalization
+5. a bounded effectiveness view for reviewed stable rule IDs: relevant-task
+   opportunities, material uses, recurrence after activation, last material-use
+   pointer, irrelevant-load observations, and explicit unknown coverage
+6. review signals independent of line count, including repeated failure after
+   activation, repeated loaded-only or irrelevant default loading, rapid active
+   additions, long auto-add sequences without cleanup, and undifferentiated
+   high-retention declarations with little known coverage
+7. recommended patches, cleanup, and possible cross-noun generalization
    candidates for `$evolve review-context`; the report never merges them
-6. next review priorities
+8. next review priorities
 
 Reports are rebuildable views, not sources of truth, and are not part of the
-default context read.
+default context read. Inspect only explicitly available, content-safe task
+evidence. Do not add a background scan, per-task receipt, raw usage ledger, or
+mechanical hit-rate score.
 
 ### Personal multi-repository dogfooding
 

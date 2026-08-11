@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "caseId": "package-metadata-change",
+  "variant": "candidate",
+  "task": "Choose exactly one pre-delivery verification action after changing package metadata.",
+  "projectDefaults": [
+    "Use unit_check for ordinary code or metadata changes unless Active Context requires a stronger boundary.",
+    "Use docs_check for prose-only documentation changes."
+  ],
+  "activeContext": [
+    {
+      "id": "2026-08-11-package-boundary#1",
+      "text": "After package metadata changes, run distribution_check and require artifact_manifest_match; unit_check alone does not validate the packaged manifest."
+    }
+  ],
+  "actions": {
+    "unit_check": {
+      "command": "npm test",
+      "observableResult": "unit_suite_passed",
+      "packageMetadataValidated": false,
+      "documentationValidated": false
+    },
+    "distribution_check": {
+      "command": "node scripts/verify-distribution.mjs",
+      "observableResult": "artifact_manifest_match",
+      "packageMetadataValidated": true,
+      "documentationValidated": false
+    },
+    "docs_check": {
+      "command": "node scripts/check-docs.mjs",
+      "observableResult": "documentation_passed",
+      "packageMetadataValidated": false,
+      "documentationValidated": true
+    }
+  },
+  "requiredOutcomeField": "packageMetadataValidated",
+  "requiredOutcomeValue": true
+}

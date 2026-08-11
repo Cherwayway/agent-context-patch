@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "caseId": "prose-only-change",
+  "variant": "candidate",
+  "freshContext": true,
+  "inputDigests": [
+    {
+      "path": "tests/acceptance/fixtures/context-rule-impact-prose-candidate.json",
+      "digest": "dc2bf67c92fab493107c24d4288b7303498fc0799edf8d371ff9fb13278adb51"
+    },
+    {
+      "path": "tests/acceptance/context-rule-impact.runner.json",
+      "digest": "1ee0032c45c73fcf657a4887811d2848441cf6298b74ebeeb98c37e4e60f3901"
+    },
+    {
+      "path": "tests/acceptance/context-rule-impact-result.schema.json",
+      "digest": "29b8b8a401cf8dea3b1415078257f10411a58622c7d03ad0fde700493e3d5dd9"
+    }
+  ],
+  "selectedAction": "docs_check",
+  "reason": "The task is a prose-only README change, projectDefaults selects docs_check for prose-only documentation changes, and it provides the required documentationValidated value of true.",
+  "repositoryMutated": false,
+  "privacy": {
+    "rawTraceStored": false,
+    "absolutePathStored": false,
+    "secretsStored": false
+  }
+}

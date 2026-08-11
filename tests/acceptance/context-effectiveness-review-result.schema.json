@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Fresh Agent context effectiveness review result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "caseId",
+    "freshContext",
+    "inputDigests",
+    "ruleReviews",
+    "semanticReviewScheduled",
+    "cleanupProposalWouldBeCreated",
+    "repositoryMutated",
+    "privacy"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "caseId": { "type": "string" },
+    "freshContext": { "type": "boolean", "const": true },
+    "inputDigests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "digest"],
+        "properties": {
+          "path": { "type": "string" },
+          "digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "ruleReviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ruleId",
+          "evidenceState",
+          "recommendation",
+          "evidencePointers",
+          "reason",
+          "cleanupRequiresApproval"
+        ],
+        "properties": {
+          "ruleId": { "type": "string" },
+          "evidenceState": {
+            "enum": [
+              "material_use",
+              "loaded_only",
+              "relevant_but_missed",
+              "not_applicable",
+              "unknown"
+            ]
+          },
+          "recommendation": {
+            "enum": [
+              "retain",
+              "observe",
+              "narrow_route",
+              "rewrite_candidate",
+              "cleanup_candidate"
+            ]
+          },
+          "evidencePointers": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "reason": { "type": "string" },
+          "cleanupRequiresApproval": { "type": "boolean", "const": true }
+        }
+      }
+    },
+    "semanticReviewScheduled": { "type": "boolean" },
+    "cleanupProposalWouldBeCreated": { "type": "boolean" },
+    "repositoryMutated": { "type": "boolean", "const": false },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rawTaskStored",
+        "fullTraceStored",
+        "absolutePathStored",
+        "secretsStored"
+      ],
+      "properties": {
+        "rawTaskStored": { "type": "boolean", "const": false },
+        "fullTraceStored": { "type": "boolean", "const": false },
+        "absolutePathStored": { "type": "boolean", "const": false },
+        "secretsStored": { "type": "boolean", "const": false }
+      }
+    }
+  }
+}
