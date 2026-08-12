@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "caseId": "package-metadata-change",
+  "variant": "baseline",
+  "freshContext": true,
+  "inputDigests": [
+    {
+      "path": "tests/acceptance/fixtures/context-rule-impact-package-baseline.json",
+      "digest": "454ed107bcbf3ddbbb50a3aed8c72a2515ff73100c6ba9dd648c4ffb36868150"
+    },
+    {
+      "path": "tests/acceptance/context-rule-impact.runner.json",
+      "digest": "1ee0032c45c73fcf657a4887811d2848441cf6298b74ebeeb98c37e4e60f3901"
+    },
+    {
+      "path": "tests/acceptance/context-rule-impact-result.schema.json",
+      "digest": "29b8b8a401cf8dea3b1415078257f10411a58622c7d03ad0fde700493e3d5dd9"
+    }
+  ],
+  "selectedAction": "unit_check",
+  "reason": "Project defaults specify unit_check for ordinary metadata changes, and activeContext provides no stronger boundary.",
+  "repositoryMutated": false,
+  "privacy": {
+    "rawTraceStored": false,
+    "absolutePathStored": false,
+    "secretsStored": false
+  }
+}

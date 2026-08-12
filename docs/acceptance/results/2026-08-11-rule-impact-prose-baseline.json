@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "caseId": "prose-only-change",
+  "variant": "baseline",
+  "freshContext": true,
+  "inputDigests": [
+    {
+      "path": "tests/acceptance/fixtures/context-rule-impact-prose-baseline.json",
+      "digest": "af8c11b0766568a06651a66b222a19bddb45519660d844de8123e5542ef710b7"
+    },
+    {
+      "path": "tests/acceptance/context-rule-impact.runner.json",
+      "digest": "1ee0032c45c73fcf657a4887811d2848441cf6298b74ebeeb98c37e4e60f3901"
+    },
+    {
+      "path": "tests/acceptance/context-rule-impact-result.schema.json",
+      "digest": "29b8b8a401cf8dea3b1415078257f10411a58622c7d03ad0fde700493e3d5dd9"
+    }
+  ],
+  "selectedAction": "docs_check",
+  "reason": "The task is a prose-only README correction, and projectDefaults specifies docs_check for prose-only documentation changes; it is also the action whose fixture validates the required documentation outcome.",
+  "repositoryMutated": false,
+  "privacy": {
+    "rawTraceStored": false,
+    "absolutePathStored": false,
+    "secretsStored": false
+  }
+}

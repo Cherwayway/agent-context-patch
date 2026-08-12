@@ -57,11 +57,19 @@ Every product iteration must record, in an issue or pull request:
 - the verification performed; and
 - the target Kit Version and release note.
 
+For a post-apply context-effectiveness hypothesis, also state the bounded task
+coverage and distinguish loaded context from materially changed behavior.
+Absence of retained opportunity evidence is `unknown`, not a zero hit.
+
 Use lightweight gates proportional to the change:
 
 - Mechanical changes run the repository verification suite.
 - Semantic changes add a fresh-context positive case and a case that should not
   become durable context.
+- High-value rule changes use paired fresh Agents when practical: identical
+  sanitized task facts with and without the candidate rule, equal output
+  contracts, an external observable-outcome check, and an unrelated negative
+  task that must remain unconstrained.
 - Upgrade changes prove prior stable version to candidate, failed replacement
   to rollback, and a second run with no unintended changes.
 - Workspace Schema changes use a separately approved migration path and exact
@@ -80,3 +88,5 @@ write-authority, privacy, corruption, or recovery regression.
 
 The iteration is validated only when the intended outcome improves in fresh
 use. Shipping code or increasing proposal acceptance alone is not proof.
+Reading Active Context alone is also not proof; effectiveness requires a
+changed plan, execution, or verification behavior tied to an observable result.

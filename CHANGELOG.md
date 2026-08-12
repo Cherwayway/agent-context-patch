@@ -5,6 +5,24 @@ semantic versions for the Kit independently from the Workspace Schema version.
 
 ## [Unreleased]
 
+### Added
+
+- A Schema-1-compatible `acp-rule` lineage convention for new or
+  human-reviewed Active Context rules, with source-proposal and subsumption
+  identity.
+- Bounded Agent-owned effectiveness states for material use, loaded-only
+  evidence, relevant misses, non-applicability, and unknown coverage.
+- Fresh-Agent semantic-review and paired rule-impact acceptance, including an
+  unrelated negative case and canonical input-digest binding.
+
+### Changed
+
+- `$evolve weekly` and `$evolve review-context` now use explicitly available,
+  content-safe task evidence to schedule retention, routing, rewrite, or cleanup
+  review without telemetry, a raw usage ledger, or automatic deletion.
+- Prepared the next Kit patch without changing Workspace Schema 1, adding a
+  public command, or moving project meaning into the deterministic runtime.
+
 ## [0.5.4] - 2026-07-29
 
 ### Added

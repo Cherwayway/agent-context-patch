@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Run isolated baseline and candidate fresh Agents for one relevant task and one unrelated task.",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "textNormalization": "lf"
+  },
+  "caseInputs": [
+    "tests/acceptance/fixtures/context-rule-impact-package-baseline.json",
+    "tests/acceptance/fixtures/context-rule-impact-package-candidate.json",
+    "tests/acceptance/fixtures/context-rule-impact-prose-baseline.json",
+    "tests/acceptance/fixtures/context-rule-impact-prose-candidate.json"
+  ],
+  "harnessInputs": [
+    "tests/acceptance/context-rule-impact.runner.json",
+    "tests/acceptance/context-rule-impact-result.schema.json"
+  ],
+  "forbiddenInputs": [
+    "GitHub issues",
+    "candidate output from another run",
+    "baseline output from another run",
+    "prior acceptance records",
+    "conversation context"
+  ],
+  "instruction": "Start without prior conversation. Read only the one inputPath named by the run. Choose exactly one action for that task using its project defaults and Active Context, then return only the fields in the result schema. Do not claim success: the maintainer harness independently maps selectedAction to the fixture outcome. Do not inspect another variant, edit the repository, or retain a full trace. The harness binds the retained result to canonical-LF SHA-256 digests of the run input and every harness input.",
+  "resultSchemaPath": "tests/acceptance/context-rule-impact-result.schema.json",
+  "runs": [
+    {
+      "caseId": "package-metadata-change",
+      "variant": "baseline",
+      "inputPath": "tests/acceptance/fixtures/context-rule-impact-package-baseline.json",
+      "resultPath": "docs/acceptance/results/2026-08-11-rule-impact-package-baseline.json"
+    },
+    {
+      "caseId": "package-metadata-change",
+      "variant": "candidate",
+      "inputPath": "tests/acceptance/fixtures/context-rule-impact-package-candidate.json",
+      "resultPath": "docs/acceptance/results/2026-08-11-rule-impact-package-candidate.json"
+    },
+    {
+      "caseId": "prose-only-change",
+      "variant": "baseline",
+      "inputPath": "tests/acceptance/fixtures/context-rule-impact-prose-baseline.json",
+      "resultPath": "docs/acceptance/results/2026-08-11-rule-impact-prose-baseline.json"
+    },
+    {
+      "caseId": "prose-only-change",
+      "variant": "candidate",
+      "inputPath": "tests/acceptance/fixtures/context-rule-impact-prose-candidate.json",
+      "resultPath": "docs/acceptance/results/2026-08-11-rule-impact-prose-candidate.json"
+    }
+  ]
+}

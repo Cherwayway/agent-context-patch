@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Neutral bounded evidence for an Agent-owned post-apply effectiveness review.",
+  "cases": [
+    {
+      "id": "mixed-bounded-evidence",
+      "activeRules": [
+        {
+          "id": "2026-07-10-isolated-verification#1",
+          "sourceProposalId": "2026-07-10-isolated-verification",
+          "text": "When important verification lacks a dependency, use an isolated temporary environment and preserve the worktree and lockfiles."
+        },
+        {
+          "id": "2026-07-12-context-index-before-claims#1",
+          "sourceProposalId": "2026-07-12-context-index-before-claims",
+          "text": "Read the project context index before making workspace-level claims."
+        },
+        {
+          "id": "2026-07-14-release-check#1",
+          "sourceProposalId": "2026-07-14-release-check",
+          "text": "Before publishing a release, verify the immutable tag and artifact checksum."
+        },
+        {
+          "id": "2026-07-16-rollback-copy#1",
+          "sourceProposalId": "2026-07-16-rollback-copy",
+          "text": "Before replacing an installed skill, retain an exact recovery copy."
+        },
+        {
+          "id": "2026-07-18-full-suite-before-merge#1",
+          "sourceProposalId": "2026-07-18-full-suite-before-merge",
+          "text": "Before merging runtime code, run the full repository verification suite."
+        }
+      ],
+      "boundedTaskEvidence": [
+        {
+          "pointer": "task:verification-17",
+          "ruleId": "2026-07-10-isolated-verification#1",
+          "taskOpportunity": "relevant",
+          "contextLoaded": true,
+          "changedBehavior": "The Agent created an isolated temporary environment instead of adding the missing dependency to the workspace.",
+          "observableResult": "Required verification passed and the worktree and lockfile hashes were unchanged.",
+          "sameFailureRecurred": false
+        },
+        {
+          "pointer": "task:workspace-claim-08",
+          "ruleId": "2026-07-12-context-index-before-claims#1",
+          "taskOpportunity": "relevant",
+          "contextLoaded": false,
+          "changedBehavior": null,
+          "observableResult": "A workspace claim was corrected after the context index was skipped; the source proposal records the same earlier failure.",
+          "sameFailureRecurred": true
+        },
+        {
+          "pointer": "task:documentation-11",
+          "ruleId": "2026-07-14-release-check#1",
+          "taskOpportunity": "not_applicable",
+          "contextLoaded": true,
+          "changedBehavior": null,
+          "observableResult": "The task changed explanatory prose and did not prepare or publish a release.",
+          "sameFailureRecurred": false
+        },
+        {
+          "pointer": "task:runtime-change-19",
+          "ruleId": "2026-07-18-full-suite-before-merge#1",
+          "taskOpportunity": "relevant",
+          "contextLoaded": true,
+          "changedBehavior": null,
+          "observableResult": "The full suite ran, but the task request already required it and retained evidence does not show that the rule changed the plan.",
+          "sameFailureRecurred": false
+        }
+      ]
+    },
+    {
+      "id": "absence-is-not-disuse",
+      "activeRules": [
+        {
+          "id": "2026-07-20-destructive-target-check#1",
+          "sourceProposalId": "2026-07-20-destructive-target-check",
+          "text": "Resolve and inspect exact targets before a destructive recursive operation."
+        },
+        {
+          "id": "2026-07-21-release-rollback#1",
+          "sourceProposalId": "2026-07-21-release-rollback",
+          "text": "Verify rollback before publishing an installer release."
+        }
+      ],
+      "boundedTaskEvidence": [
+        {
+          "pointer": "task:readme-03",
+          "ruleId": "2026-07-21-release-rollback#1",
+          "taskOpportunity": "not_applicable",
+          "contextLoaded": true,
+          "changedBehavior": null,
+          "observableResult": "Only README wording changed; no installer or release operation occurred.",
+          "sameFailureRecurred": false
+        }
+      ]
+    }
+  ]
+}

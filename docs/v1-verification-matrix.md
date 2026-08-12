@@ -3,8 +3,10 @@
 This matrix maps the accepted decisions in
 `docs/adr/0001-agent-first-context-evolution.md` and
 `docs/adr/0003-auto-first-low-risk-context.md`, plus the lifecycle extension in
-`docs/adr/0004-lifecycle-reconciliation-around-commit-kernel.md` and observable
-delivery extension in `docs/adr/0005-observable-evolution-outcomes.md`, to
+`docs/adr/0004-lifecycle-reconciliation-around-commit-kernel.md`, observable
+delivery extension in `docs/adr/0005-observable-evolution-outcomes.md`, and
+effectiveness-review extension in
+`docs/adr/0007-agent-owned-context-effectiveness-review.md`, to
 durable repository evidence.
 It distinguishes executable guarantees from semantic Agent responsibilities so
 future changes do not turn documentation claims into untested promises.
@@ -22,6 +24,7 @@ future changes do not turn documentation claims into untested promises.
 | Migration | Legacy context is read-only until a reviewed migration creates byte-identical backups and applies exact v1 updates; future schemas remain read-only. | legacy, invalid, missing-config, and future-schema tests; approved backup-and-migrate plus missing-backup kernel tests |
 | Domain activation | Detection is temporary; `config.enabled_domains` is the only activation truth. | empty template checklist contract; config validator; enabled coding demo |
 | Context health | Replace before add; numbers schedule review and block auto but never choose content to delete. | budget fixtures; cleanup/context-budget references; kernel health gate |
+| Context effectiveness | Stable inline rule IDs and bounded Agent-owned observations distinguish material use, loaded-only evidence, relevant misses, non-applicability, and unknown coverage. Reports stay derived; low use schedules review and never authorizes cleanup. | ADR-0007; Skill and cleanup-policy contracts; fresh-Agent effectiveness and paired-impact acceptance records |
 | Information topology | One proposal owns evidence, decisions, and attempts but is never a kernel target; reports are derived; archive is inactive and create-only. | proposal target rejection; complete terminal-state validator; archive-update rejection; template topology test; no mistake/receipt stores |
 | Placement | Skill/kernel default user-level; context/guidance workspace-local; global trigger opt-in. | install guide, adapters, and skill-target installer tests |
 | Evidence privacy | Evidence is pointer-first and summary-first; secrets, full logs, customer data, and user-home paths are prohibited. | config/proposal privacy contracts; kernel credential, key, and path tests |

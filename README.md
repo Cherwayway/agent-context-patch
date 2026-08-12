@@ -337,7 +337,9 @@ See [CONTEXT.md](CONTEXT.md) for the domain language,
 architecture, and
 [ADR-0003](docs/adr/0003-auto-first-low-risk-context.md) for the auto-first
 default. [ADR-0005](docs/adr/0005-observable-evolution-outcomes.md) defines the
-delivery checkpoint and three-stage ephemeral outcome. The
+delivery checkpoint and three-stage ephemeral outcome.
+[ADR-0007](docs/adr/0007-agent-owned-context-effectiveness-review.md) defines
+bounded post-apply effectiveness review without telemetry. The
 [v1 verification matrix](docs/v1-verification-matrix.md) maps every accepted
 decision to its durable contract and test evidence.
 

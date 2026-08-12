@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "caseId": "mixed-bounded-evidence",
+  "freshContext": true,
+  "inputDigests": [
+    {
+      "path": "docs/adr/0007-agent-owned-context-effectiveness-review.md",
+      "digest": "cebe391dae1f6e61b36f0e44749fcef2bc9308e646b93cdaf8623969f552eeb4"
+    },
+    {
+      "path": "skills/evolve/SKILL.md",
+      "digest": "c74df4fb149aac71f639ab9d3cee552149201a47716d18d180c37ab12e3bc7e4"
+    },
+    {
+      "path": "skills/evolve/references/cleanup-policy.md",
+      "digest": "93891ab0914c96da2817a790302f5783ffcf2032e3f3103beab9c95bd0f06502"
+    },
+    {
+      "path": "tests/acceptance/fixtures/context-effectiveness-review.json",
+      "digest": "d2719f69f14c79fe8836fd67a5376e9adc15cfadec1ecc3b63789693f06f686e"
+    },
+    {
+      "path": "tests/acceptance/context-effectiveness-review.runner.json",
+      "digest": "be1d30e32ce9bd284ac796907f5620f1879bbc6f1a3cf2751e97edadbe59ed62"
+    },
+    {
+      "path": "tests/acceptance/context-effectiveness-review-result.schema.json",
+      "digest": "c10d67aa94ffa46b5ea92b57426abd66889a437a4df0f650d25542730680fb0b"
+    }
+  ],
+  "ruleReviews": [
+    {
+      "ruleId": "2026-07-10-isolated-verification#1",
+      "evidenceState": "material_use",
+      "recommendation": "retain",
+      "evidencePointers": ["task:verification-17"],
+      "reason": "A relevant task shows the rule changed execution to an isolated environment, verification passed, and workspace files remained unchanged.",
+      "cleanupRequiresApproval": true
+    },
+    {
+      "ruleId": "2026-07-12-context-index-before-claims#1",
+      "evidenceState": "relevant_but_missed",
+      "recommendation": "rewrite_candidate",
+      "evidencePointers": ["task:workspace-claim-08"],
+      "reason": "The rule was relevant but skipped, the workspace claim required correction, and the same preventable failure recurred after activation.",
+      "cleanupRequiresApproval": true
+    },
+    {
+      "ruleId": "2026-07-14-release-check#1",
+      "evidenceState": "not_applicable",
+      "recommendation": "retain",
+      "evidencePointers": ["task:documentation-11"],
+      "reason": "The reviewed task only changed explanatory prose and offered no release-publishing opportunity; this is not negative effectiveness evidence.",
+      "cleanupRequiresApproval": true
+    },
+    {
+      "ruleId": "2026-07-16-rollback-copy#1",
+      "evidenceState": "unknown",
+      "recommendation": "observe",
+      "evidencePointers": [],
+      "reason": "No bounded task evidence covers this rule, so its effectiveness cannot be determined.",
+      "cleanupRequiresApproval": true
+    },
+    {
+      "ruleId": "2026-07-18-full-suite-before-merge#1",
+      "evidenceState": "loaded_only",
+      "recommendation": "observe",
+      "evidencePointers": ["task:runtime-change-19"],
+      "reason": "The rule was loaded and the suite ran, but the task request independently required it, so material influence is not established.",
+      "cleanupRequiresApproval": true
+    }
+  ],
+  "semanticReviewScheduled": true,
+  "cleanupProposalWouldBeCreated": true,
+  "repositoryMutated": false,
+  "privacy": {
+    "rawTaskStored": false,
+    "fullTraceStored": false,
+    "absolutePathStored": false,
+    "secretsStored": false
+  }
+}

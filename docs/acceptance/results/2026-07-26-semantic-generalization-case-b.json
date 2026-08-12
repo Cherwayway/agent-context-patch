@@ -3,8 +3,8 @@
   "caseId": "case-b",
   "freshContext": true,
   "inputDigests": {
-    "skills/evolve/SKILL.md": "90e56864aa15560d447f7c435634c90ddf848507832ba60827a9a5dd0855f10b",
-    "skills/evolve/references/cleanup-policy.md": "592735477b24f215c4def0f6ad1d4c5bf9e2a4ab62330950d5782e7b4d40de7d",
+    "skills/evolve/SKILL.md": "c74df4fb149aac71f639ab9d3cee552149201a47716d18d180c37ab12e3bc7e4",
+    "skills/evolve/references/cleanup-policy.md": "93891ab0914c96da2817a790302f5783ffcf2032e3f3103beab9c95bd0f06502",
     "tests/acceptance/fixtures/review-context-semantic-generalization.json": "038cca94e9582fa514f29a72bafa1328baa7f56201acbae61e32d1f23836581c",
     "tests/acceptance/review-context-semantic-generalization.runner.json": "6fe7d783080be40c268d78bef1fd9159d918cff0c33ca0975978930de216eede",
     "tests/acceptance/review-context-semantic-generalization-result.schema.json": "e3b84da818b93a9c65bd783ca9b88f35fdc87f0759ab7a685380d5e36dd822fa"
@@ -28,28 +28,27 @@
   "preservedDomainDetails": [
     {
       "proposalId": "2026-07-05-keyboard-access",
-      "detail": "Focus visibility and semantic role remain necessary to verify equivalent keyboard access."
+      "detail": "Focus visibility and semantic role remain required for equivalent keyboard access."
     },
     {
       "proposalId": "2026-07-06-cli-redaction",
-      "detail": "Structured and fallback error formatting must both be tested for credential disclosure."
+      "detail": "Credential redaction must cover structured and fallback error formatting."
     },
     {
       "proposalId": "2026-07-07-hook-idempotency",
-      "detail": "The event identity key must survive the retry boundary to prevent duplicate effects."
+      "detail": "The event identity key must survive the retry boundary to prevent duplicate side effects."
     },
     {
       "proposalId": "2026-07-08-scheduler-timezone",
-      "detail": "Skipped and repeated local times must both be covered to verify wall-clock behavior."
+      "detail": "Wall-clock verification must cover both skipped and repeated local times."
     }
   ],
   "counterexamples": [
-    "A control may execute its action correctly while remaining unreachable by keyboard, so generic execution-success verification does not preserve accessibility.",
-    "A CLI failure may follow the intended error path while leaking a credential, so privacy-safe output is not equivalent to reachability or effect completion.",
-    "A retried hook may reach its handler successfully twice and duplicate the domain event, so successful execution does not preserve idempotency.",
-    "A scheduled job may run exactly once yet at the wrong local time across a daylight-saving boundary, so single execution does not preserve time-zone semantics."
+    "Keyboard activation concerns equivalent input accessibility, whereas CLI redaction concerns disclosure at an error-output boundary.",
+    "Hook retry idempotency requires exactly one domain side effect, whereas scheduler correctness requires execution at the configured local time across time-zone transitions.",
+    "A single cross-surface rule would weaken distinct observable guarantees for accessibility, privacy, idempotency, and wall-clock semantics."
   ],
-  "behaviorLostIfApproved": "A forced merge would erase distinct, observable guarantees for keyboard accessibility, credential redaction, retry idempotency, and configured wall-clock timing; a generic execution rule would not test the failure stage of any case precisely.",
+  "behaviorLostIfApproved": "No cleanup is proposed; merging these rules would lose their distinct triggers, execution guarantees, and observable acceptance criteria.",
   "netActiveContextChange": {
     "replacedRuleCount": 0,
     "replacementRuleCount": 0,
