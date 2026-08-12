@@ -18,9 +18,6 @@ updateJson(".claude-plugin/marketplace.json", (document) => {
 updateJson("plugins/agent-context-patch/.claude-plugin/plugin.json", (document) => {
   document.version = kitVersion;
 });
-updateJson("docs/launch/experiment.json", (document) => {
-  document.targetKitVersion = kitVersion;
-});
 updateText("templates/.agent-context/config.yml", (source) =>
   source.replace(
     /^created_with_kit_version: "[^"\r\n]*"(?=\r?$)/mu,

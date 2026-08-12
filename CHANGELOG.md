@@ -5,6 +5,8 @@ semantic versions for the Kit independently from the Workspace Schema version.
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-08-12
+
 ### Added
 
 - A Schema-1-compatible `acp-rule` lineage convention for new or
