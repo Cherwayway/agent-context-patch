@@ -61,6 +61,14 @@ test("pins a newer remote ref without touching a dirty primary checkout", async 
       readFileSync(snapshotFile, "utf8"),
       gitBareContent(sandbox.remote, ["show", `${sandbox.secondCommit}:message.txt`]),
     );
+    assert.equal(
+      readFileSync(join(snapshot.snapshotPath, "nested", "child.txt"), "utf8"),
+      "nested remote\n",
+    );
+    assert.equal(
+      readFileSync(join(snapshot.snapshotPath, sandbox.longFileName), "utf8"),
+      "long path remote\n",
+    );
     assert.equal(lstatSync(snapshotFile).mode & 0o222, 0);
 
     const close = await closeSourceSnapshot({
@@ -385,8 +393,18 @@ function createRepositoryFixture({ escapingSymlink = false } = {}) {
   writeFileSync(join(primary, "message.txt"), "dirty local\n", "utf8");
 
   writeFileSync(join(producer, "message.txt"), "remote current\n", "utf8");
+  mkdirSync(join(producer, "nested"));
+  writeFileSync(join(producer, "nested", "child.txt"), "nested remote\n", "utf8");
+  const longFileName = `${"long-path-segment-".repeat(7)}.txt`;
+  writeFileSync(join(producer, longFileName), "long path remote\n", "utf8");
   if (escapingSymlink) symlinkSync("../../outside.txt", join(producer, "escape-link"));
-  git(producer, ["add", "message.txt", ...(escapingSymlink ? ["escape-link"] : [])]);
+  git(producer, [
+    "add",
+    "message.txt",
+    "nested/child.txt",
+    longFileName,
+    ...(escapingSymlink ? ["escape-link"] : []),
+  ]);
   git(producer, ["commit", "--quiet", "-m", "second"]);
   const secondCommit = git(producer, ["rev-parse", "HEAD"]);
   git(producer, ["push", "--quiet", "origin", "main"]);
@@ -400,6 +418,7 @@ function createRepositoryFixture({ escapingSymlink = false } = {}) {
     sessionRoot,
     firstCommit,
     secondCommit,
+    longFileName,
     cleanup() {
       makeRemovable(root);
       rmSync(root, { recursive: true, force: true });

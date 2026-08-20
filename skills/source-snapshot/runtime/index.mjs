@@ -13,6 +13,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -173,11 +174,7 @@ export async function createSourceSnapshot({
       ],
       "archive_creation_failed",
     );
-    runCommand(
-      "tar",
-      ["-xf", archivePath, "-C", snapshotPath, "--no-same-owner", "--no-same-permissions"],
-      "archive_extraction_failed",
-    );
+    extractGitArchive(archivePath, snapshotPath);
     validateExtractedTree(snapshotPath);
     makeTreeReadOnly(snapshotPath);
     const integrity = await treeIntegrity(snapshotPath);
@@ -453,6 +450,213 @@ function validateGitPath(path) {
   ) {
     throw sourceError("unsafe_archive_path", "The pinned source contains an unsafe archive path.");
   }
+}
+
+function extractGitArchive(archivePath, root) {
+  const archiveSize = statSync(archivePath).size;
+  if (archiveSize > 1024 * 1024 * 1024) {
+    throw sourceError(
+      "archive_too_large",
+      "The pinned source archive exceeds the one-gigabyte extraction limit.",
+    );
+  }
+  const archive = readFileSync(archivePath);
+  const seenPaths = new Set();
+  let offset = 0;
+  let zeroBlocks = 0;
+  let localPax = {};
+  let globalPax = {};
+  let longPath;
+  let longLinkPath;
+
+  while (offset + 512 <= archive.length) {
+    const header = archive.subarray(offset, offset + 512);
+    offset += 512;
+    if (header.every((byte) => byte === 0)) {
+      zeroBlocks += 1;
+      if (zeroBlocks === 2) break;
+      continue;
+    }
+    zeroBlocks = 0;
+    validateTarChecksum(header);
+    const size = parseTarNumber(header.subarray(124, 136), "size");
+    const mode = parseTarNumber(header.subarray(100, 108), "mode");
+    if (!Number.isSafeInteger(size) || size < 0 || offset + size > archive.length) {
+      throw sourceError("archive_invalid", "The Git archive contains an invalid entry size.");
+    }
+    const data = archive.subarray(offset, offset + size);
+    offset += Math.ceil(size / 512) * 512;
+    if (offset > archive.length) {
+      throw sourceError("archive_invalid", "The Git archive entry exceeds the archive boundary.");
+    }
+
+    const type = String.fromCharCode(header[156] || 0);
+    if (type === "x" || type === "g") {
+      const attributes = parsePaxAttributes(data);
+      if (type === "g") globalPax = { ...globalPax, ...attributes };
+      else localPax = attributes;
+      continue;
+    }
+    if (type === "L" || type === "K") {
+      const value = decodeArchiveText(trimArchiveTerminator(data));
+      if (type === "L") longPath = value;
+      else longLinkPath = value;
+      continue;
+    }
+
+    const attributes = { ...globalPax, ...localPax };
+    const headerName = decodeTarPath(header);
+    const archivedPath = attributes.path ?? longPath ?? headerName;
+    const path = type === "5" ? archivedPath.replace(/\/+$/u, "") : archivedPath;
+    const linkPath =
+      attributes.linkpath ??
+      longLinkPath ??
+      decodeArchiveText(trimNulls(header.subarray(157, 257)));
+    localPax = {};
+    longPath = undefined;
+    longLinkPath = undefined;
+    validateGitPath(path);
+    if (seenPaths.has(path)) {
+      throw sourceError("archive_invalid", "The Git archive contains a duplicate path.");
+    }
+    seenPaths.add(path);
+    const destination = join(root, ...path.split("/"));
+    if (!isPathWithin(root, destination)) {
+      throw sourceError("unsafe_archive_path", "The Git archive path escapes the snapshot root.");
+    }
+
+    if (type === "5") {
+      mkdirSync(destination, { recursive: true, mode: normalizedArchiveMode(mode, true) });
+      continue;
+    }
+    mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
+    if (type === "0" || type === "\0") {
+      writeFileSync(destination, data, {
+        flag: "wx",
+        mode: normalizedArchiveMode(mode, false),
+      });
+      continue;
+    }
+    if (type === "2") {
+      validateArchiveSymlink(path, linkPath);
+      try {
+        symlinkSync(linkPath, destination);
+      } catch {
+        throw sourceError(
+          "symlink_materialization_failed",
+          "A safe Git symlink could not be materialized on this platform.",
+        );
+      }
+      continue;
+    }
+    throw sourceError("archive_entry_unsupported", "The Git archive contains an unsupported entry type.");
+  }
+  if (zeroBlocks < 2) {
+    throw sourceError("archive_invalid", "The Git archive is missing its end marker.");
+  }
+}
+
+function validateTarChecksum(header) {
+  const expected = parseTarNumber(header.subarray(148, 156), "checksum");
+  let actual = 0;
+  for (let index = 0; index < header.length; index += 1) {
+    actual += index >= 148 && index < 156 ? 0x20 : header[index];
+  }
+  if (actual !== expected) {
+    throw sourceError("archive_invalid", "The Git archive header checksum is invalid.");
+  }
+}
+
+function parseTarNumber(field, label) {
+  if ((field[0] & 0x80) !== 0) {
+    throw sourceError("archive_invalid", `The Git archive ${label} uses an unsupported numeric encoding.`);
+  }
+  const value = trimNulls(field).toString("ascii").trim();
+  if (value === "") return 0;
+  if (!/^[0-7]+$/u.test(value)) {
+    throw sourceError("archive_invalid", `The Git archive ${label} is not octal.`);
+  }
+  return Number.parseInt(value, 8);
+}
+
+function decodeTarPath(header) {
+  const name = decodeArchiveText(trimNulls(header.subarray(0, 100)));
+  const prefix = decodeArchiveText(trimNulls(header.subarray(345, 500)));
+  return prefix ? `${prefix}/${name}` : name;
+}
+
+function parsePaxAttributes(data) {
+  const attributes = {};
+  let offset = 0;
+  while (offset < data.length) {
+    const space = data.indexOf(0x20, offset);
+    if (space < 0) throw sourceError("archive_invalid", "The Git archive PAX record is malformed.");
+    const lengthText = data.subarray(offset, space).toString("ascii");
+    if (!/^[1-9][0-9]*$/u.test(lengthText)) {
+      throw sourceError("archive_invalid", "The Git archive PAX length is invalid.");
+    }
+    const length = Number.parseInt(lengthText, 10);
+    const end = offset + length;
+    if (!Number.isSafeInteger(length) || end > data.length || data[end - 1] !== 0x0a) {
+      throw sourceError("archive_invalid", "The Git archive PAX record exceeds its boundary.");
+    }
+    const record = decodeArchiveText(data.subarray(space + 1, end - 1));
+    const equals = record.indexOf("=");
+    if (equals <= 0) throw sourceError("archive_invalid", "The Git archive PAX attribute is invalid.");
+    const key = record.slice(0, equals);
+    if (key === "path" || key === "linkpath") attributes[key] = record.slice(equals + 1);
+    offset = end;
+  }
+  return attributes;
+}
+
+function validateArchiveSymlink(path, target) {
+  if (!target || target.startsWith("/") || target.includes("\\")) {
+    throw sourceError(
+      "escaping_symlink_unsupported",
+      "The pinned source contains a symlink that escapes the snapshot root.",
+    );
+  }
+  const pathComponents = path.split("/");
+  pathComponents.pop();
+  for (const component of target.split("/")) {
+    if (!component || component === ".") continue;
+    if (component === "..") {
+      if (pathComponents.length === 0) {
+        throw sourceError(
+          "escaping_symlink_unsupported",
+          "The pinned source contains a symlink that escapes the snapshot root.",
+        );
+      }
+      pathComponents.pop();
+    } else {
+      pathComponents.push(component);
+    }
+  }
+}
+
+function decodeArchiveText(buffer) {
+  try {
+    return UTF8_DECODER.decode(buffer);
+  } catch {
+    throw sourceError("non_utf8_paths_unsupported", "The Git archive contains non-UTF-8 text.");
+  }
+}
+
+function trimNulls(buffer) {
+  const nul = buffer.indexOf(0);
+  return nul < 0 ? buffer : buffer.subarray(0, nul);
+}
+
+function trimArchiveTerminator(buffer) {
+  let end = buffer.length;
+  while (end > 0 && (buffer[end - 1] === 0 || buffer[end - 1] === 0x0a)) end -= 1;
+  return buffer.subarray(0, end);
+}
+
+function normalizedArchiveMode(mode, directory) {
+  const executable = (mode & 0o111) !== 0;
+  return directory ? 0o700 : executable ? 0o700 : 0o600;
 }
 
 function validateExtractedTree(root) {
