@@ -57,7 +57,10 @@ test("pins a newer remote ref without touching a dirty primary checkout", async 
       sessionRoot: sandbox.sessionRoot,
     });
     const snapshotFile = join(snapshot.snapshotPath, "message.txt");
-    assert.equal(readFileSync(snapshotFile, "utf8"), "remote current\n");
+    assert.equal(
+      readFileSync(snapshotFile, "utf8"),
+      gitBareContent(sandbox.remote, ["show", `${sandbox.secondCommit}:message.txt`]),
+    );
     assert.equal(lstatSync(snapshotFile).mode & 0o222, 0);
 
     const close = await closeSourceSnapshot({
@@ -452,6 +455,12 @@ function gitBare(repository, arguments_) {
   return execFileSync("git", ["--git-dir", repository, ...arguments_], {
     encoding: "utf8",
   }).trim();
+}
+
+function gitBareContent(repository, arguments_) {
+  return execFileSync("git", ["--git-dir", repository, ...arguments_], {
+    encoding: "utf8",
+  });
 }
 
 function existingSessionNames(sessionRoot) {
