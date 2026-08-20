@@ -57,9 +57,9 @@ test("pins a newer remote ref without touching a dirty primary checkout", async 
       sessionRoot: sandbox.sessionRoot,
     });
     const snapshotFile = join(snapshot.snapshotPath, "message.txt");
-    assert.equal(
-      readFileSync(snapshotFile, "utf8"),
-      gitBareContent(sandbox.remote, ["show", `${sandbox.secondCommit}:message.txt`]),
+    assert.deepEqual(
+      readFileSync(snapshotFile),
+      gitBareBuffer(sandbox.remote, ["show", `${sandbox.secondCommit}:message.txt`]),
     );
     assert.equal(
       readFileSync(join(snapshot.snapshotPath, "nested", "child.txt"), "utf8"),
@@ -110,7 +110,7 @@ test("CLI emits machine-readable receipts for an exact remote ref", () => {
       sandbox.sessionRoot,
     ]);
     assert.equal(snapshot.commitSha, sandbox.secondCommit);
-    assert.equal(snapshot.snapshotMethod, "git-archive");
+    assert.equal(snapshot.snapshotMethod, "git-object-tree");
     const close = runCli([
       "close",
       "--receipt",
@@ -476,9 +476,9 @@ function gitBare(repository, arguments_) {
   }).trim();
 }
 
-function gitBareContent(repository, arguments_) {
+function gitBareBuffer(repository, arguments_) {
   return execFileSync("git", ["--git-dir", repository, ...arguments_], {
-    encoding: "utf8",
+    encoding: null,
   });
 }
 

@@ -30,6 +30,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { TextDecoder } from "node:util";
 
 const SCHEMA_VERSION = 1;
+const MAX_SNAPSHOT_BYTES = 1024 * 1024 * 1024;
 const SESSION_PREFIX = "session-";
 const SESSION_PATTERN = /^session-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const SHA_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
@@ -154,31 +155,18 @@ export async function createSourceSnapshot({
     throw sourceError("snapshot_already_exists", "This source receipt already owns a snapshot.");
   }
 
-  const archivePath = join(sessionDirectory, "source.tar");
   const snapshotPath = join(sessionDirectory, "tree");
   try {
     runGit(
       ["--git-dir", source.cacheRepository, "cat-file", "-e", `${source.commitSha}^{commit}`],
       "cached_commit_missing",
     );
-    validateGitTree(source.cacheRepository, source.commitSha);
+    const entries = inspectGitTree(source.cacheRepository, source.commitSha);
     mkdirSync(snapshotPath, { mode: 0o700 });
-    runGit(
-      [
-        "--git-dir",
-        source.cacheRepository,
-        "archive",
-        "--format=tar",
-        `--output=${archivePath}`,
-        source.commitSha,
-      ],
-      "archive_creation_failed",
-    );
-    extractGitArchive(archivePath, snapshotPath);
+    materializeGitTree(source.cacheRepository, entries, snapshotPath);
     validateExtractedTree(snapshotPath);
     makeTreeReadOnly(snapshotPath);
     const integrity = await treeIntegrity(snapshotPath);
-    rmSync(archivePath, { force: true });
 
     const snapshotId = `snap-${randomUUID()}`;
     const snapshotReceiptPath = join(sessionDirectory, "snapshot.json");
@@ -195,7 +183,7 @@ export async function createSourceSnapshot({
       commitSha: source.commitSha,
       freshnessVerified: true,
       resolvedAt: source.resolvedAt,
-      snapshotMethod: "git-archive",
+      snapshotMethod: "git-object-tree",
       snapshotPath,
       readOnly: true,
       integrity,
@@ -205,7 +193,6 @@ export async function createSourceSnapshot({
     writeJsonExclusive(snapshotReceiptPath, snapshot);
     return publicSnapshotReceipt(snapshot);
   } catch (error) {
-    rmSync(archivePath, { force: true });
     if (existsSync(snapshotPath)) {
       makeTreeRemovable(snapshotPath);
       rmSync(snapshotPath, { recursive: true, force: true });
@@ -396,7 +383,7 @@ function lockIsStale(lockDirectory) {
   }
 }
 
-function validateGitTree(cacheRepository, commitSha) {
+function inspectGitTree(cacheRepository, commitSha) {
   const result = spawnSync(
     "git",
     ["--git-dir", cacheRepository, "ls-tree", "-rz", "--full-tree", "-r", commitSha],
@@ -405,16 +392,28 @@ function validateGitTree(cacheRepository, commitSha) {
   if (result.error || result.status !== 0) {
     throw sourceError("git_tree_invalid", "The pinned commit tree could not be inspected.");
   }
+  const entries = [];
   for (const record of splitNullRecords(result.stdout)) {
     const tab = record.indexOf(0x09);
     if (tab < 0) throw sourceError("git_tree_invalid", "The pinned commit tree is malformed.");
     const header = record.subarray(0, tab).toString("ascii");
-    const [mode, type] = header.split(" ");
+    const fields = header.split(" ");
+    if (fields.length !== 3) {
+      throw sourceError("git_tree_invalid", "The pinned commit tree is malformed.");
+    }
+    const [mode, type, objectId] = fields;
     if (mode === "160000" || type === "commit") {
       throw sourceError(
         "submodules_unsupported",
-        "The pinned source contains submodules and cannot be represented as a complete archive snapshot.",
+        "The pinned source contains submodules and cannot be represented as a complete snapshot.",
       );
+    }
+    if (
+      !["100644", "100755", "120000"].includes(mode) ||
+      type !== "blob" ||
+      !SHA_PATTERN.test(objectId)
+    ) {
+      throw sourceError("git_tree_entry_unsupported", "The pinned source contains an unsupported tree entry.");
     }
     let path;
     try {
@@ -423,7 +422,10 @@ function validateGitTree(cacheRepository, commitSha) {
       throw sourceError("non_utf8_paths_unsupported", "The pinned source contains a non-UTF-8 path.");
     }
     validateGitPath(path);
+    entries.push({ mode, objectId, path });
   }
+  validatePortablePaths(entries);
+  return entries;
 }
 
 function splitNullRecords(buffer) {
@@ -448,169 +450,105 @@ function validateGitPath(path) {
     path.includes("\\") ||
     components.some((component) => !component || component === "." || component === "..")
   ) {
-    throw sourceError("unsafe_archive_path", "The pinned source contains an unsafe archive path.");
+    throw sourceError("unsafe_git_path", "The pinned source contains an unsafe Git path.");
   }
 }
 
-function extractGitArchive(archivePath, root) {
-  const archiveSize = statSync(archivePath).size;
-  if (archiveSize > 1024 * 1024 * 1024) {
-    throw sourceError(
-      "archive_too_large",
-      "The pinned source archive exceeds the one-gigabyte extraction limit.",
-    );
-  }
-  const archive = readFileSync(archivePath);
-  const seenPaths = new Set();
-  let offset = 0;
-  let zeroBlocks = 0;
-  let localPax = {};
-  let globalPax = {};
-  let longPath;
-  let longLinkPath;
-
-  while (offset + 512 <= archive.length) {
-    const header = archive.subarray(offset, offset + 512);
-    offset += 512;
-    if (header.every((byte) => byte === 0)) {
-      zeroBlocks += 1;
-      if (zeroBlocks === 2) break;
-      continue;
-    }
-    zeroBlocks = 0;
-    validateTarChecksum(header);
-    const size = parseTarNumber(header.subarray(124, 136), "size");
-    const mode = parseTarNumber(header.subarray(100, 108), "mode");
-    if (!Number.isSafeInteger(size) || size < 0 || offset + size > archive.length) {
-      throw sourceError("archive_invalid", "The Git archive contains an invalid entry size.");
-    }
-    const data = archive.subarray(offset, offset + size);
-    offset += Math.ceil(size / 512) * 512;
-    if (offset > archive.length) {
-      throw sourceError("archive_invalid", "The Git archive entry exceeds the archive boundary.");
-    }
-
-    const type = String.fromCharCode(header[156] || 0);
-    if (type === "x" || type === "g") {
-      const attributes = parsePaxAttributes(data);
-      if (type === "g") globalPax = { ...globalPax, ...attributes };
-      else localPax = attributes;
-      continue;
-    }
-    if (type === "L" || type === "K") {
-      const value = decodeArchiveText(trimArchiveTerminator(data));
-      if (type === "L") longPath = value;
-      else longLinkPath = value;
-      continue;
-    }
-
-    const attributes = { ...globalPax, ...localPax };
-    const headerName = decodeTarPath(header);
-    const archivedPath = attributes.path ?? longPath ?? headerName;
-    const path = type === "5" ? archivedPath.replace(/\/+$/u, "") : archivedPath;
-    const linkPath =
-      attributes.linkpath ??
-      longLinkPath ??
-      decodeArchiveText(trimNulls(header.subarray(157, 257)));
-    localPax = {};
-    longPath = undefined;
-    longLinkPath = undefined;
-    validateGitPath(path);
-    if (seenPaths.has(path)) {
-      throw sourceError("archive_invalid", "The Git archive contains a duplicate path.");
-    }
-    seenPaths.add(path);
-    const destination = join(root, ...path.split("/"));
-    if (!isPathWithin(root, destination)) {
-      throw sourceError("unsafe_archive_path", "The Git archive path escapes the snapshot root.");
-    }
-
-    if (type === "5") {
-      mkdirSync(destination, { recursive: true, mode: normalizedArchiveMode(mode, true) });
-      continue;
-    }
-    mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
-    if (type === "0" || type === "\0") {
-      writeFileSync(destination, data, {
-        flag: "wx",
-        mode: normalizedArchiveMode(mode, false),
-      });
-      continue;
-    }
-    if (type === "2") {
-      validateArchiveSymlink(path, linkPath);
-      try {
-        symlinkSync(linkPath, destination);
-      } catch {
+function validatePortablePaths(entries) {
+  const observed = new Map();
+  for (const { path } of entries) {
+    const components = path.split("/");
+    for (let index = 1; index <= components.length; index += 1) {
+      const prefix = components.slice(0, index).join("/");
+      const key = prefix.normalize("NFC").toLocaleLowerCase("en-US");
+      const kind = index === components.length ? "entry" : "directory";
+      const previous = observed.get(key);
+      if (previous && (previous.prefix !== prefix || previous.kind !== kind)) {
         throw sourceError(
-          "symlink_materialization_failed",
-          "A safe Git symlink could not be materialized on this platform.",
+          "portable_path_collision",
+          "The pinned source contains paths that cannot be materialized safely across platforms.",
         );
       }
-      continue;
+      observed.set(key, { kind, prefix });
     }
-    throw sourceError("archive_entry_unsupported", "The Git archive contains an unsupported entry type.");
-  }
-  if (zeroBlocks < 2) {
-    throw sourceError("archive_invalid", "The Git archive is missing its end marker.");
   }
 }
 
-function validateTarChecksum(header) {
-  const expected = parseTarNumber(header.subarray(148, 156), "checksum");
-  let actual = 0;
-  for (let index = 0; index < header.length; index += 1) {
-    actual += index >= 148 && index < 156 ? 0x20 : header[index];
+function materializeGitTree(cacheRepository, entries, root) {
+  if (entries.length === 0) return;
+  const result = spawnSync(
+    "git",
+    ["--git-dir", cacheRepository, "cat-file", "--batch"],
+    {
+      input: `${entries.map(({ objectId }) => objectId).join("\n")}\n`,
+      encoding: null,
+      maxBuffer: MAX_SNAPSHOT_BYTES + 64 * 1024 * 1024,
+    },
+  );
+  if (result.error?.code === "ENOBUFS") {
+    throw sourceError("snapshot_too_large", "The pinned source exceeds the one-gigabyte snapshot limit.");
   }
-  if (actual !== expected) {
-    throw sourceError("archive_invalid", "The Git archive header checksum is invalid.");
+  if (result.error || result.status !== 0 || !Buffer.isBuffer(result.stdout)) {
+    throw sourceError("git_object_read_failed", "The pinned source blobs could not be read.");
   }
-}
 
-function parseTarNumber(field, label) {
-  if ((field[0] & 0x80) !== 0) {
-    throw sourceError("archive_invalid", `The Git archive ${label} uses an unsupported numeric encoding.`);
-  }
-  const value = trimNulls(field).toString("ascii").trim();
-  if (value === "") return 0;
-  if (!/^[0-7]+$/u.test(value)) {
-    throw sourceError("archive_invalid", `The Git archive ${label} is not octal.`);
-  }
-  return Number.parseInt(value, 8);
-}
-
-function decodeTarPath(header) {
-  const name = decodeArchiveText(trimNulls(header.subarray(0, 100)));
-  const prefix = decodeArchiveText(trimNulls(header.subarray(345, 500)));
-  return prefix ? `${prefix}/${name}` : name;
-}
-
-function parsePaxAttributes(data) {
-  const attributes = {};
   let offset = 0;
-  while (offset < data.length) {
-    const space = data.indexOf(0x20, offset);
-    if (space < 0) throw sourceError("archive_invalid", "The Git archive PAX record is malformed.");
-    const lengthText = data.subarray(offset, space).toString("ascii");
-    if (!/^[1-9][0-9]*$/u.test(lengthText)) {
-      throw sourceError("archive_invalid", "The Git archive PAX length is invalid.");
+  let totalBytes = 0;
+  for (const entry of entries) {
+    const headerEnd = result.stdout.indexOf(0x0a, offset);
+    if (headerEnd < 0) throw sourceError("git_object_invalid", "A pinned Git object header is malformed.");
+    const header = result.stdout.subarray(offset, headerEnd).toString("ascii");
+    const match = /^(?<objectId>[0-9a-f]{40}|[0-9a-f]{64}) blob (?<size>[0-9]+)$/u.exec(header);
+    const size = Number.parseInt(match?.groups?.size ?? "", 10);
+    if (
+      match?.groups?.objectId !== entry.objectId ||
+      !Number.isSafeInteger(size) ||
+      size < 0 ||
+      totalBytes + size > MAX_SNAPSHOT_BYTES
+    ) {
+      throw sourceError("git_object_invalid", "A pinned Git object failed identity or size validation.");
     }
-    const length = Number.parseInt(lengthText, 10);
-    const end = offset + length;
-    if (!Number.isSafeInteger(length) || end > data.length || data[end - 1] !== 0x0a) {
-      throw sourceError("archive_invalid", "The Git archive PAX record exceeds its boundary.");
+    const contentStart = headerEnd + 1;
+    const contentEnd = contentStart + size;
+    if (contentEnd >= result.stdout.length || result.stdout[contentEnd] !== 0x0a) {
+      throw sourceError("git_object_invalid", "A pinned Git object exceeds its batch boundary.");
     }
-    const record = decodeArchiveText(data.subarray(space + 1, end - 1));
-    const equals = record.indexOf("=");
-    if (equals <= 0) throw sourceError("archive_invalid", "The Git archive PAX attribute is invalid.");
-    const key = record.slice(0, equals);
-    if (key === "path" || key === "linkpath") attributes[key] = record.slice(equals + 1);
-    offset = end;
+    materializeGitEntry(root, entry, result.stdout.subarray(contentStart, contentEnd));
+    offset = contentEnd + 1;
+    totalBytes += size;
   }
-  return attributes;
+  if (offset !== result.stdout.length) {
+    throw sourceError("git_object_invalid", "The pinned Git object batch contains unexpected output.");
+  }
 }
 
-function validateArchiveSymlink(path, target) {
+function materializeGitEntry(root, entry, data) {
+  const destination = join(root, ...entry.path.split("/"));
+  if (!isPathWithin(root, destination)) {
+    throw sourceError("unsafe_git_path", "The Git path escapes the snapshot root.");
+  }
+  try {
+    mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
+    if (entry.mode === "120000") {
+      const target = decodeGitText(data);
+      validateSnapshotSymlink(entry.path, target);
+      symlinkSync(target, destination);
+      return;
+    }
+    writeFileSync(destination, data, {
+      flag: "wx",
+      mode: entry.mode === "100755" ? 0o700 : 0o600,
+    });
+  } catch (error) {
+    if (error?.code === "escaping_symlink_unsupported") throw error;
+    throw sourceError(
+      entry.mode === "120000" ? "symlink_materialization_failed" : "snapshot_materialization_failed",
+      "A pinned Git entry could not be materialized safely on this platform.",
+    );
+  }
+}
+
+function validateSnapshotSymlink(path, target) {
   if (!target || target.startsWith("/") || target.includes("\\")) {
     throw sourceError(
       "escaping_symlink_unsupported",
@@ -635,28 +573,12 @@ function validateArchiveSymlink(path, target) {
   }
 }
 
-function decodeArchiveText(buffer) {
+function decodeGitText(buffer) {
   try {
     return UTF8_DECODER.decode(buffer);
   } catch {
-    throw sourceError("non_utf8_paths_unsupported", "The Git archive contains non-UTF-8 text.");
+    throw sourceError("non_utf8_symlink_unsupported", "The pinned source contains a non-UTF-8 symlink.");
   }
-}
-
-function trimNulls(buffer) {
-  const nul = buffer.indexOf(0);
-  return nul < 0 ? buffer : buffer.subarray(0, nul);
-}
-
-function trimArchiveTerminator(buffer) {
-  let end = buffer.length;
-  while (end > 0 && (buffer[end - 1] === 0 || buffer[end - 1] === 0x0a)) end -= 1;
-  return buffer.subarray(0, end);
-}
-
-function normalizedArchiveMode(mode, directory) {
-  const executable = (mode & 0o111) !== 0;
-  return directory ? 0o700 : executable ? 0o700 : 0o600;
 }
 
 function validateExtractedTree(root) {
@@ -831,7 +753,7 @@ function validateSnapshotReceipt(snapshot, source, sessionDirectory) {
     snapshot.commitSha !== source.commitSha ||
     snapshot.receiptPath !== join(sessionDirectory, "snapshot.json") ||
     snapshot.snapshotPath !== join(sessionDirectory, "tree") ||
-    snapshot.snapshotMethod !== "git-archive" ||
+    snapshot.snapshotMethod !== "git-object-tree" ||
     snapshot.readOnly !== true ||
     !SHA_PATTERN.test(snapshot.integrity?.digest ?? "")
   ) {
@@ -893,8 +815,6 @@ function safeErrorMessage(code) {
     cache_repository_invalid: "The source cache repository is invalid.",
     cache_initialization_failed: "The source cache repository could not be initialized.",
     cached_commit_missing: "The pinned commit is missing from the source cache.",
-    archive_creation_failed: "The pinned commit could not be archived.",
-    archive_extraction_failed: "The pinned commit archive could not be extracted safely.",
   };
   return messages[code] ?? "The source snapshot operation failed.";
 }

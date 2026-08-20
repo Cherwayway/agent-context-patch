@@ -26,7 +26,8 @@ ref. It:
 1. resolves the ref with `git ls-remote`;
 2. fetches it into a bare cache outside the workspace;
 3. requires the observed and fetched commit identities to match;
-4. exports the pinned commit into a task-owned temporary directory;
+4. materializes the pinned tree from raw Git blob objects into a task-owned
+   temporary directory, bypassing checkout and archive line-ending filters;
 5. rejects incomplete submodule snapshots and symlinks escaping that directory;
 6. makes the extracted tree read-only and records an integrity digest; and
 7. removes only task-owned state after an unchanged close.
@@ -62,4 +63,5 @@ Acceptance tests use local bare remotes and isolated temporary directories.
 They cover a stale local remote-tracking ref, dirty primary checkout, generic
 PR-style ref, remote failure, concurrent cache access, escaping symlink,
 credential-bearing remote rejection, changed-snapshot retention, safe close,
-and submodule fail-closed behavior.
+submodule fail-closed behavior, byte identity, nested directories, and long
+paths.
