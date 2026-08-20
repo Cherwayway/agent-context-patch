@@ -1,0 +1,6 @@
+{
+  "kit": "agent-context-patch",
+  "skill": "source-snapshot",
+  "version": "0.5.5",
+  "schemaVersion": 1
+}

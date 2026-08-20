@@ -10,6 +10,8 @@
   "scripts": {
     "test": "node scripts/run-verification.mjs",
     "metrics:discovery": "node scripts/capture-discovery-snapshot.mjs",
+    "plugin:sync": "node scripts/sync-source-snapshot-plugin.mjs",
+    "plugin:check": "node scripts/sync-source-snapshot-plugin.mjs --check",
     "release:prepare": "node scripts/prepare-release.mjs",
     "version:sync": "node scripts/sync-kit-version.mjs",
     "version:check": "node scripts/sync-kit-version.mjs --check"

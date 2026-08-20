@@ -12,7 +12,7 @@
     {
       "name": "agent-context-patch",
       "source": "./plugins/agent-context-patch",
-      "description": "Install Agent Context Patch from a verified immutable Release without silently changing workspace instructions.",
+      "description": "Install Agent Context Patch safely and pin fresh, isolated Git source snapshots for read-only analysis.",
       "version": "0.5.5"
     }
   ]

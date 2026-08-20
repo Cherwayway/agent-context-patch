@@ -61,8 +61,10 @@ function createReleaseRepository() {
   const paths = [
     "scripts",
     "skills/evolve",
+    "skills/source-snapshot",
     ".claude-plugin",
     "plugins/agent-context-patch/.claude-plugin",
+    "plugins/agent-context-patch/skills/source-snapshot",
   ];
   for (const path of paths) mkdirSync(join(root, path), { recursive: true });
   cpSync(script, join(root, "scripts", "prepare-release.mjs"));
@@ -73,6 +75,18 @@ function createReleaseRepository() {
   });
   writeJson(join(root, "skills/evolve/manifest.json"), {
     kit: "agent-context-patch",
+    version: "0.5.4",
+    schemaVersion: 1,
+  });
+  writeJson(join(root, "skills/source-snapshot/manifest.json"), {
+    kit: "agent-context-patch",
+    skill: "source-snapshot",
+    version: "0.5.4",
+    schemaVersion: 1,
+  });
+  writeJson(join(root, "plugins/agent-context-patch/skills/source-snapshot/manifest.json"), {
+    kit: "agent-context-patch",
+    skill: "source-snapshot",
     version: "0.5.4",
     schemaVersion: 1,
   });

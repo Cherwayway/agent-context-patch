@@ -76,6 +76,37 @@ function verifyReleaseSurfaces(repositoryRoot, commit, version) {
     throw new Error("skills/evolve/manifest.json schemaVersion must be a positive integer");
   }
 
+  const sourceSnapshotManifest = readJsonAtCommit(
+    repositoryRoot,
+    commit,
+    "skills/source-snapshot/manifest.json",
+  );
+  expectVersion(
+    "skills/source-snapshot/manifest.json",
+    sourceSnapshotManifest.version,
+    version,
+  );
+  if (
+    sourceSnapshotManifest.kit !== "agent-context-patch" ||
+    sourceSnapshotManifest.skill !== "source-snapshot" ||
+    sourceSnapshotManifest.schemaVersion !== 1
+  ) {
+    throw new Error("skills/source-snapshot/manifest.json has an invalid contract");
+  }
+  const canonicalSourceSnapshotTree = runGit(
+    repositoryRoot,
+    ["rev-parse", `${commit}:skills/source-snapshot`],
+    "resolve canonical Source Snapshot tree",
+  ).trim();
+  const pluginSourceSnapshotTree = runGit(
+    repositoryRoot,
+    ["rev-parse", `${commit}:plugins/agent-context-patch/skills/source-snapshot`],
+    "resolve plugin Source Snapshot tree",
+  ).trim();
+  if (canonicalSourceSnapshotTree !== pluginSourceSnapshotTree) {
+    throw new Error("plugin Source Snapshot tree differs from its canonical skill tree");
+  }
+
   const marketplace = readJsonAtCommit(repositoryRoot, commit, ".claude-plugin/marketplace.json");
   expectVersion(".claude-plugin/marketplace.json metadata", marketplace.metadata?.version, version);
   for (const plugin of marketplace.plugins ?? []) {

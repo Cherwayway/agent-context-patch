@@ -11,6 +11,12 @@ const changes = [];
 updateJson("skills/evolve/manifest.json", (document) => {
   document.version = kitVersion;
 });
+updateJson("skills/source-snapshot/manifest.json", (document) => {
+  document.version = kitVersion;
+});
+updateJson("plugins/agent-context-patch/skills/source-snapshot/manifest.json", (document) => {
+  document.version = kitVersion;
+});
 updateJson(".claude-plugin/marketplace.json", (document) => {
   document.metadata.version = kitVersion;
   for (const plugin of document.plugins) plugin.version = kitVersion;

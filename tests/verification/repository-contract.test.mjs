@@ -25,6 +25,10 @@ const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 test("package, skill manifest, and context schema versions agree", () => {
   const packageJson = readJson("package.json");
   const manifest = readJson("skills/evolve/manifest.json");
+  const sourceSnapshotManifest = readJson("skills/source-snapshot/manifest.json");
+  const pluginSourceSnapshotManifest = readJson(
+    "plugins/agent-context-patch/skills/source-snapshot/manifest.json",
+  );
   const config = parseYamlSubset(read("templates/.agent-context/config.yml"), "template config");
 
   execFileSync(process.execPath, ["scripts/sync-kit-version.mjs", "--check"], {
@@ -35,6 +39,13 @@ test("package, skill manifest, and context schema versions agree", () => {
   assert.equal(manifest.kit, "agent-context-patch");
   assert.equal(manifest.version, packageJson.version);
   assert.equal(manifest.schemaVersion, 1);
+  assert.deepEqual(sourceSnapshotManifest, {
+    kit: "agent-context-patch",
+    skill: "source-snapshot",
+    version: packageJson.version,
+    schemaVersion: 1,
+  });
+  assert.deepEqual(pluginSourceSnapshotManifest, sourceSnapshotManifest);
   assert.equal(config.schema_version, manifest.schemaVersion);
   assert.equal(config.created_with_kit_version, packageJson.version);
   assert.equal(config.last_migrated_with_kit_version, null);
@@ -104,6 +115,8 @@ test("Kit Version check treats CRLF JSON as semantically synchronized", () => {
   const versionSurfaces = [
     "package.json",
     "skills/evolve/manifest.json",
+    "skills/source-snapshot/manifest.json",
+    "plugins/agent-context-patch/skills/source-snapshot/manifest.json",
     ".claude-plugin/marketplace.json",
     "plugins/agent-context-patch/.claude-plugin/plugin.json",
     "docs/launch/experiment.json",
@@ -128,7 +141,7 @@ test("Kit Version check treats CRLF JSON as semantically synchronized", () => {
   }
 });
 
-test("the Claude marketplace resolves one invocable install skill", () => {
+test("the Claude marketplace resolves install and synchronized source snapshot skills", () => {
   const packageJson = readJson("package.json");
   const marketplace = readJson(".claude-plugin/marketplace.json");
   const marketplaceEntry = marketplace.plugins[0];
@@ -159,7 +172,10 @@ test("the Claude marketplace resolves one invocable install skill", () => {
     plugin.homepage,
     "https://github.com/Cherwayway/agent-context-patch/blob/main/docs/why-agent-context-patch.md",
   );
-  assert.deepEqual(skillEntries.map((entry) => entry.name), ["install"]);
+  assert.deepEqual(skillEntries.map((entry) => entry.name).toSorted(), [
+    "install",
+    "source-snapshot",
+  ]);
   const skillPath = join(skillsRoot, "install", "SKILL.md");
   const { data } = parseMarkdownFrontmatter(readFileSync(skillPath, "utf8"), skillPath);
   assert.deepEqual({ ...data }, {
@@ -167,6 +183,20 @@ test("the Claude marketplace resolves one invocable install skill", () => {
     description:
       "Safely install or inspect Agent Context Patch when the user asks for durable, reviewable workspace memory for Claude Code or Codex.",
     "disable-model-invocation": true,
+  });
+  execFileSync(process.execPath, ["scripts/sync-source-snapshot-plugin.mjs", "--check"], {
+    cwd: repositoryRoot,
+    stdio: "pipe",
+  });
+  const sourceSnapshotSkillPath = join(skillsRoot, "source-snapshot", "SKILL.md");
+  const sourceSnapshotFrontmatter = parseMarkdownFrontmatter(
+    readFileSync(sourceSnapshotSkillPath, "utf8"),
+    sourceSnapshotSkillPath,
+  );
+  assert.deepEqual({ ...sourceSnapshotFrontmatter.data }, {
+    name: "source-snapshot",
+    description:
+      "Pin and inspect fresh, exact Git source snapshots for read-only code analysis without touching the user's working tree.",
   });
 });
 
