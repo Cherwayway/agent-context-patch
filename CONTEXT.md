@@ -56,11 +56,17 @@ context growth as success by itself.
 - **Feedback Signal**: a privacy-minimized, reproducible observation from real
   use that can justify or evaluate an iteration. Raw conversations, full logs,
   and untested ideas are not Feedback Signals.
+- **Source Snapshot**: an ephemeral, workspace-external, read-only tree bound
+  to an exact remote Git ref and commit after live resolution and isolated
+  fetch identities match. It is task evidence, not Active Context.
 
 ## Deep Modules And Seams
 
 - `$evolve` is the Agent-facing interface for `init`, `after-failure`,
   `approve`, `review-context`, `weekly`, and `update`.
+- `$source-snapshot` is the independent pre-task interface for pinning current
+  remote Git source without reading from or updating the primary checkout. It
+  has no proposal or context-write authority.
 - The **Commit Kernel** accepts a PatchPlan plus optional external approval and
   returns an ApplyAttempt. Approval carries the reviewed `planHash` outside the
   plan, avoiding a self-referential hash. The kernel owns path safety, policy
@@ -133,7 +139,10 @@ context growth as success by itself.
    propose, and apply. Applied requires settled exact Coordinator evidence;
    unsafe or incomplete evidence fails closed.
 21. Ordinary no-trigger work emits no evolution receipt and creates no proposal
-   or durable context write merely to record a no-op.
+    or durable context write merely to record a no-op.
+22. Source Snapshot receipts and trees stay outside `.agent-context/`; failure
+    to resolve or fetch an exact remote identity fails closed, and cleanup may
+    remove only the task-owned session after integrity verification.
 
 ## Repository Reading Map
 
@@ -144,6 +153,8 @@ context growth as success by itself.
   proposal recovery and the narrow stale-supersession rule.
 - `docs/adr/0005-observable-evolution-outcomes.md`: high-signal Delivery
   Checkpoint, three-stage outcome, and ephemeral receipt boundary.
+- `docs/adr/0008-fresh-source-snapshots.md`: pre-task source provenance,
+  workspace-read-only boundaries, and plugin distribution.
 - `docs/v1-verification-matrix.md`: decision-to-contract verification map.
 - `skills/evolve/SKILL.md`: Agent-facing behavior.
 - `skills/evolve/references/`: protocol, privacy, migration, domain, and cleanup
@@ -151,6 +162,8 @@ context growth as success by itself.
 - `skills/evolve/runtime/`: optional Node Commit Kernel, Lifecycle Coordinator,
   Coordinator-owned lifecycle contract, and Evolution Outcome module used by
   `auto`, reconciliation, and delivery.
+- `skills/source-snapshot/`: independent pre-task Skill and runtime for exact
+  remote Git source snapshots.
 - `templates/.agent-context/`: new-workspace v1 shape.
 - `install/`: deterministic Bootstrap platform adapters.
 - `scripts/` and `tests/`: repository verification.
@@ -168,7 +181,8 @@ repository hygiene, and supported platform adapters.
 ## Non-Goals
 
 - No database, vector store, cloud sync, background reconciliation daemon, or
-  general workflow engine.
+  general workflow engine. Source Snapshot does not run builds, install
+  dependencies, schedule tasks, or manage general-purpose worktrees.
 - No automatic semantic merge of `AGENTS.md` or `CLAUDE.md`.
 - No public `repo`, `team`, or `kit` write scopes in v1.
 - No deterministic module for deciding what a project lesson means.

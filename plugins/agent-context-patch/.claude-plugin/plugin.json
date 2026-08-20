@@ -3,7 +3,7 @@
   "name": "agent-context-patch",
   "displayName": "Agent Context Patch",
   "version": "0.5.5",
-  "description": "Install safe, reviewable workspace memory for Claude Code and OpenAI Codex from a verified immutable Release.",
+  "description": "Install reviewable workspace memory and pin fresh, isolated Git source snapshots for Agent analysis.",
   "author": {
     "name": "Cherwayway",
     "url": "https://github.com/Cherwayway"
@@ -13,6 +13,8 @@
   "license": "MIT",
   "keywords": [
     "agent-memory",
+    "source-provenance",
+    "git-snapshot",
     "claude-code",
     "codex",
     "context-management"
