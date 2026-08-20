@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "agent-context-patch",
   "displayName": "Agent Context Patch",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "description": "Install reviewable workspace memory and pin fresh, isolated Git source snapshots for Agent analysis.",
   "author": {
     "name": "Cherwayway",
