@@ -13,8 +13,9 @@
 again.**
 
 Agent Context Patch turns verified corrections into small, durable workspace
-memory for **Claude Code and OpenAI Codex**. Later Agent tasks load the useful
-lesson instead of rediscovering it from an old chat.
+memory for **Claude Code and OpenAI Codex**. Later Agent tasks can receive the
+always-relevant core plus task-matched rule packs instead of rediscovering a
+lesson from an old chat or loading every accumulated rule.
 
 It is local and inspectable: no hosted service, no daemon, no telemetry, and no
 silent global instruction edits.
@@ -28,7 +29,7 @@ workspace write lifecycle. [See the exact boundary](docs/why-agent-context-patch
 | Without Agent Context Patch | With Agent Context Patch |
 | --- | --- |
 | A fix lives only in chat history. | The Agent identifies the reusable part after the fix passes verification. |
-| A later task starts cold and repeats the mistake. | The lesson becomes a small workspace context patch that later tasks read. |
+| A later task starts cold and repeats the mistake. | The lesson becomes a small workspace context patch that later tasks can select from hard task signals. |
 | Instructions accumulate until they are noisy or contradictory. | New lessons use replace-before-add; stale or risky changes go through review. |
 
 For example, the executable fresh-Agent acceptance starts with a failing
@@ -103,6 +104,8 @@ secrets, raw conversations, customer data, or production credentials.
 - The Agent owns semantic judgment: what happened, whether it is reusable, and
   what the smallest useful lesson is.
 - Active Context stays small through replace-before-add and explicit cleanup.
+- A read-only Context Compiler keeps core guidance visible, selects routed packs
+  from structured task facts, and falls back to complete guidance on ambiguity.
 - A deterministic Commit Kernel handles file safety, exact plans, conflicts,
   audit evidence, and rollback boundaries.
 - Eligible low-risk workspace additions can finish in the same Agent turn.
@@ -135,6 +138,56 @@ event: a failed verification that later passed, an explicit user correction,
 an independent QA defect, stale workspace context, or a first fix that failed
 before a later fix passed. An ordinary no-trigger task stays silent and creates
 no proposal or durable context write merely to report a no-op.
+
+## Progressive Context Loading
+
+When a compatible instruction adapter invokes the v0.6.0 Context Compiler, it
+builds an ephemeral payload in four layers:
+
+```text
+core + unmarked guidance -> derived catalog -> matched packs -> bounded attention
+```
+
+The task signature contains structured operations, workspace-relative paths,
+tools, skills, domains, risk, and exact requested pack IDs—not the raw prompt.
+Its domains identify the task-relevant enabled checklists; an empty domain list
+conservatively reads every enabled checklist and treats every enabled domain as
+eligible during matching. The host-side catalog scan still covers every enabled
+checklist so context IDs remain workspace-global. Hard matching stays within the
+task-relevant set. An exact pack request expands the read to that pack's source
+checklist, while high-risk selection loads every safety pack in the
+task-relevant set.
+Task-relevant core and older unmarked content remain visible. Normal packs are
+selected by deterministic hard signals or an exact request; high-risk tasks
+also load task-relevant safety packs. The catalog is derived from metadata
+stored beside the Markdown it describes, so there is no second routing
+registry. The progressive catalog has a hard 64-block bound; overflow returns
+the complete legacy read set without catalog overhead.
+
+The bounded scanner parses valid non-terminal proposal frontmatter for explicit
+`attention_targets`, but never emits proposal body. At most three attention
+pointers enter the compiled payload, and each says to verify current sources—not
+to trust or apply the proposal. Existing proposals are not backfilled and edges
+are never inferred: without one, a normal-risk task gets no attention item for
+that proposal, while a high-risk task falls back with a manual-inspection hint.
+Missing or malformed markers, unknown requested packs, missing high-risk safety
+coverage, or routing ambiguity returns the complete legacy default read set.
+At high risk, attention overflow or an incomplete bounded proposal scan also
+forces full fallback.
+
+The compiler itself makes no model call. Its metrics compare UTF-8 bytes of the
+task-relevant legacy bundle and returned payload, including rendered catalog and
+attention overhead. v0.6.0 installs no platform or pre-first-model-call hook, so
+actual model-context or token savings depend on a compatible host injecting only
+`content`; byte reduction alone does not prove material use or better Agent
+behavior.
+
+This is a read-only runtime API, not a daemon, platform hook, model router, or
+new public command. A fresh-install workflow may propose the updated instruction
+adapter for separate semantic review; Bootstrap and `$evolve update` do not edit
+an existing `AGENTS.md`, `CLAUDE.md`, or workspace index. Old installations
+therefore retain their previous full-loading behavior until that separate patch
+is reviewed.
 
 ## Local Bootstrap Development
 
@@ -224,9 +277,12 @@ V1 writes Active Context only inside the workspace:
   archive/
 ```
 
-Ordinary tasks read only the index, profile, and relevant enabled checklists.
-Proposals own their Decision Log and Apply Attempts. Reports are derived and
-archives are inactive. There is no separate mistake or receipt store.
+The legacy path reads the index, profile, and relevant enabled checklists in
+full. A compatible adapter may instead give the model the compiler's single
+task-local payload. Proposals own their Decision Log and Apply Attempts; only
+bounded non-terminal frontmatter may produce non-authoritative attention.
+Reports are derived and archives are inactive. There is no separate mistake,
+receipt, catalog, or usage-ledger store.
 
 ## Commands
 
@@ -339,7 +395,9 @@ architecture, and
 default. [ADR-0005](docs/adr/0005-observable-evolution-outcomes.md) defines the
 delivery checkpoint and three-stage ephemeral outcome.
 [ADR-0007](docs/adr/0007-agent-owned-context-effectiveness-review.md) defines
-bounded post-apply effectiveness review without telemetry. The
+bounded post-apply effectiveness review without telemetry, and
+[ADR-0009](docs/adr/0009-progressive-context-compilation.md) defines read-only
+progressive disclosure and complete legacy fallback. The
 [v1 verification matrix](docs/v1-verification-matrix.md) maps every accepted
 decision to its durable contract and test evidence.
 
@@ -351,7 +409,7 @@ Run the single verification interface:
 npm test
 ```
 
-The gate executes real demo behavior, protocol fixtures, Commit Kernel and
-Lifecycle/Outcome behavior, Bootstrap dry-run/apply/idempotency, repository
-hygiene, and platform contracts. CI runs the same interface on Windows and
-Ubuntu.
+The gate executes real demo behavior, protocol fixtures, Context Compiler
+routing/fallback, Commit Kernel and Lifecycle/Outcome behavior, Bootstrap
+dry-run/apply/idempotency, repository hygiene, and platform contracts. CI runs
+the same interface on Windows and Ubuntu.

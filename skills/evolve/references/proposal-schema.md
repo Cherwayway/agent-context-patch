@@ -21,6 +21,10 @@ trigger: verification_failure
 current_fix_status: verified
 target_files:
   - .agent-context/PROJECT_PROFILE.md
+# Optional bounded routing edges for Context Compiler attention.
+attention_targets:
+  - context:coding-database
+  - rule:2026-08-11-isolated-verification#1
 confidence: high
 authority: current_source
 retention_value: high
@@ -41,6 +45,24 @@ privacy:
 
 Do not store approval_required. Approval is derived from operation, target,
 policy, and the hard gates in protocol-v1.md.
+
+`attention_targets` is optional and valid only for a workspace proposal. It is
+a unique list of 1 to 16 exact `context:<context-block-id>` or
+`rule:<stable-acp-rule-id>` edges. It does not make the proposal active,
+approved, or authoritative. Add an edge only when the proposal has a direct,
+content-safe relationship to that known ID; do not derive it from broad keyword
+similarity.
+
+The read-only Context Compiler considers these edges only while a valid
+proposal is `pending_current_fix`, `proposed`, or `approved`. Its bounded prefix
+scanner parses only frontmatter, returns at most three relevant attention
+pointers, and never emits proposal body or PatchPlan content. Terminal proposals
+may retain their historical edges but do not produce attention. Existing
+proposals are not backfilled and edges are never inferred. Without
+`attention_targets`, normal-risk compilation creates no attention item for that
+proposal; high-risk compilation uses `legacy_full` plus a bounded
+manual-inspection hint. Choose the edges when creating the aggregate; after
+Decision or Apply history exists, do not rewrite routing edges in place.
 
 ## Required fields
 

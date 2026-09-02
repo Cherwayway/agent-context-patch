@@ -10,8 +10,23 @@ context growth as success by itself.
 
 - **Workspace**: the only active writable scope in v1. It may be a Git repo, a
   multi-repo directory, or a non-code folder.
-- **Active Context**: files ordinary tasks may read by default: the context
-  index, project profile, and enabled checklists.
+- **Active Context**: current workspace guidance eligible for ordinary tasks:
+  the context index, project profile, and enabled checklists. Active does not
+  mean selected, loaded, or materially used on every task.
+- **Context Compiler**: a deterministic read-only runtime that renders core,
+  unmarked guidance, a derived catalog, selected packs, and bounded proposal
+  attention into one ephemeral model-visible payload. Ambiguity falls back to
+  the complete legacy read set.
+- **Context Block**: a core or task-routed pack whose strict JSON routing
+  metadata is co-located with its Active Markdown content.
+- **Catalog**: the ephemeral inventory derived from Context Blocks. It is not a
+  persisted registry or another source of truth.
+- **Task Signature**: content-safe structured routing inputs: operations,
+  workspace-relative paths, tools, skills, domains, risk, and explicitly
+  requested packs. It contains no raw prompt.
+- **Proposal Attention**: up to three non-authoritative pointers derived from
+  valid non-terminal proposal frontmatter. It requires current-source
+  verification and never promotes proposal body into Active Context.
 - **Proposal**: the internal evolution aggregate for one lesson. It owns the
   evidence, exact patch, decision log, and apply attempts; it is not a default
   user approval inbox.
@@ -67,6 +82,14 @@ context growth as success by itself.
 - `$source-snapshot` is the independent pre-task interface for pinning current
   remote Git source without reading from or updating the primary checkout. It
   has no proposal or context-write authority.
+- The **Context Compiler** accepts a workspace root and structured task
+  signature. It reads Schema 1 Active Context, derives its catalog, selects
+  hard-matched or explicitly requested packs, includes task-relevant safety
+  packs for high-risk work, and returns either one consumer-ready payload or
+  the complete legacy fallback. The derived catalog has a hard 64-block bound.
+  Its bounded scanner parses only proposal frontmatter and emits no proposal
+  body. It makes no model call and has no write or reconciliation authority;
+  v0.6.0 installs no pre-first-model-call hook.
 - The **Commit Kernel** accepts a PatchPlan plus optional external approval and
   returns an ApplyAttempt. Approval carries the reviewed `planHash` outside the
   plan, avoiding a self-referential hash. The kernel owns path safety, policy
@@ -86,8 +109,9 @@ context growth as success by itself.
 - The **Bootstrap module** plans and applies deterministic skill/template file
   operations. PowerShell and Bash are its two platform adapters.
 - Codex and Claude guidance files are two Agent adapters. They share the same
-  high-signal Delivery Checkpoint triggers and Outcome Interface contract,
-  remain short, and load the full skill only when needed.
+  optional Context Compiler trigger, high-signal Delivery Checkpoint triggers,
+  and Outcome Interface contract, remain short, and load the full skill only
+  when needed. Updating a skill never silently patches an existing adapter.
 - `npm test` is the repository verification interface. Tests cross public seams
   and must exercise observable file outcomes, not merely search for tokens.
 
@@ -143,6 +167,16 @@ context growth as success by itself.
 22. Source Snapshot receipts and trees stay outside `.agent-context/`; failure
     to resolve or fetch an exact remote identity fails closed, and cleanup may
     remove only the task-owned session after integrity verification.
+23. Context compilation is read-only and ephemeral. It creates no catalog,
+    receipt, task ledger, telemetry, or workspace write.
+24. Core and unmarked guidance are never dropped. Invalid routing, an unknown
+    explicit request, or missing high-risk safety coverage falls back to the
+    complete legacy read set instead of a partial result. High-risk attention
+    overflow or an unrouted non-terminal proposal also forces fallback.
+25. Proposal attention uses only bounded non-terminal frontmatter and is not
+    truth, approval, relevance proof, or effectiveness evidence.
+26. Moving existing always-visible guidance into a pack is semantic narrowing,
+    requires reviewed cleanup, and is never a bulk Schema migration.
 
 ## Repository Reading Map
 
@@ -155,13 +189,15 @@ context growth as success by itself.
   Checkpoint, three-stage outcome, and ephemeral receipt boundary.
 - `docs/adr/0008-fresh-source-snapshots.md`: pre-task source provenance,
   workspace-read-only boundaries, and plugin distribution.
+- `docs/adr/0009-progressive-context-compilation.md`: task-local progressive
+  disclosure, bounded proposal attention, and legacy-full fallback.
 - `docs/v1-verification-matrix.md`: decision-to-contract verification map.
 - `skills/evolve/SKILL.md`: Agent-facing behavior.
 - `skills/evolve/references/`: protocol, privacy, migration, domain, and cleanup
   rules loaded on demand.
-- `skills/evolve/runtime/`: optional Node Commit Kernel, Lifecycle Coordinator,
-  Coordinator-owned lifecycle contract, and Evolution Outcome module used by
-  `auto`, reconciliation, and delivery.
+- `skills/evolve/runtime/`: optional read-only Context Compiler, Node Commit
+  Kernel, Lifecycle Coordinator, Coordinator-owned lifecycle contract, and
+  Evolution Outcome module.
 - `skills/source-snapshot/`: independent pre-task Skill and runtime for exact
   remote Git source snapshots.
 - `templates/.agent-context/`: new-workspace v1 shape.
@@ -174,9 +210,10 @@ context growth as success by itself.
 npm test
 ```
 
-The full gate must cover the demo, schema fixtures, Commit Kernel, Lifecycle
-Coordinator, Evolution Outcome behavior, Bootstrap dry-run/apply/idempotency,
-repository hygiene, and supported platform adapters.
+The full gate must cover the demo, schema fixtures, Context Compiler routing and
+fallback, Commit Kernel, Lifecycle Coordinator, Evolution Outcome behavior,
+Bootstrap dry-run/apply/idempotency, repository hygiene, and supported platform
+adapters.
 
 ## Non-Goals
 
@@ -186,4 +223,6 @@ repository hygiene, and supported platform adapters.
 - No automatic semantic merge of `AGENTS.md` or `CLAUDE.md`.
 - No public `repo`, `team`, or `kit` write scopes in v1.
 - No deterministic module for deciding what a project lesson means.
+- No model-based context router, persisted catalog, proposal-body injection, or
+  automatic migration of existing Active Context into packs.
 - No independent `mistakes/` or `receipts/` source of truth.

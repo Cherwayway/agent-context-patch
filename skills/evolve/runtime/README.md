@@ -1,12 +1,119 @@
 # Runtime Modules
 
-This optional Node 20+ runtime contains three deep deterministic
-responsibilities. The Commit Kernel owns the `PatchPlan -> ApplyAttempt` seam.
-The Lifecycle Coordinator settles unfinished proposal audit around that seam.
+This optional Node 20+ runtime contains four deep deterministic
+responsibilities. The Context Compiler renders task-local Active Context
+without writing the workspace. The Commit Kernel owns the
+`PatchPlan -> ApplyAttempt` seam. The Lifecycle Coordinator settles unfinished
+proposal audit around that seam.
 Its internal `lifecycle-contract.mjs` is the single read-only source for
 Coordinator outcome shapes, transitions, and settled-state derivation. The
 Evolution Outcome module consumes that contract and formats the ephemeral
 detect-to-apply delivery result. None decides what project context means.
+
+## Context Compiler API
+
+Import the compiler directly from its deep module:
+
+~~~js
+import { compileWorkspaceContext } from "./context-compiler.mjs";
+
+const result = await compileWorkspaceContext({
+  workspaceRoot: process.cwd(),
+  taskSignature: {
+    schemaVersion: 1,
+    operations: ["review"],
+    paths: ["src/example.mjs"],
+    tools: [],
+    skills: [],
+    domains: ["coding"],
+    risk: "normal",
+    requestedPacks: [],
+  },
+});
+~~~
+
+The signature contains structured, content-safe hints only. Paths are
+workspace-relative; do not pass a raw prompt, conversation, source content,
+secret, or absolute user path. `domains` identifies the task-relevant enabled
+checklists; an empty list conservatively reads every enabled checklist and uses
+every enabled domain during matching. The host-side catalog scan covers every
+enabled checklist to enforce workspace-global block IDs. Ordinary hard matching
+stays within the task-relevant set. Exact requests expand the read to the source
+checklist; high-risk selection includes all task-relevant safety packs.
+
+The returned object has this exact top-level contract:
+
+~~~text
+schemaVersion: 1
+status: compiled | fallback | blocked
+mode: progressive | legacy_full | none
+reason
+content
+catalog
+selectedPackIds
+selections
+attention
+metrics:
+  fullContextBytes
+  modelVisibleBytes
+  savedBytes
+  reductionBasisPoints
+warnings
+~~~
+
+A compatible consumer must expose only `content` to the model; every other field
+is host-side diagnostics. `content` contains task-relevant core and unmarked
+guidance, the rendered bounded catalog and attention surface, and the packs
+selected by deterministic hard signals or exact request. Metrics compare UTF-8
+bundle bytes; catalog and attention bytes are not excluded from
+`modelVisibleBytes`.
+
+Active Markdown uses paired comments with strict single-line JSON:
+
+~~~md
+<!-- acp-context: {"schemaVersion":1,"id":"workspace-safety","kind":"core","description":"Safety and authority invariants."} -->
+## Safety
+- Verify current sources before using point-in-time project facts.
+<!-- /acp-context -->
+~~~
+
+Core metadata contains `schemaVersion`, `id`, `kind: "core"`, and
+`description`. A pack additionally carries `priority: "normal" | "safety"`
+and a non-empty `match` object. Supported selectors are `operations`,
+`pathPrefixes`, `pathBasenames`, `tools`, `skills`, `domains`, and `risks`.
+Within one selector values are OR; across selectors that are present the match
+is AND. The catalog is derived from these same blocks and is never written as a
+separate file. Progressive compilation accepts at most 64 context blocks;
+overflow returns the complete legacy read set without a rendered catalog.
+
+Normal packs are selected by hard matches or exact `requestedPacks`; high-risk
+tasks also select task-relevant safety packs. The compiler keeps content
+outside blocks and core blocks from the task-relevant read set. Missing or
+invalid markers, duplicate IDs, unknown explicit pack requests, unsafe path
+state, or missing high-risk safety coverage cause
+fallback to the complete legacy default read set. At normal risk, attention
+overflow keeps the first three deterministic items plus a warning. At high risk,
+overflow, any non-terminal proposal without an explicit edge, or an incomplete
+bounded proposal scan forces complete fallback. It never returns a partial best
+guess. If any enabled checklist is missing, unreadable, invalid UTF-8, or has
+unsafe topology, the result is `blocked / none`. Credential-shaped routing
+metadata also blocks with empty content instead of entering fallback output.
+
+Proposal attention comes only from valid workspace proposal frontmatter with
+status `pending_current_fix`, `proposed`, or `approved` and exact
+`attention_targets`. The bounded prefix scanner parses only frontmatter and
+never emits proposal body. It returns at most three content-safe pointers,
+invokes no Lifecycle Reconciliation, and performs no write. Existing proposals
+are not backfilled and edges are never inferred. Attention always requires
+current-source verification and is never treated as Active Context or approval.
+
+This module makes no model or network call, acquires no commit/lifecycle lock,
+emits no telemetry, and persists no catalog, compiled payload, metric, or
+receipt. Existing unmarked Schema 1 workspaces use `legacy_full`; there is no
+automatic marker migration. v0.6.0 installs no platform or pre-first-model-call
+hook. Actual model-context or token savings depend on a compatible host
+injecting only `content`; deterministic byte fixtures alone do not establish
+them.
 
 ## Commit Kernel API
 

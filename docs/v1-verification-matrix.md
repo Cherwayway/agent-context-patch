@@ -6,7 +6,9 @@ This matrix maps the accepted decisions in
 `docs/adr/0004-lifecycle-reconciliation-around-commit-kernel.md`, observable
 delivery extension in `docs/adr/0005-observable-evolution-outcomes.md`, and
 effectiveness-review extension in
-`docs/adr/0007-agent-owned-context-effectiveness-review.md`, to
+`docs/adr/0007-agent-owned-context-effectiveness-review.md`, and progressive
+context-compilation extension in
+`docs/adr/0009-progressive-context-compilation.md`, to
 durable repository evidence.
 It distinguishes executable guarantees from semantic Agent responsibilities so
 future changes do not turn documentation claims into untested promises.
@@ -25,6 +27,7 @@ future changes do not turn documentation claims into untested promises.
 | Domain activation | Detection is temporary; `config.enabled_domains` is the only activation truth. | empty template checklist contract; config validator; enabled coding demo |
 | Context health | Replace before add; numbers schedule review and block auto but never choose content to delete. | budget fixtures; cleanup/context-budget references; kernel health gate |
 | Context effectiveness | Stable inline rule IDs and bounded Agent-owned observations distinguish material use, loaded-only evidence, relevant misses, non-applicability, and unknown coverage. Reports stay derived; low use schedules review and never authorizes cleanup. | ADR-0007; Skill and cleanup-policy contracts; fresh-Agent effectiveness and paired-impact acceptance records |
+| Context compilation | The read-only compiler keeps core and unmarked guidance visible, derives its catalog from co-located markers, selects packs only from structured hard signals or exact requests, adds safety packs for high-risk work, and falls back to the complete task-relevant legacy read set on ambiguity. Its bounded scanner parses only proposal frontmatter and emits at most three non-authoritative pointers, never proposal body. Byte fixtures are not evidence of real token savings without compatible host injection. | ADR-0009; Context Compiler unit fixtures for matching, requested packs, multi-domain baseline fairness, safety selection, legacy fallback, attention bounds, privacy, and final UTF-8 payload metrics; fresh-Agent routing acceptance when available |
 | Information topology | One proposal owns evidence, decisions, and attempts but is never a kernel target; reports are derived; archive is inactive and create-only. | proposal target rejection; complete terminal-state validator; archive-update rejection; template topology test; no mistake/receipt stores |
 | Placement | Skill/kernel default user-level; context/guidance workspace-local; global trigger opt-in. | install guide, adapters, and skill-target installer tests |
 | Evidence privacy | Evidence is pointer-first and summary-first; secrets, full logs, customer data, and user-home paths are prohibited. | config/proposal privacy contracts; kernel credential, key, and path tests |
@@ -49,6 +52,12 @@ a reusable candidate exists and what it means. Deterministic code validates only
 the cross-stage family and mechanical lifecycle evidence, strips unsafe detail,
 and formats an ephemeral receipt. It never persists the result or infers
 semantics from failure text.
+
+The Context Compiler boundary is independent: structured selection and byte
+accounting are executable guarantees, while task-signature construction,
+current-source verification after attention, and any claim that selected
+guidance improved behavior remain Agent or acceptance responsibilities.
+`active`, `selected`, `loaded`, and `material_use` are not interchangeable.
 
 ## Required gate
 

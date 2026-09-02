@@ -1,1 +1,4 @@
-export { validateProposalDocument } from "../../skills/evolve/runtime/proposal.mjs";
+export {
+  validateProposalDocument,
+  validateProposalFrontmatter,
+} from "../../skills/evolve/runtime/proposal.mjs";

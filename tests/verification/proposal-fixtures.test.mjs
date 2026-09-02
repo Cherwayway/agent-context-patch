@@ -5,7 +5,11 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { replaceSectionContent } from "../support/proposal-fixture-helpers.mjs";
-import { validateProposalDocument } from "./proposal-contract.mjs";
+import { parseMarkdownFrontmatter } from "../../skills/evolve/runtime/config.mjs";
+import {
+  validateProposalDocument,
+  validateProposalFrontmatter,
+} from "./proposal-contract.mjs";
 
 const fixtureRoot = fileURLToPath(new URL("fixtures/proposals", import.meta.url));
 
@@ -222,6 +226,60 @@ test("proposal rejects extra privacy declaration keys", () => {
     "  redactions: [workspace user path removed]\n  unexpected_policy: false",
   );
   assertRejected(mutated, "privacy");
+});
+
+test("optional attention_targets are typed, unique context or rule edges", () => {
+  const source = read("valid.md");
+  const valid = insertFrontmatterField(source, [
+    "attention_targets:",
+    "  - context:package-boundary",
+    "  - rule:2026-08-11-package-boundary#1",
+  ]);
+  assert.deepEqual(validateProposalDocument(valid, "valid attention targets"), []);
+
+  for (const lines of [
+    ["attention_targets: context:package-boundary"],
+    ["attention_targets: []"],
+    ["attention_targets: file:package.json"],
+    ["attention_targets:", "  - context:../package-boundary"],
+    ["attention_targets:", "  - rule:../package-boundary"],
+    [
+      "attention_targets:",
+      "  - context:package-boundary",
+      "  - context:package-boundary",
+    ],
+  ]) {
+    assertRejected(insertFrontmatterField(source, lines), "attention_targets");
+  }
+});
+
+test("proposal frontmatter keeps existing mixed-case and semantic IDs compatible", () => {
+  const { data } = parseMarkdownFrontmatter(read("valid.md"), "valid.md");
+  for (const id of [
+    "Attention-A",
+    "password-requirements",
+    "private_key-documentation",
+  ]) {
+    assert.deepEqual(
+      validateProposalFrontmatter({ ...data, id }, `${id} frontmatter`),
+      [],
+    );
+  }
+});
+
+test("proposal frontmatter rejects credential-shaped IDs", () => {
+  const { data } = parseMarkdownFrontmatter(read("valid.md"), "valid.md");
+  for (const id of [
+    "sk-live-abcdefgh",
+    "sk-proj-abcdefghijklmnop1234",
+    "sk-ant-api03-abcdefghijklmnop1234",
+    "ghp_abcdefghijklmnop",
+  ]) {
+    assert.match(
+      validateProposalFrontmatter({ ...data, id }, "secret-like id").join("\n"),
+      /id is invalid/u,
+    );
+  }
 });
 
 test("proposal rejects empty or placeholder Evidence", () => {
@@ -462,6 +520,13 @@ for (const [fixture, expectedFailure] of [
 
 function read(name) {
   return readFileSync(join(fixtureRoot, name), "utf8").replaceAll("\r\n", "\n");
+}
+
+function insertFrontmatterField(source, lines) {
+  return source.replace(
+    /^(target_files:\n(?:  - .+\n)+)/mu,
+    `$1${lines.join("\n")}\n`,
+  );
 }
 
 function assertRejected(source, expectedFailure) {
