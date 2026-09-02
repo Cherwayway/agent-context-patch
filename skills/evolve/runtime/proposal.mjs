@@ -4,6 +4,19 @@ import { computePlanHash, sha256Text } from "./index.mjs";
 const HASH_PATTERN = /^[a-f0-9]{64}$/u;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const POLICY_REASON_PATTERN = /^[a-z][a-z0-9_-]{0,127}$/u;
+const CONTEXT_ATTENTION_TARGET_PATTERN =
+  /^context:[a-z0-9][a-z0-9._-]{0,127}$/u;
+const RULE_ATTENTION_TARGET_PATTERN =
+  /^rule:[A-Za-z0-9][A-Za-z0-9._#-]{0,191}$/u;
+const SECRET_TOKEN_PATTERNS = [
+  /(?:^|[^A-Za-z0-9])(?:sk|pk)[._-](?:live|test)[._-][A-Za-z0-9_-]{8,}(?=$|[^A-Za-z0-9])/iu,
+  /(?:^|[^A-Za-z0-9])sk[._-](?:(?:proj|svcacct|ant[._-]api\d+|or[._-]v\d+)[._-])[A-Za-z0-9_-]{8,}(?=$|[^A-Za-z0-9])/iu,
+  /(?:^|[^A-Za-z0-9])sk[._-][A-Za-z0-9]{16,}(?=$|[^A-Za-z0-9])/iu,
+  /(?:^|[^A-Za-z0-9])(?:gh[pousr]|github_pat|xox[baprs])[_-][A-Za-z0-9_-]{8,}(?=$|[^A-Za-z0-9])/iu,
+  /(?:^|[^A-Za-z0-9])akia[A-Za-z0-9]{12,}(?=$|[^A-Za-z0-9])/iu,
+  /(?:^|[^A-Za-z0-9])eyj[A-Za-z0-9_-]{16,}(?=$|[^A-Za-z0-9])/iu,
+  /(?:secret|token|password|passwd|credential|api_key|access_key|private_key)[._-](?=[A-Za-z0-9_-]{16,}(?=$|[^A-Za-z0-9]))(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]+(?=$|[^A-Za-z0-9])/iu,
+];
 const statuses = new Set([
   "pending_current_fix",
   "proposed",
@@ -81,54 +94,9 @@ export function validateProposalDocument(source, label = "proposal") {
   }
 
   const { data, body } = document;
-  const failures = [];
+  const failures = validateProposalFrontmatter(data, label);
+  if (!isRecord(data)) return failures;
   const promotion = data.scope === "user-global" && data.operation === "user_global_promotion";
-
-  expect(data.schema_version === 1, "schema_version must be 1");
-  expect(typeof data.id === "string" && IDENTIFIER_PATTERN.test(data.id), "id is invalid");
-  expect(statuses.has(data.status), `status is invalid: ${String(data.status)}`);
-  expect(operations.has(data.operation), `operation is invalid: ${String(data.operation)}`);
-  expect(fixStatuses.has(data.current_fix_status), "current_fix_status is invalid");
-  expect(priorities.has(data.confidence), "confidence is invalid");
-  expect(priorities.has(data.retention_value), "retention_value is invalid");
-  expect(authorities.has(data.authority), "authority is invalid");
-  expect(nonEmptyString(data.trigger), "trigger must be a non-empty string");
-  expect(nonEmptyString(data.created_by), "created_by must be a non-empty string");
-  expect(validTimestamp(data.created_at), "created_at must be an ISO-compatible timestamp");
-  expect(validTimestamp(data.updated_at), "updated_at must be an ISO-compatible timestamp");
-
-  if (data.status === "pending_current_fix" || promotion) {
-    expect(data.plan_hash === null, `${promotion ? "user-global promotion" : "pending_current_fix"} plan_hash must be null`);
-  } else {
-    expect(
-      typeof data.plan_hash === "string" && HASH_PATTERN.test(data.plan_hash),
-      "plan_hash must be 64 lowercase hexadecimal characters",
-    );
-  }
-
-  if (data.scope === "workspace") {
-    expect(
-      Array.isArray(data.target_files) && data.target_files.length > 0,
-      "target_files must be a non-empty list for workspace scope",
-    );
-    for (const target of Array.isArray(data.target_files) ? data.target_files : []) {
-      expect(safeWorkspacePath(target), `target_files contains an unsafe workspace target: ${target}`);
-    }
-  } else if (data.scope === "user-global") {
-    expect(
-      data.operation === "user_global_promotion",
-      "user-global scope is only valid for user_global_promotion",
-    );
-    expect(
-      Array.isArray(data.target_files) && data.target_files.length === 0,
-      "user-global promotion target_files must stay empty until adapter approval",
-    );
-    expect(data.status === "proposed", "user-global promotion must stay proposed until adapter approval");
-  } else {
-    expect(false, `scope is invalid: ${String(data.scope)}`);
-  }
-
-  validatePrivacy(data.privacy, expect);
   const sections = extractSections(body, expect);
   validateEvidence(sections.get("Evidence"), expect);
 
@@ -162,6 +130,102 @@ export function validateProposalDocument(source, label = "proposal") {
 
   function expect(condition, message) {
     if (!condition) failures.push(`${label}: ${message}`);
+  }
+}
+
+export function validateProposalFrontmatter(data, label = "proposal") {
+  const failures = [];
+  const expect = (condition, message) => {
+    if (!condition) failures.push(`${label}: ${message}`);
+  };
+  if (!isRecord(data)) {
+    expect(false, "frontmatter must be a mapping");
+    return failures;
+  }
+  const promotion =
+    data.scope === "user-global" && data.operation === "user_global_promotion";
+
+  expect(data.schema_version === 1, "schema_version must be 1");
+  expect(
+    typeof data.id === "string" &&
+      IDENTIFIER_PATTERN.test(data.id) &&
+      !likelySecretToken(data.id),
+    "id is invalid",
+  );
+  expect(statuses.has(data.status), `status is invalid: ${String(data.status)}`);
+  expect(operations.has(data.operation), `operation is invalid: ${String(data.operation)}`);
+  expect(fixStatuses.has(data.current_fix_status), "current_fix_status is invalid");
+  expect(priorities.has(data.confidence), "confidence is invalid");
+  expect(priorities.has(data.retention_value), "retention_value is invalid");
+  expect(authorities.has(data.authority), "authority is invalid");
+  expect(nonEmptyString(data.trigger), "trigger must be a non-empty string");
+  expect(nonEmptyString(data.created_by), "created_by must be a non-empty string");
+  expect(validTimestamp(data.created_at), "created_at must be an ISO-compatible timestamp");
+  expect(validTimestamp(data.updated_at), "updated_at must be an ISO-compatible timestamp");
+
+  if (data.status === "pending_current_fix" || promotion) {
+    expect(
+      data.plan_hash === null,
+      `${promotion ? "user-global promotion" : "pending_current_fix"} plan_hash must be null`,
+    );
+  } else {
+    expect(
+      typeof data.plan_hash === "string" && HASH_PATTERN.test(data.plan_hash),
+      "plan_hash must be 64 lowercase hexadecimal characters",
+    );
+  }
+
+  if (data.scope === "workspace") {
+    expect(
+      Array.isArray(data.target_files) && data.target_files.length > 0,
+      "target_files must be a non-empty list for workspace scope",
+    );
+    for (const target of Array.isArray(data.target_files) ? data.target_files : []) {
+      expect(
+        safeWorkspacePath(target),
+        `target_files contains an unsafe workspace target: ${target}`,
+      );
+    }
+  } else if (data.scope === "user-global") {
+    expect(
+      data.operation === "user_global_promotion",
+      "user-global scope is only valid for user_global_promotion",
+    );
+    expect(
+      Array.isArray(data.target_files) && data.target_files.length === 0,
+      "user-global promotion target_files must stay empty until adapter approval",
+    );
+    expect(
+      data.status === "proposed",
+      "user-global promotion must stay proposed until adapter approval",
+    );
+  } else {
+    expect(false, `scope is invalid: ${String(data.scope)}`);
+  }
+
+  validatePrivacy(data.privacy, expect);
+  validateAttentionTargets(data.attention_targets, data.scope, expect);
+  return failures;
+}
+
+function validateAttentionTargets(value, scope, expect) {
+  if (value === undefined) return;
+  expect(scope === "workspace", "attention_targets are workspace-only");
+  expect(
+    Array.isArray(value) && value.length > 0 && value.length <= 16,
+    "attention_targets must contain 1 to 16 context or rule IDs",
+  );
+  if (!Array.isArray(value)) return;
+  expect(new Set(value).size === value.length, "attention_targets must not repeat");
+  for (const target of value) {
+    expect(
+      typeof target === "string" &&
+        target.length <= 220 &&
+        (CONTEXT_ATTENTION_TARGET_PATTERN.test(target) ||
+          RULE_ATTENTION_TARGET_PATTERN.test(target)) &&
+        !likelySecretToken(target),
+      "attention_targets contains an invalid target",
+    );
   }
 }
 
@@ -589,6 +653,10 @@ function normalizeAuditToken(value) {
     token = token.slice(1, -1).replaceAll("''", "'");
   }
   return token;
+}
+
+export function likelySecretToken(value) {
+  return SECRET_TOKEN_PATTERNS.some((pattern) => pattern.test(value));
 }
 
 export function isPolicyAutoEligiblePlan(plan) {

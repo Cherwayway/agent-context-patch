@@ -12,7 +12,8 @@
 **你的 Coding Agent 上周刚修过这个错误，今天却又犯了一次。**
 
 Agent Context Patch 把已经验证过的纠正，变成 **Claude Code 和 OpenAI Codex**
-都能在后续任务中读取的短小 workspace memory。Agent 不必再从旧对话里重新发现同一条经验。
+都能在后续任务中读取的短小 workspace memory。后续 Agent 可以只拿到始终相关的 core
+和当前任务命中的规则 pack，不必从旧对话重新发现经验，也不必加载所有累积规则。
 
 它完全本地、可以审阅：没有托管服务、后台守护进程和遥测，也不会静默修改全局指令。
 
@@ -25,7 +26,7 @@ Agent Context Patch 把已经验证过的纠正，变成 **Claude Code 和 OpenA
 | 没有 Agent Context Patch | 使用 Agent Context Patch |
 | --- | --- |
 | 修复只存在于聊天记录中。 | 修复验证通过后，Agent 判断其中是否有可复用经验。 |
-| 下一次任务冷启动，再次犯错。 | 经验成为短小的 workspace context patch，供后续任务读取。 |
+| 下一次任务冷启动，再次犯错。 | 经验成为短小的 workspace context patch，后续任务可按硬信号选择。 |
 | 指令不断追加，逐渐重复甚至冲突。 | 新经验先替换再新增；过期或高风险改动进入人工审阅。 |
 
 例如，可执行的 fresh-Agent 验收从一个“丢弃调用方姓名”的失败 greeting 测试开始。
@@ -94,6 +95,7 @@ Bootstrap 永远不会自行合并已有的 `AGENTS.md` 或 `CLAUDE.md`。
 
 - Agent 负责语义判断：发生了什么、是否值得复用、最小有效经验是什么。
 - Active Context 遵循“先替换再新增”，并显式清理过期内容。
+- 只读 Context Compiler 始终保留 core，按结构化任务事实选择 pack；遇到歧义就回退到完整 context。
 - deterministic Commit Kernel 只负责文件安全、精确计划、冲突、审计证据与回滚边界。
 - 合格的低风险 workspace 新增可以在当前 Agent 回合完成；approval-only 操作始终
   进入人工审阅，完整边界见[写入策略](#写入策略)。
@@ -119,6 +121,44 @@ applied 审计时也只会进入恢复流程，不能据此反推“就是本 pr
 当前修复验证通过后，只有出现高信号事件才运行 delivery checkpoint：失败验证后来通过、
 用户明确纠正、独立 QA 缺陷、发现过期 workspace context，或首个修复失败而后续修复通过。
 普通无触发任务保持静默，不会为了报告 no-op 创建 proposal 或持久化 context 写入。
+
+## 渐进式 Context Loading
+
+当兼容的 instruction adapter 调用 v0.6.0 Context Compiler 时，它按四层生成一份临时
+model-visible payload：
+
+```text
+core + 未标记规则 -> 派生 catalog -> 命中的 packs -> bounded attention
+```
+
+Task signature 只包含结构化的 operation、workspace-relative path、tool、skill、domain、
+risk 与精确 requested pack ID，不包含原始 prompt。Domain 表示本任务相关的 enabled
+checklist；如果 domain 为空，则保守读取所有 enabled checklist，并把所有 enabled domain
+都视为可参与匹配。Host-side catalog scan 仍覆盖全部 enabled checklist，以保证 context ID
+在 workspace 内全局唯一；普通硬匹配只在 task-relevant 集合中进行。精确 pack 请求会把
+该 pack 所在 checklist 纳入读取，高风险任务则加载 task-relevant 集合内的全部 safety pack。
+Core 与旧的未标记内容始终可见；普通 pack 只由确定性的硬信号或精确请求选中。Catalog 直接
+从与 Markdown 共址的 metadata 派生，不存在第二份 routing registry。渐进式 catalog 硬限制
+为 64 个 context block；超限时不截断，而是回退到不带 catalog 的完整旧 read set。
+
+Bounded scanner 只解析有效、非终态 proposal frontmatter 中显式的 `attention_targets`，不会
+把 proposal body 输出给模型。最终 payload 最多包含三条 attention pointer；它们只提示先用
+current source 核验，不代表 proposal 已经正确、获批或生效。旧 proposal 不会自动回填，也
+不会推断 edge：没有 edge 时，normal-risk 任务不会为它生成 attention item，high-risk 任务则
+完整回退并提示人工检查。Marker 缺失或损坏、请求了未知 pack、高风险任务缺少 safety
+coverage，或 routing 有歧义时，也会回退到完整旧 default read set。高风险任务遇到
+attention 超限或 bounded scan 不完整时同样完整回退。Credential-shaped routing metadata
+不会进入 catalog 或 fallback payload，而是以空 content 阻断，避免再次暴露该值。
+
+Compiler 本身不调用模型。Byte metrics 比较同一任务的旧完整 bundle 与返回 payload 的 UTF-8
+字节，并包含渲染后的 catalog 与 attention。v0.6.0 没有安装 platform 或首个模型调用前的
+hook，因此真实 model-context/token 节省取决于兼容 host 是否只注入 `content`；bytes 下降也
+不等于规则发生了 material use，更不等于 Agent 效果已提升。
+
+这是只读 runtime API，不是 daemon、平台 hook、模型 router 或新公开命令。Fresh-install
+流程可以提出新的 instruction adapter，供单独语义审阅；Bootstrap 与 `$evolve update` 都不
+修改既有 `AGENTS.md`、`CLAUDE.md` 或 workspace index，因此旧安装会继续原来的完整加载方式，
+直到另行审阅该 instruction patch。
 
 ## 本地 Bootstrap 开发
 
@@ -198,9 +238,11 @@ V1 只在 workspace 内写 Active Context：
   archive/
 ```
 
-普通任务默认只读取 index、profile 和相关 enabled checklist。Proposal 自己保存
-Decision Log 与 Apply Attempts；report 是派生视图；archive 默认不读取；不再建立独立
-`mistakes/` 或 `receipts/` 真相源。
+旧路径会完整读取 index、profile 和相关 enabled checklist；兼容 adapter 也可以只把
+compiler 生成的一份 task-local payload 交给模型。Proposal 自己保存 Decision Log 与
+Apply Attempts；只有 bounded 非终态 frontmatter 可以生成非权威 attention。Report 是
+派生视图，archive 默认不读取，也不会新建 `mistakes/`、`receipts/`、catalog 或 usage
+ledger 真相源。
 
 ## 核心命令
 
@@ -272,7 +314,8 @@ legacy context。
 领域词汇见 [CONTEXT.md](CONTEXT.md)，原始架构决策见
 [ADR-0001](docs/adr/0001-agent-first-context-evolution.md)，auto-first 默认见
 [ADR-0003](docs/adr/0003-auto-first-low-risk-context.md)，delivery checkpoint 与三阶段
-临时结果见 [ADR-0005](docs/adr/0005-observable-evolution-outcomes.md)，决策与验证证据的映射见
+临时结果见 [ADR-0005](docs/adr/0005-observable-evolution-outcomes.md)，只读渐进披露与完整
+legacy fallback 见 [ADR-0009](docs/adr/0009-progressive-context-compilation.md)，决策与验证证据的映射见
 [v1 verification matrix](docs/v1-verification-matrix.md)。
 
 统一验证入口：
@@ -281,5 +324,6 @@ legacy context。
 npm test
 ```
 
-验证会执行真实 demo、协议 fixtures、Commit Kernel、Lifecycle/Outcome 行为、Bootstrap
-dry-run/apply/idempotency、仓库卫生和平台契约；CI 在 Windows 与 Ubuntu 运行同一入口。
+验证会执行真实 demo、协议 fixtures、Context Compiler routing/fallback、Commit Kernel、
+Lifecycle/Outcome 行为、Bootstrap dry-run/apply/idempotency、仓库卫生和平台契约；CI 在
+Windows 与 Ubuntu 运行同一入口。

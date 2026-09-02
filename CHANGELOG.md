@@ -5,6 +5,37 @@ semantic versions for the Kit independently from the Workspace Schema version.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-01
+
+### Added
+
+- A deterministic, read-only Context Compiler API that renders task-relevant
+  core and unmarked guidance, a derived global catalog, hard-signal-selected
+  packs, task-relevant safety packs for high-risk tasks, and bounded proposal
+  attention into one ephemeral model-visible payload.
+- Co-located `acp-context` Markdown blocks, structured content-safe task
+  signatures, exact pack requests, complete `legacy_full` fallback, and UTF-8
+  payload metrics that include catalog and attention overhead.
+- Optional proposal `attention_targets` for exact context/rule edges. The
+  bounded scanner parses only valid non-terminal frontmatter, returns at most
+  three non-authoritative pointers, never emits proposal body, and never
+  reconciles lifecycle.
+
+### Changed
+
+- Compatible consumers may use skill-style progressive disclosure. Malformed
+  routing, unknown requested packs, or missing high-risk safety coverage falls
+  back to the complete previous default read set instead of dropping guidance.
+  Normal-risk attention overflow keeps the first three deterministic pointers
+  plus a warning; high-risk overflow, unrouted proposals, or an incomplete
+  bounded scan forces complete fallback. The progressive catalog is capped at
+  64 blocks, and credential-shaped routing metadata blocks without echoing.
+- Prepared Kit Version 0.6.0 without changing Workspace Schema 1, adding a
+  daemon, telemetry, or pre-first-model-call platform hook; persisting a catalog
+  or usage ledger; migrating existing workspaces; or silently patching existing
+  Agent instruction files. Byte fixtures do not claim real token savings or
+  improved Agent behavior.
+
 ## [0.5.6] - 2026-08-20
 
 ### Added

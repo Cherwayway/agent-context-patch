@@ -35,6 +35,14 @@ unsafe-detail removal, and receipt formatting. The kernel and outcome module
 must not classify project meaning; the kernel must not mutate the proposal
 aggregate or claim to validate its lifecycle.
 
+The Context Compiler owns only deterministic, read-only selection of existing
+Active Context from co-located routing metadata and a structured task
+signature. It may derive bounded attention from valid non-terminal proposal
+frontmatter, but its bounded scanner never parses or emits proposal body,
+judges proposal truth, performs lifecycle reconciliation, or writes the
+workspace. The Agent owns the task signature and every semantic decision
+prompted by attention.
+
 ## Terms
 
 - Observation: a factual signal from current work.
@@ -51,7 +59,16 @@ aggregate or claim to validate its lifecycle.
   unfinished proposal lifecycles without changing PatchPlan meaning.
 - Evolution Outcome: an ephemeral, content-safe delivery result covering the
   Agent-owned detect/propose stages and mechanically evidenced apply stage.
-- Active Context: short, current guidance loaded by ordinary work.
+- Active Context: short, current guidance eligible for ordinary work.
+- Context Compiler: the read-only runtime that renders complete core plus
+  selected task packs, or falls back to the complete legacy read set.
+- Context block: a core or routed pack co-located with its Markdown guidance.
+- Catalog: an ephemeral description derived from context block metadata, never
+  a separate persisted truth source.
+- Selected: a pack matched by hard task signals, safety policy, or an explicit
+  exact request. Selection does not prove model loading or material use.
+- Proposal attention: a bounded, non-authoritative pointer from valid
+  non-terminal proposal frontmatter to selected context or rule IDs.
 - Report: a rebuildable view over proposals and active context.
 - Archive: inactive history loaded only when explicitly requested.
 
@@ -71,8 +88,167 @@ aggregate or claim to validate its lifecycle.
 There is no mistakes or receipts directory. A proposal contains the observation,
 decision history, and apply attempts. Reports are derived. Archive is inactive.
 
-The default read set is the index, profile, and task-relevant enabled
-checklists. Proposals, reports, and archive are opt-in reads.
+The legacy full default read set is the index, profile, and task-relevant
+enabled checklists. A compatible adapter may instead give the model one
+ephemeral Context Compiler payload containing task-relevant core and unmarked
+content plus selected packs. Task-signature domains identify the relevant
+enabled checklists; an empty list conservatively reads all enabled checklists
+and treats every enabled domain as eligible during matching. Proposal body,
+reports, and archive remain opt-in reads.
+
+The host-side catalog scan covers every enabled checklist so context block IDs
+remain workspace-global and exact requested packs can be resolved without a
+second registry. Ordinary hard matching is limited to the task-relevant read
+set. An exact request expands the read to the requested pack's source checklist;
+high-risk selection includes all safety packs in the task-relevant set. The
+legacy byte baseline expands with an exact request but otherwise remains the
+same task-relevant full read set.
+
+## Progressive context compilation
+
+Invoke the deep runtime API with one workspace root and a content-safe task
+signature:
+
+~~~text
+compileWorkspaceContext({ workspaceRoot, taskSignature })
+~~~
+
+The signature has this exact shape:
+
+~~~json
+{
+  "schemaVersion": 1,
+  "operations": [],
+  "paths": [],
+  "tools": [],
+  "skills": [],
+  "domains": [],
+  "risk": "normal",
+  "requestedPacks": []
+}
+~~~
+
+`risk` is `normal` or `high`. Paths are workspace-relative. The signature does
+not contain the raw prompt, conversation, source content, secrets, or absolute
+user paths.
+
+The result contract is:
+
+~~~text
+schemaVersion: 1
+status: compiled | fallback | blocked
+mode: progressive | legacy_full | none
+reason: bounded machine-readable reason
+content: complete model-visible UTF-8 payload
+catalog: derived bounded catalog
+selectedPackIds: ordered context pack IDs
+selections: content-safe selection explanations
+attention: zero to three bounded proposal pointers
+metrics:
+  fullContextBytes
+  modelVisibleBytes
+  savedBytes
+  reductionBasisPoints
+warnings: bounded content-safe warnings
+~~~
+
+A compatible consumer must expose only `content` to the model; the remaining
+fields are host-side diagnostics. `content` already includes the rendered
+catalog and attention needed by the Agent. Metrics compare UTF-8 bundle bytes;
+they must not subtract catalog or attention bytes and do not prove token savings
+without compatible host injection.
+
+### Context block contract
+
+A block is enclosed in paired Markdown comments. The opening comment contains
+strict single-line JSON:
+
+~~~md
+<!-- acp-context: {"schemaVersion":1,"id":"workspace-safety","kind":"core","description":"Safety and authority invariants."} -->
+## Safety
+
+- Verify current sources before using point-in-time project facts.
+<!-- /acp-context -->
+~~~
+
+Core metadata contains exactly `schemaVersion`, `id`, `kind: "core"`, and
+`description`. Pack metadata also contains `priority: "normal" | "safety"` and
+one non-empty `match` object. Supported match selectors are `operations`,
+`pathPrefixes`, `pathBasenames`, `tools`, `skills`, `domains`, and `risks`.
+Within one present selector, any listed value may match; across present
+selectors, every selector must match. Selector semantics are deterministic and
+must not be replaced by model judgment, embeddings, or free-text keyword
+ranking.
+
+Core blocks and content outside marked blocks in the task-relevant read set are
+always included. Normal packs are included when their hard selectors match or
+their exact ID appears in
+`requestedPacks`. A high-risk task additionally includes every safety-priority
+pack in the task-relevant read set. Pack IDs are unique within the workspace.
+The catalog is reconstructed from these same blocks for every compilation; no
+catalog file is written. Progressive compilation accepts at most 64 context
+blocks. Overflow returns the complete legacy read set without a rendered
+catalog.
+
+No marker, malformed or overlapping markers, duplicate IDs, unsupported
+metadata, unsafe or ambiguous paths, an unknown explicitly requested pack, a
+high-risk task without usable safety coverage, or another routing ambiguity
+must never cause partial omission. The result falls back to the complete legacy
+full read set. At normal risk, excess relevant attention is represented by the
+first three deterministic items plus a bounded warning. At high risk, attention
+overflow, unrouted non-terminal proposals, or an incomplete bounded proposal
+scan forces complete fallback plus a manual-inspection hint. If any enabled
+checklist is missing, unreadable, invalid UTF-8, or has unsafe topology, even
+the global catalog scan cannot be performed and the compiler returns
+`blocked / none` with no invented context. Credential-shaped routing metadata
+also blocks with empty content instead of being echoed through fallback.
+
+### Proposal attention contract
+
+Schema 1 proposal frontmatter may optionally contain:
+
+~~~yaml
+attention_targets:
+  - context:<context-block-id>
+  - rule:<stable-acp-rule-id>
+~~~
+
+Only valid `pending_current_fix`, `proposed`, and `approved` workspace proposal
+frontmatter is eligible. The bounded prefix scanner parses only frontmatter and
+never emits proposal body, PatchPlan, Decision Log, or Apply Attempt content. It
+invokes no Lifecycle Reconciliation and returns at most three relevant items
+with bounded identity and status metadata.
+
+Attention is a reason to verify current sources, not a truth claim, approval,
+or Active Context rule. At normal risk, the compiler returns the first three
+deterministically ordered matches and a bounded overflow warning. At high risk,
+more than three relevant proposals or any non-terminal proposal without an
+explicit attention edge forces `legacy_full` plus a bounded manual-inspection
+hint rather than silently choosing winners or assuming the unrouted proposal is
+irrelevant. An incomplete bounded scan has the same high-risk fallback. Existing
+proposals are not backfilled and edges are never inferred; at normal risk, a
+non-terminal proposal without `attention_targets` produces only a host warning,
+not an attention item.
+
+### Compatibility and activation
+
+Context compilation is ephemeral and read-only. It does not call the Commit
+Kernel, acquire lifecycle locks, write a catalog or receipt, emit telemetry, or
+run from a daemon or background scan. Existing unmarked workspaces remain valid
+and use `legacy_full`. Reclassifying existing core or unmarked content into a
+routed pack changes its visibility and therefore requires a reviewed semantic
+cleanup proposal; there is no bulk migration.
+
+Kit update and Bootstrap never rewrite an existing instruction file or workspace
+index. An older workspace therefore does not silently enable progressive
+loading when the installed skill changes. A fresh-install workflow may propose
+the updated adapter instruction for separate semantic review; existing adapters
+also require that separately reviewed patch.
+
+The Kit installs no platform or pre-first-model-call hook. The compiler itself
+makes no model call, and deterministic byte fixtures validate only the API and
+bundle comparison. Actual model-context or token savings require a compatible
+host to invoke the API and inject only `content`.
 
 ## Scope
 
@@ -367,6 +543,11 @@ Before preparing an add, compare it to active context:
 - conflict: supersede through human approval
 - lower-value lesson: keep it in the proposal history
 - old material is only an example: archive the example and retain a short rule
+
+Moving existing core or unmarked guidance into a pack, changing selectors, or
+lowering a pack from safety priority is a semantic routing change. Record which
+tasks may lose default visibility and require human approval. Adding routing
+metadata is never a reason for an unreviewed bulk rewrite.
 
 Quantity thresholds schedule review and block auto. Semantic authority and
 retention value determine the proposed cleanup. No threshold authorizes

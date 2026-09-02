@@ -7,6 +7,13 @@ does not need to invoke `$evolve after-failure` manually.
 - Fix and verify the current task before evolving long-term context.
 - If `.agent-context/PROJECT_CONTEXT_INDEX.md` exists, read it before making
   workspace-level claims or context changes.
+- When the installed evolve runtime provides `compileWorkspaceContext`, build a
+  content-safe structured task signature (never the raw prompt or an absolute
+  user path) and load only its returned `content`. Honor `legacy_full` fallback
+  instead of reconstructing a partial context. On `status: blocked`, stop and
+  report the bounded reason; do not continue with empty or invented guidance.
+  Proposal attention is only a bounded pointer: verify current sources before
+  reading a proposal more deeply or changing behavior.
 - At the delivery checkpoint, after the current fix is verified, run the
   evolution checkpoint when any high-signal event occurred:
   `failed_verification_later_passed`, `explicit_user_correction`,
