@@ -209,6 +209,1308 @@ test("proposal attention does not target an unloaded core block from another dom
   assert.equal(researchCore.selected, false);
 });
 
+test("canonical and legacy rule markers both route exact proposal attention", async (t) => {
+  for (const variant of [
+    {
+      name: "canonical marker with canonical edge",
+      marker:
+        "<!-- acp-rule: canonical-rule#1; source: canonical-rule; subsumes: none -->",
+      attentionTarget: "rule:canonical-rule#1",
+    },
+    {
+      name: "canonical marker with legacy edge",
+      marker:
+        "<!-- acp-rule: canonical-alias-rule#1; source: canonical-alias-rule; subsumes: none -->",
+      attentionTarget: "rule:canonical-alias-rule-1",
+    },
+    {
+      name: "legacy marker with legacy edge",
+      marker:
+        "<!-- acp-rule: id=legacy-rule-1 source=legacy-rule subsumes=none -->",
+      attentionTarget: "rule:legacy-rule-1",
+    },
+    {
+      name: "legacy marker with normalized canonical edge",
+      marker:
+        "<!-- acp-rule: id=normalized-rule-1 source=normalized-rule subsumes=none -->",
+      attentionTarget: "rule:normalized-rule#1",
+    },
+    {
+      name: "hyphenated numeric source with legacy edge",
+      marker:
+        "<!-- acp-rule: source-1#2; source: source-1; subsumes: none -->",
+      attentionTarget: "rule:source-1-2",
+    },
+  ]) {
+    await t.test(variant.name, async (t) => {
+      const workspaceRoot = await makeWorkspace(t);
+      await insertRuleMarker(workspaceRoot, {
+        sentinel: "PACKAGE_BOUNDARY_SENTINEL",
+        marker: variant.marker,
+      });
+      await writeProposal(workspaceRoot, {
+        id: `proposal-${variant.name.replaceAll(" ", "-")}`,
+        attentionTargets: [variant.attentionTarget],
+      });
+
+      const result = await compile(workspaceRoot, taskSignature({
+        operations: ["package_metadata_change"],
+        paths: ["package.json"],
+        domains: ["coding"],
+      }));
+
+      assert.equal(result.status, "compiled");
+      assert.equal(result.attention.length, 1);
+      assert.deepEqual(result.attention[0].targets, [variant.attentionTarget]);
+      assert.ok(result.content.includes(variant.marker));
+      assert.equal(
+        result.warnings.includes("legacy_rule_marker_format"),
+        false,
+      );
+    });
+  }
+});
+
+test("canonical and legacy replacement markers accept their documented subsumes dialects", async (t) => {
+  for (const variant of [
+    {
+      name: "canonical replacement",
+      marker:
+        "<!-- acp-rule: replacement-rule#2; source: replacement-rule; subsumes: retired-rule#1 -->",
+      attentionTarget: "rule:replacement-rule#2",
+    },
+    {
+      name: "legacy replacement",
+      marker:
+        "<!-- acp-rule: id=legacy-replacement-2 source=legacy-replacement subsumes=retired-rule-1 -->",
+      attentionTarget: "rule:legacy-replacement#2",
+    },
+  ]) {
+    await t.test(variant.name, async (t) => {
+      const workspaceRoot = await makeWorkspace(t);
+      await insertRuleMarker(workspaceRoot, {
+        sentinel: "PACKAGE_BOUNDARY_SENTINEL",
+        marker: variant.marker,
+      });
+      await writeProposal(workspaceRoot, {
+        id: `proposal-${variant.name.replaceAll(" ", "-")}`,
+        attentionTargets: [variant.attentionTarget],
+      });
+
+      const result = await compile(workspaceRoot, taskSignature({
+        operations: ["package_metadata_change"],
+        paths: ["package.json"],
+        domains: ["coding"],
+      }));
+
+      assert.equal(result.status, "compiled");
+      assert.equal(result.attention.length, 1);
+      assert.deepEqual(result.attention[0].targets, [variant.attentionTarget]);
+      assert.ok(result.content.includes(variant.marker));
+    });
+  }
+});
+
+test("a canonical rule marker remains routable in a CR-only Active Context document", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  const marker =
+    "<!-- acp-rule: carriage-return-rule#1; source: carriage-return-rule; subsumes: none -->";
+  await insertRuleMarker(workspaceRoot, {
+    sentinel: "PACKAGE_BOUNDARY_SENTINEL",
+    marker,
+  });
+  const checklistPath = join(
+    workspaceRoot,
+    ".agent-context",
+    "checklists",
+    "coding.md",
+  );
+  const checklist = await readFile(checklistPath, "utf8");
+  await writeFile(checklistPath, checklist.replaceAll("\n", "\r"), "utf8");
+  await writeProposal(workspaceRoot, {
+    id: "carriage-return-attention",
+    attentionTargets: ["rule:carriage-return-rule#1"],
+  });
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["package_metadata_change"],
+    paths: ["package.json"],
+    domains: ["coding"],
+  }));
+
+  assert.equal(result.status, "compiled");
+  assert.equal(result.attention.length, 1);
+  assert.deepEqual(
+    result.attention[0].targets,
+    ["rule:carriage-return-rule#1"],
+  );
+});
+
+test("a known rule in an unselected pack is irrelevant even at high risk", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  await insertRuleMarker(workspaceRoot, {
+    sentinel: "DOCS_WORKFLOW_BODY_SENTINEL",
+    marker:
+      "<!-- acp-rule: docs-rule#1; source: docs-rule; subsumes: none -->",
+  });
+  await writeProposal(workspaceRoot, {
+    id: "unselected-rule-attention",
+    attentionTargets: ["rule:docs-rule#1"],
+  });
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["package_metadata_change"],
+    paths: ["package.json"],
+    domains: ["coding"],
+    risk: "high",
+  }));
+
+  assert.equal(result.status, "compiled");
+  assert.deepEqual(result.attention, []);
+  assert.equal(result.warnings.includes("dangling_attention_target"), false);
+  assert.doesNotMatch(result.content, /unselected-rule-attention/u);
+});
+
+test("dangling context and rule attention are visible and risk-sensitive", async (t) => {
+  for (const [kind, target] of [
+    ["context", "context:missing-context"],
+    ["rule", "rule:missing-rule#1"],
+  ]) {
+    await t.test(`${kind} target at normal risk`, async (t) => {
+      const workspaceRoot = await makeWorkspace(t);
+      await writeProposal(workspaceRoot, {
+        id: `dangling-normal-${kind}`,
+        attentionTargets: [target],
+      });
+
+      const result = await compile(workspaceRoot, taskSignature({
+        operations: ["package_metadata_change"],
+        paths: ["package.json"],
+        domains: ["coding"],
+      }));
+
+      assert.equal(result.status, "compiled");
+      assert.equal(result.mode, "progressive");
+      assert.deepEqual(result.attention, []);
+      assert.ok(result.warnings.includes("dangling_attention_target"));
+      assert.match(result.content, /not present in enabled Active Context/u);
+      assert.doesNotMatch(result.content, new RegExp(`dangling-normal-${kind}`, "u"));
+    });
+
+    await t.test(`${kind} target at high risk`, async (t) => {
+      const workspaceRoot = await makeWorkspace(t);
+      await writeProposal(workspaceRoot, {
+        id: `dangling-high-${kind}`,
+        attentionTargets: [target],
+      });
+
+      const result = await compile(workspaceRoot, taskSignature({
+        operations: ["delete_cache"],
+        paths: ["tmp/cache.bin"],
+        domains: ["coding"],
+        risk: "high",
+      }));
+
+      assert.equal(result.status, "fallback");
+      assert.equal(result.mode, "legacy_full");
+      assert.equal(result.reason, "high_risk_dangling_attention_target");
+      assert.ok(result.warnings.includes("dangling_attention_target"));
+      assert.match(result.content, /PACKAGE_BOUNDARY_SENTINEL/u);
+      assert.equal(result.metrics.savedBytes, 0);
+    });
+  }
+});
+
+test("a mixed known and dangling edge keeps the relevant pointer visible", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  await writeProposal(workspaceRoot, {
+    id: "mixed-dangling-attention",
+    attentionTargets: [
+      "context:package-boundary",
+      "rule:missing-rule#1",
+    ],
+  });
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["package_metadata_change"],
+    paths: ["package.json"],
+    domains: ["coding"],
+  }));
+
+  assert.equal(result.status, "compiled");
+  assert.equal(result.attention.length, 1);
+  assert.deepEqual(result.attention[0].targets, ["context:package-boundary"]);
+  assert.ok(result.warnings.includes("dangling_attention_target"));
+  assert.equal(JSON.stringify(result).includes(BODY_SENTINEL), false);
+});
+
+test("malformed rule markers never permit partial context", async (t) => {
+  const variants = [
+    "<!-- acp-rule: wrong-source#1; source: another-source; subsumes: none -->",
+    "<!-- acp-rule: zero-rule#0; source: zero-rule; subsumes: none -->",
+    "<!-- acp-rule: leading-zero#01; source: leading-zero; subsumes: none -->",
+    "<!-- acp-rule: crossed-canonical-1; source: crossed-canonical; subsumes: none -->",
+    "<!-- acp-rule: id=crossed-legacy#1 source=crossed-legacy subsumes=none -->",
+    "<!-- acp-rule: id=legacy-wrong-1 source=legacy-other subsumes=none -->",
+    "<!-- acp-rule: missing-subsumes#1; source: missing-subsumes -->",
+    "<!-- acp-rule: extra-rule#1; source: extra-rule; subsumes: none; extra: value -->",
+    "<!-- acp-rule: split-rule#1; source: split-rule;\nsubsumes: none -->",
+    "<!-- acp-rule: mixed-none#1; source: mixed-none; subsumes: none,other-rule#1 -->",
+    "<!-- acp-rule: bare-subsumes#1; source: bare-subsumes; subsumes: other-rule -->",
+    "<!-- acp-rule: legacy-subsumes#1; source: legacy-subsumes; subsumes: other-rule-1 -->",
+    "<!-- acp-rule: duplicate-subsumes#1; source: duplicate-subsumes; subsumes: other-rule#1,other-rule#1 -->",
+    "<!-- acp-rule: leading-zero-subsumes#1; source: leading-zero-subsumes; subsumes: other-rule#01 -->",
+    "<!-- acp-rule: id=legacy-duplicate-subsumes-1 source=legacy-duplicate-subsumes subsumes=other-rule#1,other-rule-1 -->",
+  ];
+
+  for (const [index, marker] of variants.entries()) {
+    await t.test(`variant ${index + 1}`, async (t) => {
+      const workspaceRoot = await makeWorkspace(t);
+      await insertRuleMarker(workspaceRoot, {
+        sentinel: "PACKAGE_BOUNDARY_SENTINEL",
+        marker,
+      });
+
+      const result = await compile(workspaceRoot, taskSignature({
+        operations: ["package_metadata_change"],
+        paths: ["package.json"],
+        domains: ["coding"],
+      }));
+
+      assert.equal(result.status, "fallback");
+      assert.equal(result.mode, "legacy_full");
+      assert.ok(result.warnings.includes("invalid_rule_marker"));
+      assert.match(result.content, /DOCS_WORKFLOW_BODY_SENTINEL/u);
+      assert.equal(result.metrics.savedBytes, 0);
+    });
+  }
+});
+
+test("marker-like comment prefixes cannot bypass fail-safe validation", async (t) => {
+  for (const marker of [
+    "<!-- acp-rule : spaced-colon#1; source: spaced-colon; subsumes: none -->",
+    "<!--acp-rule: missing-space#1; source: missing-space; subsumes: none -->",
+    "<!-- ACP-RULE: uppercase#1; source: uppercase; subsumes: none -->",
+  ]) {
+    await t.test(marker.slice(0, 32), async (t) => {
+      const workspaceRoot = await makeWorkspace(t);
+      await insertRuleMarker(workspaceRoot, {
+        sentinel: "DOCS_WORKFLOW_BODY_SENTINEL",
+        marker,
+      });
+
+      const result = await compile(workspaceRoot, taskSignature({
+        operations: ["package_metadata_change"],
+        paths: ["package.json"],
+        domains: ["coding"],
+      }));
+
+      assert.equal(result.status, "fallback");
+      assert.ok(result.warnings.includes("invalid_rule_marker"));
+      assert.match(result.content, /DOCS_WORKFLOW_BODY_SENTINEL/u);
+    });
+  }
+});
+
+test("credential-shaped metadata in a marker-like comment blocks without echo", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  const secretLikeToken = "ghp_abcdefghijklmnop";
+  await insertRuleMarker(workspaceRoot, {
+    sentinel: "DOCS_WORKFLOW_BODY_SENTINEL",
+    marker:
+      `<!--acp-rule : hidden#1; source: hidden; subsumes: ${secretLikeToken} -->`,
+  });
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["package_metadata_change"],
+    paths: ["package.json"],
+    domains: ["coding"],
+  }));
+
+  assert.equal(result.status, "blocked");
+  assert.equal(result.mode, "none");
+  assert.equal(JSON.stringify(result).includes(secretLikeToken), false);
+});
+
+test("Unicode whitespace cannot hide credential-shaped marker metadata", async (t) => {
+  const secretLikeToken = "ghp_abcdefghijklmnop";
+  for (const [name, separator] of [
+    ["non-breaking space", "\u00a0"],
+    ["byte-order mark", "\ufeff"],
+    ["form feed", "\u000c"],
+    ["zero-width space", "\u200b"],
+    ["left-to-right mark", "\u200e"],
+    ["function application", "\u2061"],
+    ["soft hyphen", "\u00ad"],
+  ]) {
+    await t.test(name, async (t) => {
+      const workspaceRoot = await makeWorkspace(t);
+      await insertRuleMarker(workspaceRoot, {
+        sentinel: "PACKAGE_BOUNDARY_SENTINEL",
+        marker:
+          `<!--${separator}acp-rule: hidden#1; source: hidden; subsumes: ${secretLikeToken} -->`,
+      });
+
+      const result = await compile(workspaceRoot, taskSignature({
+        operations: ["package_metadata_change"],
+        paths: ["package.json"],
+        domains: ["coding"],
+      }));
+
+      assert.equal(result.status, "blocked");
+      assert.equal(result.reason, "unsafe_context_metadata");
+      assert.equal(JSON.stringify(result).includes(secretLikeToken), false);
+    });
+  }
+});
+
+test("default-ignorable characters inside the marker label cannot bypass safety", async (t) => {
+  const secretLikeToken = "ghp_abcdefghijklmnop";
+  for (const [name, label] of [
+    ["inside acp", "acp\u200b-rule"],
+    ["after hyphen", "acp-\u200brule"],
+    ["after label", "acp-rule\u200b"],
+    ["null before label", "\u0000acp-rule"],
+    ["bell before label", "\u0007acp-rule"],
+  ]) {
+    await t.test(name, async (t) => {
+      const workspaceRoot = await makeWorkspace(t);
+      await insertRuleMarker(workspaceRoot, {
+        sentinel: "PACKAGE_BOUNDARY_SENTINEL",
+        marker:
+          `<!-- ${label}: hidden#1; source: hidden; subsumes: ${secretLikeToken} -->`,
+      });
+
+      const result = await compile(workspaceRoot, taskSignature({
+        operations: ["package_metadata_change"],
+        paths: ["package.json"],
+        domains: ["coding"],
+      }));
+
+      assert.equal(result.status, "blocked");
+      assert.equal(result.reason, "unsafe_context_metadata");
+      assert.equal(JSON.stringify(result).includes(secretLikeToken), false);
+    });
+  }
+});
+
+test("default-ignorable characters cannot disguise a credential-shaped marker value", async (t) => {
+  const disguisedSecret = "ghp_\u200babcdefghijklmnop";
+  const workspaceRoot = await makeWorkspace(t);
+  await insertRuleMarker(workspaceRoot, {
+    sentinel: "PACKAGE_BOUNDARY_SENTINEL",
+    marker:
+      `<!-- acp-rule: hidden#1; source: hidden; subsumes: ${disguisedSecret} -->`,
+  });
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["package_metadata_change"],
+    paths: ["package.json"],
+    domains: ["coding"],
+  }));
+
+  assert.equal(result.status, "blocked");
+  assert.equal(result.reason, "unsafe_context_metadata");
+  assert.equal(JSON.stringify(result).includes(disguisedSecret), false);
+});
+
+test("credential-shaped metadata after a multiline comment opening blocks", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  const secretLikeToken = "ghp_abcdefghijklmnop";
+  await insertRuleMarker(workspaceRoot, {
+    sentinel: "PACKAGE_BOUNDARY_SENTINEL",
+    marker: [
+      "<!--",
+      "acp-rule: split-opening#1; source: split-opening;",
+      `${secretLikeToken} -->`,
+    ].join("\n"),
+  });
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["package_metadata_change"],
+    paths: ["package.json"],
+    domains: ["coding"],
+  }));
+
+  assert.equal(result.status, "blocked");
+  assert.equal(result.mode, "none");
+  assert.equal(JSON.stringify(result).includes(secretLikeToken), false);
+});
+
+test("an ordinary unclosed comment cannot hide nested rule metadata", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  const secretLikeToken = "ghp_abcdefghijklmnop";
+  const profilePath = join(
+    workspaceRoot,
+    ".agent-context",
+    "PROJECT_PROFILE.md",
+  );
+  const source = await readFile(profilePath, "utf8");
+  await writeFile(
+    profilePath,
+    [
+      source.trimEnd(),
+      "<!-- harmless outer opener",
+      `<!-- acp-rule: nested-secret#1; source: nested-secret; subsumes: ${secretLikeToken} -->`,
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["package_metadata_change"],
+    paths: ["package.json"],
+    domains: ["coding"],
+  }));
+
+  assert.equal(result.status, "blocked");
+  assert.equal(result.mode, "none");
+  assert.equal(JSON.stringify(result).includes(secretLikeToken), false);
+});
+
+test("unclosed and oversized rule markers fail safe", async (t) => {
+  for (const variant of [
+    {
+      name: "unclosed",
+      marker:
+        "<!-- acp-rule: unclosed-rule#1; source: unclosed-rule; subsumes: none",
+      warning: "unclosed_rule_marker",
+      status: "fallback",
+      mode: "legacy_full",
+    },
+    {
+      name: "oversized",
+      marker: `<!-- acp-rule: ${"x".repeat(4_200)} -->`,
+      warning: "rule_marker_too_large",
+      status: "blocked",
+      mode: "none",
+    },
+  ]) {
+    await t.test(variant.name, async (t) => {
+      const workspaceRoot = await makeWorkspace(t);
+      if (variant.name === "unclosed") {
+        const profilePath = join(
+          workspaceRoot,
+          ".agent-context",
+          "PROJECT_PROFILE.md",
+        );
+        const source = await readFile(profilePath, "utf8");
+        await writeFile(profilePath, `${source.trimEnd()}\n${variant.marker}`, "utf8");
+      } else {
+        await insertRuleMarker(workspaceRoot, {
+          sentinel: "PACKAGE_BOUNDARY_SENTINEL",
+          marker: variant.marker,
+        });
+      }
+
+      const result = await compile(workspaceRoot, taskSignature({
+        operations: ["package_metadata_change"],
+        paths: ["package.json"],
+        domains: ["coding"],
+      }));
+
+      assert.equal(result.status, variant.status);
+      assert.equal(result.mode, variant.mode);
+      assert.ok(result.warnings.includes(variant.warning));
+      assert.equal(result.warnings.includes("unsafe_context_metadata"), false);
+      if (variant.status === "fallback") {
+        assert.equal(result.metrics.savedBytes, 0);
+      } else {
+        assert.equal(result.content, "");
+      }
+    });
+  }
+});
+
+test("canonical and legacy spellings of one logical rule are duplicates", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  await insertRuleMarker(workspaceRoot, {
+    sentinel: "PACKAGE_BOUNDARY_SENTINEL",
+    marker:
+      "<!-- acp-rule: duplicate-rule#1; source: duplicate-rule; subsumes: none -->",
+  });
+  await insertRuleMarker(workspaceRoot, {
+    sentinel: "DOCS_WORKFLOW_BODY_SENTINEL",
+    marker:
+      "<!-- acp-rule: id=duplicate-rule-1 source=duplicate-rule subsumes=none -->",
+  });
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["package_metadata_change"],
+    paths: ["package.json"],
+    domains: ["coding"],
+  }));
+
+  assert.equal(result.status, "fallback");
+  assert.ok(result.warnings.includes("duplicate_rule_identity"));
+  assert.match(result.content, /DOCS_WORKFLOW_BODY_SENTINEL/u);
+});
+
+test("credential-shaped rule metadata blocks without echoing its bytes", async (t) => {
+  const secretLikeToken = "ghp_abcdefghijklmnop";
+  for (const [name, marker] of [
+    [
+      "id",
+      `<!-- acp-rule: ${secretLikeToken}#1; source: safe-source; subsumes: none -->`,
+    ],
+    [
+      "source",
+      `<!-- acp-rule: safe-source#1; source: ${secretLikeToken}; subsumes: none -->`,
+    ],
+    [
+      "subsumes",
+      `<!-- acp-rule: safe-source#1; source: safe-source; subsumes: ${secretLikeToken} -->`,
+    ],
+  ]) {
+    await t.test(name, async (t) => {
+      const workspaceRoot = await makeWorkspace(t);
+      await insertRuleMarker(workspaceRoot, {
+        sentinel: "PACKAGE_BOUNDARY_SENTINEL",
+        marker,
+      });
+
+      const result = await compile(workspaceRoot, taskSignature({
+        operations: ["package_metadata_change"],
+        paths: ["package.json"],
+        domains: ["coding"],
+      }));
+
+      assert.equal(result.status, "blocked");
+      assert.equal(result.mode, "none");
+      assert.equal(result.reason, "unsafe_context_metadata");
+      assert.equal(JSON.stringify(result).includes(secretLikeToken), false);
+    });
+  }
+});
+
+test("credential-shaped multiline rule metadata blocks after fenced and indented prose", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  const secretLikeToken = "ghp_abcdefghijklmnop";
+  await insertRuleMarker(workspaceRoot, {
+    sentinel: "PACKAGE_BOUNDARY_SENTINEL",
+    marker: [
+      "```md",
+      "<!-- acp-rule: fenced example -->",
+      "```",
+      "    <!-- acp-rule: indented example -->",
+      "<!-- acp-rule: split-secret#1; source: split-secret;",
+      `${secretLikeToken} -->`,
+    ].join("\n"),
+  });
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["package_metadata_change"],
+    paths: ["package.json"],
+    domains: ["coding"],
+  }));
+
+  assert.equal(result.status, "blocked");
+  assert.equal(result.mode, "none");
+  assert.equal(result.reason, "unsafe_context_metadata");
+  assert.equal(JSON.stringify(result).includes(secretLikeToken), false);
+});
+
+test("Markdown presentation cannot exempt marker-like metadata from safety checks", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  const secretLikeToken = "ghp_abcdefghijklmnop";
+  const profilePath = join(
+    workspaceRoot,
+    ".agent-context",
+    "PROJECT_PROFILE.md",
+  );
+  const source = await readFile(profilePath, "utf8");
+  await writeFile(
+    profilePath,
+    [
+      source.trimEnd(),
+      "- list item",
+      "",
+      "  ```md",
+      "  harmless example",
+      `<!-- acp-rule: escaped#1; source: escaped; subsumes: ${secretLikeToken} -->`,
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["package_metadata_change"],
+    paths: ["package.json"],
+    domains: ["coding"],
+  }));
+
+  assert.equal(result.status, "blocked");
+  assert.equal(result.mode, "none");
+  assert.equal(result.reason, "unsafe_context_metadata");
+  assert.equal(JSON.stringify(result).includes(secretLikeToken), false);
+});
+
+test("ordinary nested HTML comment openers do not cause quadratic rule scanning", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  const profilePath = join(
+    workspaceRoot,
+    ".agent-context",
+    "PROJECT_PROFILE.md",
+  );
+  const source = await readFile(profilePath, "utf8");
+  await writeFile(
+    profilePath,
+    `${source.trimEnd()}\n${"<!--".repeat(20_000)}-->\n`,
+    "utf8",
+  );
+
+  const startedAt = performance.now();
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["package_metadata_change"],
+    paths: ["package.json"],
+    domains: ["coding"],
+  }));
+  const elapsedMilliseconds = performance.now() - startedAt;
+
+  assert.equal(result.status, "compiled");
+  assert.ok(
+    elapsedMilliseconds < 3_000,
+    `expected bounded candidate prefiltering, took ${elapsedMilliseconds}ms`,
+  );
+});
+
+test("the rule marker candidate catalog has a hard inspection bound", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  const profilePath = join(
+    workspaceRoot,
+    ".agent-context",
+    "PROJECT_PROFILE.md",
+  );
+  const source = await readFile(profilePath, "utf8");
+  const markers = Array.from(
+    { length: 513 },
+    (_, index) =>
+      `<!-- acp-rule: bounded-rule-${index}#1; source: bounded-rule-${index}; subsumes: none -->`,
+  ).join("\n");
+  await writeFile(profilePath, `${source.trimEnd()}\n${markers}\n`, "utf8");
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["package_metadata_change"],
+    paths: ["package.json"],
+    domains: ["coding"],
+  }));
+
+  assert.equal(result.status, "blocked");
+  assert.equal(result.mode, "none");
+  assert.equal(result.reason, "rule_marker_inspection_incomplete");
+  assert.equal(result.content, "");
+});
+
+test("the rule marker candidate bound is shared across every compiled document", async (t) => {
+  await t.test("511 plus 1 remains within the compilation-wide bound", async (t) => {
+    const workspaceRoot = await makeWorkspace(t);
+    await appendRuleMarkers(
+      workspaceRoot,
+      ".agent-context/PROJECT_PROFILE.md",
+      "profile-bound",
+      511,
+    );
+    await appendRuleMarkers(
+      workspaceRoot,
+      ".agent-context/checklists/coding.md",
+      "coding-bound",
+      1,
+    );
+
+    const result = await compile(workspaceRoot, taskSignature({
+      operations: ["package_metadata_change"],
+      paths: ["package.json"],
+      domains: ["coding"],
+    }));
+
+    assert.equal(result.status, "compiled");
+    assert.equal(result.mode, "progressive");
+    assert.equal(
+      result.warnings.includes("rule_marker_inspection_incomplete"),
+      false,
+    );
+  });
+
+  await t.test("512 plus 1 blocks across profile and checklist", async (t) => {
+    const workspaceRoot = await makeWorkspace(t);
+    await appendRuleMarkers(
+      workspaceRoot,
+      ".agent-context/PROJECT_PROFILE.md",
+      "profile-overflow",
+      512,
+    );
+    await appendRuleMarkers(
+      workspaceRoot,
+      ".agent-context/checklists/coding.md",
+      "coding-overflow",
+      1,
+    );
+
+    const result = await compile(workspaceRoot, taskSignature({
+      operations: ["package_metadata_change"],
+      paths: ["package.json"],
+      domains: ["coding"],
+    }));
+
+    assert.equal(result.status, "blocked");
+    assert.equal(result.mode, "none");
+    assert.equal(result.reason, "rule_marker_inspection_incomplete");
+    assert.equal(result.content, "");
+  });
+
+  await t.test("the same bound includes enabled non-task checklists", async (t) => {
+    const workspaceRoot = await makeWorkspace(t);
+    await enableResearchDomain(workspaceRoot);
+    await appendRuleMarkers(
+      workspaceRoot,
+      ".agent-context/PROJECT_PROFILE.md",
+      "profile-multi",
+      256,
+    );
+    await appendRuleMarkers(
+      workspaceRoot,
+      ".agent-context/checklists/coding.md",
+      "coding-multi",
+      128,
+    );
+    await appendRuleMarkers(
+      workspaceRoot,
+      ".agent-context/checklists/research.md",
+      "research-multi",
+      129,
+    );
+
+    const result = await compile(workspaceRoot, taskSignature({
+      operations: ["package_metadata_change"],
+      paths: ["package.json"],
+      domains: ["coding"],
+    }));
+
+    assert.equal(result.status, "blocked");
+    assert.equal(result.mode, "none");
+    assert.equal(result.reason, "rule_marker_inspection_incomplete");
+    assert.equal(result.content, "");
+  });
+});
+
+test("an invalid backtick fence opener cannot hide following rule metadata", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  const profilePath = join(
+    workspaceRoot,
+    ".agent-context",
+    "PROJECT_PROFILE.md",
+  );
+  const source = await readFile(profilePath, "utf8");
+  await writeFile(
+    profilePath,
+    `${source.trimEnd()}\n\`\`\`md\`invalid\n<!-- acp-rule: malformed-after-opener -->\n`,
+    "utf8",
+  );
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["package_metadata_change"],
+    paths: ["package.json"],
+    domains: ["coding"],
+  }));
+
+  assert.equal(result.status, "fallback");
+  assert.ok(result.warnings.includes("invalid_rule_marker"));
+});
+
+test("an exact marker remains lexical metadata inside fenced prose", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  const profilePath = join(
+    workspaceRoot,
+    ".agent-context",
+    "PROJECT_PROFILE.md",
+  );
+  const source = await readFile(profilePath, "utf8");
+  await writeFile(
+    profilePath,
+    [
+      source.trimEnd(),
+      "```md",
+      "<!-- acp-rule: fenced-only#1; source: fenced-only; subsumes: none -->",
+      "```",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await writeProposal(workspaceRoot, {
+    id: "fenced-only-rule-attention",
+    attentionTargets: ["rule:fenced-only#1"],
+  });
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["package_metadata_change"],
+    paths: ["package.json"],
+    domains: ["coding"],
+  }));
+
+  assert.equal(result.status, "compiled");
+  assert.equal(result.attention.length, 1);
+  assert.deepEqual(result.attention[0].targets, ["rule:fenced-only#1"]);
+  assert.equal(result.warnings.includes("dangling_attention_target"), false);
+});
+
+test("indentation does not exempt an exact marker from lexical compatibility", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  await insertRuleMarker(workspaceRoot, {
+    sentinel: "PACKAGE_BOUNDARY_SENTINEL",
+    marker:
+      "   \t<!-- acp-rule: tab-indented#1; source: tab-indented; subsumes: none -->",
+  });
+  await writeProposal(workspaceRoot, {
+    id: "tab-indented-rule-attention",
+    attentionTargets: ["rule:tab-indented#1"],
+  });
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["package_metadata_change"],
+    paths: ["package.json"],
+    domains: ["coding"],
+    risk: "high",
+  }));
+
+  assert.equal(result.status, "compiled");
+  assert.equal(result.attention.length, 1);
+  assert.deepEqual(result.attention[0].targets, ["rule:tab-indented#1"]);
+  assert.equal(result.warnings.includes("dangling_attention_target"), false);
+});
+
+test("duplicate aliases in one attention edge never create an ambiguous pointer", async (t) => {
+  for (const risk of ["normal", "high"]) {
+    await t.test(risk, async (t) => {
+      const workspaceRoot = await makeWorkspace(t);
+      await insertRuleMarker(workspaceRoot, {
+        sentinel: "PACKAGE_BOUNDARY_SENTINEL",
+        marker:
+          "<!-- acp-rule: alias-duplicate#1; source: alias-duplicate; subsumes: none -->",
+      });
+      await writeProposal(workspaceRoot, {
+        id: `duplicate-alias-${risk}`,
+        attentionTargets: [
+          "rule:alias-duplicate#1",
+          "rule:alias-duplicate-1",
+        ],
+      });
+
+      const result = await compile(workspaceRoot, taskSignature({
+        operations: ["package_metadata_change"],
+        paths: ["package.json"],
+        domains: ["coding"],
+        risk,
+      }));
+
+      assert.deepEqual(result.attention, []);
+      assert.ok(result.warnings.includes("duplicate_attention_target_identity"));
+      if (risk === "high") {
+        assert.equal(result.status, "fallback");
+        assert.equal(result.reason, "high_risk_attention_scan_incomplete");
+      } else {
+        assert.equal(result.status, "compiled");
+        assert.equal(result.mode, "progressive");
+      }
+    });
+  }
+});
+
+test("duplicate nonterminal proposal IDs never create an ambiguous pointer", async (t) => {
+  for (const risk of ["normal", "high"]) {
+    await t.test(risk, async (t) => {
+      const workspaceRoot = await makeWorkspace(t);
+      const id = `duplicate-proposal-${risk}`;
+      await writeProposal(workspaceRoot, {
+        id,
+        attentionTargets: ["context:package-boundary"],
+      });
+      const duplicate = proposalSource({
+        id,
+        status: "proposed",
+        attentionTargets: ["context:package-boundary"],
+        bodySentinel: BODY_SENTINEL,
+        createdSecond: 1,
+      });
+      assert.deepEqual(validateProposalDocument(duplicate, "duplicate-copy.md"), []);
+      await writeFile(
+        join(workspaceRoot, ".agent-context", "proposals", `copy-${id}.md`),
+        duplicate,
+        "utf8",
+      );
+
+      const result = await compile(workspaceRoot, taskSignature({
+        operations: ["package_metadata_change"],
+        paths: ["package.json"],
+        domains: ["coding"],
+        risk,
+      }));
+
+      assert.deepEqual(result.attention, []);
+      assert.ok(result.warnings.includes("duplicate_attention_proposal_id"));
+      assert.equal(JSON.stringify(result).includes(BODY_SENTINEL), false);
+      if (risk === "high") {
+        assert.equal(result.status, "fallback");
+        assert.equal(result.reason, "high_risk_attention_scan_incomplete");
+      } else {
+        assert.equal(result.status, "compiled");
+        assert.equal(result.mode, "progressive");
+      }
+    });
+  }
+});
+
+test("a locally duplicated proposal ID does not hide an independent normal-risk pointer", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  const duplicatedId = "locally-duplicated-proposal";
+  await writeProposal(workspaceRoot, {
+    id: duplicatedId,
+    attentionTargets: ["context:package-boundary"],
+  });
+  const duplicate = proposalSource({
+    id: duplicatedId,
+    status: "proposed",
+    attentionTargets: ["context:package-boundary"],
+    bodySentinel: BODY_SENTINEL,
+    createdSecond: 1,
+  });
+  await writeFile(
+    join(workspaceRoot, ".agent-context", "proposals", "copy-local-duplicate.md"),
+    duplicate,
+    "utf8",
+  );
+  await writeProposal(workspaceRoot, {
+    id: "independent-proposal",
+    attentionTargets: ["context:package-boundary"],
+    createdSecond: 2,
+  });
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["package_metadata_change"],
+    paths: ["package.json"],
+    domains: ["coding"],
+  }));
+
+  assert.equal(result.status, "compiled");
+  assert.deepEqual(
+    result.attention.map(({ proposalId }) => proposalId),
+    ["independent-proposal"],
+  );
+  assert.ok(result.warnings.includes("duplicate_attention_proposal_id"));
+});
+
+test("a locally duplicated rule alias does not hide an independent normal-risk pointer", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  await insertRuleMarker(workspaceRoot, {
+    sentinel: "PACKAGE_BOUNDARY_SENTINEL",
+    marker:
+      "<!-- acp-rule: local-alias#1; source: local-alias; subsumes: none -->",
+  });
+  await writeProposal(workspaceRoot, {
+    id: "local-alias-duplicate",
+    attentionTargets: ["rule:local-alias#1", "rule:local-alias-1"],
+  });
+  await writeProposal(workspaceRoot, {
+    id: "independent-alias-proposal",
+    attentionTargets: ["context:package-boundary"],
+    createdSecond: 1,
+  });
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["package_metadata_change"],
+    paths: ["package.json"],
+    domains: ["coding"],
+  }));
+
+  assert.equal(result.status, "compiled");
+  assert.deepEqual(
+    result.attention.map(({ proposalId }) => proposalId),
+    ["independent-alias-proposal"],
+  );
+  assert.ok(result.warnings.includes("duplicate_attention_target_identity"));
+});
+
+test("a terminal proposal cannot hide a duplicate nonterminal proposal ID", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  const id = "terminal-duplicate-proposal";
+  await writeProposal(workspaceRoot, {
+    id,
+    attentionTargets: ["context:package-boundary"],
+  });
+  await writeFile(
+    join(workspaceRoot, ".agent-context", "proposals", `applied-${id}.md`),
+    [
+      "---",
+      "schema_version: 1",
+      `id: ${id}`,
+      "status: applied",
+      "scope: workspace",
+      "---",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["delete_cache"],
+    paths: ["tmp/cache.bin"],
+    domains: ["coding"],
+    risk: "high",
+  }));
+
+  assert.equal(result.status, "fallback");
+  assert.equal(result.reason, "high_risk_attention_scan_incomplete");
+  assert.deepEqual(result.attention, []);
+  assert.ok(result.warnings.includes("duplicate_attention_proposal_id"));
+});
+
+test("a numeric terminal ID is invalid and cannot alias a quoted string proposal ID", async (t) => {
+  const workspaceRoot = await makeWorkspace(t);
+  const stringIdProposal = proposalSource({
+    id: "123",
+    status: "proposed",
+    attentionTargets: ["context:destructive-safety"],
+    bodySentinel: BODY_SENTINEL,
+    createdSecond: 0,
+  }).replace("\nid: 123\n", '\nid: "123"\n');
+  assert.deepEqual(
+    validateProposalDocument(stringIdProposal, "string-123.md"),
+    [],
+  );
+  const proposalsRoot = join(workspaceRoot, ".agent-context", "proposals");
+  await writeFile(
+    join(proposalsRoot, "string-123.md"),
+    stringIdProposal,
+    "utf8",
+  );
+  await writeFile(
+    join(proposalsRoot, "terminal-numeric-123.md"),
+    [
+      "---",
+      "schema_version: 1",
+      "id: 123",
+      "status: applied",
+      "scope: workspace",
+      "---",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = await compile(workspaceRoot, taskSignature({
+    operations: ["delete_cache"],
+    paths: ["tmp/cache.bin"],
+    domains: ["coding"],
+    risk: "high",
+  }));
+
+  assert.equal(result.status, "fallback");
+  assert.equal(result.reason, "high_risk_attention_scan_incomplete");
+  assert.deepEqual(result.attention, []);
+  assert.ok(result.warnings.includes("invalid_attention_proposal_id"));
+  assert.ok(result.warnings.includes("duplicate_attention_proposal_id"));
+});
+
+test("an unsafe integer proposal ID suppresses ambiguous attention at every risk and file order", async (t) => {
+  const unsafeIntegerId = "9007199254740993";
+  for (const risk of ["normal", "high"]) {
+    for (const stringFirst of [true, false]) {
+      await t.test(`${risk}-${stringFirst ? "string-first" : "number-first"}`, async (t) => {
+        const workspaceRoot = await makeWorkspace(t);
+        const stringIdProposal = proposalSource({
+          id: unsafeIntegerId,
+          status: "proposed",
+          attentionTargets: ["context:package-boundary"],
+          bodySentinel: BODY_SENTINEL,
+          createdSecond: 0,
+        }).replace(
+          `\nid: ${unsafeIntegerId}\n`,
+          `\nid: "${unsafeIntegerId}"\n`,
+        );
+        assert.deepEqual(
+          validateProposalDocument(stringIdProposal, "unsafe-integer-string.md"),
+          [],
+        );
+        const numericTerminal = [
+          "---",
+          "schema_version: 1",
+          `id: ${unsafeIntegerId}`,
+          "status: applied",
+          "scope: workspace",
+          "---",
+          "",
+        ].join("\n");
+        const proposalsRoot = join(workspaceRoot, ".agent-context", "proposals");
+        await writeFile(
+          join(proposalsRoot, stringFirst ? "000-string.md" : "zzz-string.md"),
+          stringIdProposal,
+          "utf8",
+        );
+        await writeFile(
+          join(proposalsRoot, stringFirst ? "zzz-number.md" : "000-number.md"),
+          numericTerminal,
+          "utf8",
+        );
+
+        const result = await compile(workspaceRoot, taskSignature({
+          operations: ["package_metadata_change"],
+          paths: ["package.json"],
+          domains: ["coding"],
+          risk,
+        }));
+
+        assert.deepEqual(result.attention, []);
+        assert.ok(result.warnings.includes("invalid_attention_proposal_id"));
+        assert.equal(
+          result.warnings.includes("duplicate_attention_proposal_id"),
+          false,
+          "a rounded Number value must not invent an exact duplicate identity",
+        );
+        if (risk === "high") {
+          assert.equal(result.status, "fallback");
+          assert.equal(result.reason, "high_risk_attention_scan_incomplete");
+        } else {
+          assert.equal(result.status, "compiled");
+          assert.equal(result.mode, "progressive");
+        }
+      });
+    }
+  }
+});
+
+test("only exactly representable invalid numeric IDs report string-ID duplicates", async (t) => {
+  for (const variant of [
+    {
+      name: "maximum safe integer",
+      numericId: "9007199254740991",
+      stringId: "9007199254740991",
+      duplicate: true,
+    },
+    {
+      name: "negative zero",
+      numericId: "-0",
+      stringId: "0",
+      duplicate: false,
+    },
+    {
+      name: "rounded unsafe integer",
+      numericId: "9007199254740993",
+      stringId: "9007199254740992",
+      duplicate: false,
+    },
+    {
+      name: "overflow",
+      numericId: "9".repeat(400),
+      stringId: "Infinity",
+      duplicate: false,
+    },
+  ]) {
+    await t.test(variant.name, async (t) => {
+      const workspaceRoot = await makeWorkspace(t);
+      const stringIdProposal = proposalSource({
+        id: variant.stringId,
+        status: "proposed",
+        attentionTargets: ["context:package-boundary"],
+        bodySentinel: BODY_SENTINEL,
+        createdSecond: 0,
+      }).replace(
+        `\nid: ${variant.stringId}\n`,
+        `\nid: "${variant.stringId}"\n`,
+      );
+      assert.deepEqual(
+        validateProposalDocument(stringIdProposal, `${variant.name}.md`),
+        [],
+      );
+      const proposalsRoot = join(workspaceRoot, ".agent-context", "proposals");
+      await writeFile(join(proposalsRoot, "000-string.md"), stringIdProposal, "utf8");
+      await writeFile(
+        join(proposalsRoot, "zzz-number.md"),
+        [
+          "---",
+          "schema_version: 1",
+          `id: ${variant.numericId}`,
+          "status: applied",
+          "scope: workspace",
+          "---",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const result = await compile(workspaceRoot, taskSignature({
+        operations: ["package_metadata_change"],
+        paths: ["package.json"],
+        domains: ["coding"],
+      }));
+
+      assert.deepEqual(result.attention, []);
+      assert.equal(
+        result.warnings.includes("duplicate_attention_proposal_id"),
+        variant.duplicate,
+      );
+    });
+  }
+});
+
+test("an incomplete normal-risk proposal scan suppresses every attention pointer", async (t) => {
+  for (const outsideDuplicate of [false, true]) {
+    await t.test(outsideDuplicate ? "duplicate outside bound" : "unique outside bound", async (t) => {
+      const workspaceRoot = await makeWorkspace(t);
+      const proposalsRoot = join(workspaceRoot, ".agent-context", "proposals");
+      const visibleId = "visible-with-incomplete-catalog";
+      const visibleProposal = proposalSource({
+        id: visibleId,
+        status: "proposed",
+        attentionTargets: ["context:package-boundary"],
+        bodySentinel: BODY_SENTINEL,
+        createdSecond: 0,
+      });
+      assert.deepEqual(validateProposalDocument(visibleProposal, "visible.md"), []);
+      await writeFile(join(proposalsRoot, "000-visible.md"), visibleProposal, "utf8");
+      for (let index = 0; index < 511; index += 1) {
+        const id = `terminal-bound-${String(index).padStart(3, "0")}`;
+        await writeFile(
+          join(proposalsRoot, `100-${id}.md`),
+          [
+            "---",
+            "schema_version: 1",
+            `id: ${id}`,
+            "status: applied",
+            "scope: workspace",
+            "---",
+            "",
+          ].join("\n"),
+          "utf8",
+        );
+      }
+      const outsideId = outsideDuplicate ? visibleId : "outside-bound-unique";
+      await writeFile(
+        join(proposalsRoot, "zzz-outside-bound.md"),
+        [
+          "---",
+          "schema_version: 1",
+          `id: ${outsideId}`,
+          "status: applied",
+          "scope: workspace",
+          "---",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const result = await compile(workspaceRoot, taskSignature({
+        operations: ["package_metadata_change"],
+        paths: ["package.json"],
+        domains: ["coding"],
+      }));
+
+      assert.equal(result.status, "compiled");
+      assert.equal(result.mode, "progressive");
+      assert.deepEqual(result.attention, []);
+      assert.ok(result.warnings.includes("proposal_scan_limit_reached"));
+    });
+  }
+});
+
 test("a missing enabled checklist blocks the global catalog scan even when another domain is task-relevant", async (t) => {
   const workspaceRoot = await makeWorkspace(t);
   const configPath = join(workspaceRoot, ".agent-context", "config.yml");
@@ -1455,6 +2757,38 @@ async function appendCatalogPacks(workspaceRoot, count) {
       `- BOUNDED_CATALOG_FIXTURE_${String(index).padStart(3, "0")}`,
     )).join("\n\n");
   await writeFile(checklistPath, `${source}\n${packs}\n`, "utf8");
+}
+
+async function insertRuleMarker(workspaceRoot, { sentinel, marker }) {
+  const checklistPath = join(
+    workspaceRoot,
+    ".agent-context",
+    "checklists",
+    "coding.md",
+  );
+  const source = await readFile(checklistPath, "utf8");
+  const needle = `- ${sentinel}:`;
+  assert.ok(source.includes(needle), `missing rule-marker fixture sentinel: ${sentinel}`);
+  await writeFile(
+    checklistPath,
+    source.replace(needle, `${marker}\n${needle}`),
+    "utf8",
+  );
+}
+
+async function appendRuleMarkers(
+  workspaceRoot,
+  relativePath,
+  sourcePrefix,
+  count,
+) {
+  const path = join(workspaceRoot, relativePath);
+  const source = await readFile(path, "utf8");
+  const markers = Array.from({ length: count }, (_, index) => {
+    const sourceId = `${sourcePrefix}-${index}`;
+    return `<!-- acp-rule: ${sourceId}#1; source: ${sourceId}; subsumes: none -->`;
+  }).join("\n");
+  await writeFile(path, `${source.trimEnd()}\n${markers}\n`, "utf8");
 }
 
 function contextSources({ markers, invalidMarker, includeSafety }) {

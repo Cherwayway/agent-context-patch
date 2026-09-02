@@ -86,18 +86,41 @@ is AND. The catalog is derived from these same blocks and is never written as a
 separate file. Progressive compilation accepts at most 64 context blocks;
 overflow returns the complete legacy read set without a rendered catalog.
 
+New Active Context rules use only this canonical single-line marker immediately
+above the rule:
+
+~~~md
+<!-- acp-rule: <source>#<positive ordinal>; source: <source>; subsumes: none -->
+~~~
+
+For reader compatibility, the compiler also accepts the historical exact form
+`<!-- acp-rule: id=<source>-<positive ordinal> source=<source> subsumes=<rule-id-list-or-none> -->`.
+Both marker forms and both rule-edge spellings normalize to the canonical
+logical identity `<source>#<positive ordinal>`. The runtime neither emits the
+legacy spelling nor migrates or rewrites existing workspaces.
+
 Normal packs are selected by hard matches or exact `requestedPacks`; high-risk
 tasks also select task-relevant safety packs. The compiler keeps content
 outside blocks and core blocks from the task-relevant read set. Missing or
-invalid markers, duplicate IDs, unknown explicit pack requests, unsafe path
-state, or missing high-risk safety coverage cause
+invalid `acp-context` routing markers, duplicate context IDs, unknown explicit
+pack requests, unsafe path state, or missing high-risk safety coverage cause
 fallback to the complete legacy default read set. At normal risk, attention
 overflow keeps the first three deterministic items plus a warning. At high risk,
 overflow, any non-terminal proposal without an explicit edge, or an incomplete
-bounded proposal scan forces complete fallback. It never returns a partial best
-guess. If any enabled checklist is missing, unreadable, invalid UTF-8, or has
-unsafe topology, the result is `blocked / none`. Credential-shaped routing
-metadata also blocks with empty content instead of entering fallback output.
+bounded proposal scan forces complete fallback. At normal risk a globally
+incomplete proposal scan suppresses every attention pointer, because global
+proposal-ID uniqueness cannot be established, while retaining the independently
+compiled context projection. It never returns a partial best guess. If any
+enabled checklist is missing, unreadable, invalid UTF-8, or has unsafe topology,
+the result is `blocked / none`. Credential-shaped routing metadata also blocks
+with empty content instead of entering fallback output.
+Malformed, bounded-unclosed, or duplicate logical `acp-rule` identities also
+force complete fallback at every risk level. Oversized markers, an incomplete
+bounded scan, or credential-shaped metadata block with empty content instead
+of echoing uninspected or unsafe bytes. At most 512 marker candidates are
+accepted across the complete enabled Active Context catalog for one
+compilation. Detection is lexical rather than Markdown-aware, so marker-like
+examples must use a non-exact placeholder spelling.
 
 Proposal attention comes only from valid workspace proposal frontmatter with
 status `pending_current_fix`, `proposed`, or `approved` and exact
@@ -106,14 +129,21 @@ never emits proposal body. It returns at most three content-safe pointers,
 invokes no Lifecycle Reconciliation, and performs no write. Existing proposals
 are not backfilled and edges are never inferred. Attention always requires
 current-source verification and is never treated as Active Context or approval.
+An absent normalized target is dangling: normal risk warns without emitting
+that target, while high risk falls back. A known rule in an unselected pack is
+irrelevant, not dangling. Duplicate proposal IDs or both aliases for one rule
+in one proposal suppress the ambiguous pointer; they warn at normal risk and
+force high-risk fallback as an incomplete scan.
 
 This module makes no model or network call, acquires no commit/lifecycle lock,
 emits no telemetry, and persists no catalog, compiled payload, metric, or
 receipt. Existing unmarked Schema 1 workspaces use `legacy_full`; there is no
 automatic marker migration. v0.6.0 installs no platform or pre-first-model-call
-hook. Actual model-context or token savings depend on a compatible host
-injecting only `content`; deterministic byte fixtures alone do not establish
-them.
+hook, and the v0.6.1 compatibility repair does not change that boundary. It is
+limited to `acp-rule` and attention identity handling; the `acp-context` marker
+grammar and unrelated context-fence or cross-line behavior are unchanged.
+Actual model-context or token savings depend on a compatible host injecting
+only `content`; deterministic byte fixtures alone do not establish them.
 
 ## Commit Kernel API
 

@@ -190,14 +190,55 @@ catalog file is written. Progressive compilation accepts at most 64 context
 blocks. Overflow returns the complete legacy read set without a rendered
 catalog.
 
-No marker, malformed or overlapping markers, duplicate IDs, unsupported
-metadata, unsafe or ambiguous paths, an unknown explicitly requested pack, a
+### Rule marker and attention identity contract
+
+A newly written Active Context rule uses one exact canonical single-line
+marker immediately above the rule:
+
+~~~md
+<!-- acp-rule: <source>#<positive ordinal>; source: <source>; subsumes: none -->
+~~~
+
+`source` is the source proposal ID, and the stable canonical logical identity
+is `<source>#<positive ordinal>`. A replacement may put a comma-separated list
+of canonical rule IDs in `subsumes`. New writes must use this form.
+
+For reader compatibility only, the compiler also accepts the historical exact
+single-line spelling:
+
+~~~md
+<!-- acp-rule: id=<source>-<positive ordinal> source=<source> subsumes=<rule-id-list-or-none> -->
+~~~
+
+It normalizes both marker spellings, and both
+`rule:<source>#<positive ordinal>` and
+`rule:<source>-<positive ordinal>` attention edges, to the canonical logical
+identity. It does not migrate or rewrite historical markers. A rule found in
+enabled Active Context is known even when its pack is not selected for the
+current task; it is irrelevant to that compilation, not dangling.
+
+A malformed, bounded-unclosed, or duplicate logical `acp-rule` identity is
+routing ambiguity and forces the complete legacy read set at every risk level.
+An oversized marker, an incomplete bounded marker scan, or credential-shaped
+`acp-rule` metadata instead returns `blocked / none` with empty content, so
+uninspected or unsafe bytes are not echoed through fallback. One compilation
+accepts at most 512 marker candidates across the complete enabled Active
+Context catalog. `acp-rule` detection is deliberately lexical and does not
+interpret Markdown fences or indentation: marker-like examples remain metadata
+candidates and must use a non-exact placeholder spelling.
+
+No usable `acp-context` routing marker, malformed or overlapping context
+markers, duplicate context IDs, unsupported metadata, unsafe or ambiguous
+paths, an unknown explicitly requested pack, a
 high-risk task without usable safety coverage, or another routing ambiguity
 must never cause partial omission. The result falls back to the complete legacy
 full read set. At normal risk, excess relevant attention is represented by the
 first three deterministic items plus a bounded warning. At high risk, attention
 overflow, unrouted non-terminal proposals, or an incomplete bounded proposal
-scan forces complete fallback plus a manual-inspection hint. If any enabled
+scan forces complete fallback plus a manual-inspection hint. At normal risk, a
+globally incomplete bounded proposal scan suppresses every attention pointer
+while leaving the independently compiled context projection available, because
+the scanner cannot prove global proposal-ID uniqueness. If any enabled
 checklist is missing, unreadable, invalid UTF-8, or has unsafe topology, even
 the global catalog scan cannot be performed and the compiler returns
 `blocked / none` with no invented context. Credential-shaped routing metadata
@@ -225,10 +266,24 @@ deterministically ordered matches and a bounded overflow warning. At high risk,
 more than three relevant proposals or any non-terminal proposal without an
 explicit attention edge forces `legacy_full` plus a bounded manual-inspection
 hint rather than silently choosing winners or assuming the unrouted proposal is
-irrelevant. An incomplete bounded scan has the same high-risk fallback. Existing
-proposals are not backfilled and edges are never inferred; at normal risk, a
-non-terminal proposal without `attention_targets` produces only a host warning,
-not an attention item.
+irrelevant. An incomplete bounded scan has the same high-risk fallback. At
+normal risk a globally incomplete scan suppresses all attention pointers rather
+than exposing an identity that an uninspected proposal could duplicate.
+Existing proposals are not backfilled and edges are never inferred; at normal
+risk, a non-terminal proposal without `attention_targets` produces only a host
+warning, not an attention item.
+
+An attention target is dangling only when its context or normalized rule
+identity is absent from enabled Active Context. At normal risk, a dangling
+target produces a bounded unresolved-edge warning and no pointer for that
+target; another unambiguous known target on the same proposal may still
+surface. At high risk, any dangling target forces `legacy_full`. A known rule in
+an unselected pack is simply irrelevant and does not trigger either behavior.
+
+Duplicate proposal IDs and two aliases for one logical rule in the
+same proposal never produce an ambiguous pointer. They make the bounded
+attention scan incomplete: normal risk suppresses the ambiguous pointer and
+warns, while high risk forces `legacy_full`.
 
 ### Compatibility and activation
 
@@ -243,7 +298,10 @@ Kit update and Bootstrap never rewrite an existing instruction file or workspace
 index. An older workspace therefore does not silently enable progressive
 loading when the installed skill changes. A fresh-install workflow may propose
 the updated adapter instruction for separate semantic review; existing adapters
-also require that separately reviewed patch.
+also require that separately reviewed patch. The v0.6.1 repair changes only
+`acp-rule` identity parsing and proposal-attention resolution; it does not
+change the `acp-context` grammar or claim to repair unrelated context-fence or
+cross-line behavior.
 
 The Kit installs no platform or pre-first-model-call hook. The compiler itself
 makes no model call, and deterministic byte fixtures validate only the API and
