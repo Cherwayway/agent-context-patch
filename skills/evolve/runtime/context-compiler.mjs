@@ -17,6 +17,7 @@ import {
 const SCHEMA_VERSION = 1;
 const MAX_MARKER_BYTES = 4_096;
 const MAX_CONTEXT_UNITS = 64;
+const MAX_RULE_MARKER_CANDIDATES = 512;
 const MAX_PROPOSAL_FRONTMATTER_BYTES = 65_536;
 const PROPOSAL_FRONTMATTER_READ_CHUNK_BYTES = 1_024;
 const MAX_PROPOSALS_SCANNED = 512;
@@ -62,8 +63,21 @@ const SIGNAL_PATTERN = /^[a-z0-9][a-z0-9._:/-]{0,127}$/u;
 const RULE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._#-]{0,191}$/u;
 const CONTEXT_OPEN_PATTERN = /<!-- acp-context: ([^\r\n]*?) -->/gu;
 const CONTEXT_CLOSE_MARKER = "<!-- /acp-context -->";
-const RULE_MARKER_PATTERN =
-  /<!-- acp-rule: ([A-Za-z0-9][A-Za-z0-9._#-]{0,191}); source: [A-Za-z0-9][A-Za-z0-9._-]{0,127}; subsumes: [A-Za-z0-9,#._-]+ -->/gu;
+const RULE_CANDIDATE_IGNORABLE_PATTERN =
+  /(?:\p{Default_Ignorable_Code_Point}|\p{Cc})/gu;
+const RULE_CANDIDATE_LEADING_CHARACTER_PATTERN =
+  /(?:\s|\p{Default_Ignorable_Code_Point}|\p{Cc})/u;
+const RULE_CANDIDATE_GAP_CHARACTER_PATTERN =
+  /(?:\p{Default_Ignorable_Code_Point}|\p{Cc})/u;
+const ASCII_IDENTIFIER_CONTINUATION_PATTERN = /[A-Za-z0-9_]/u;
+const CANONICAL_RULE_ID_PATTERN =
+  /^([A-Za-z0-9][A-Za-z0-9._-]{0,127})#([1-9][0-9]*)$/u;
+const LEGACY_RULE_ID_PATTERN =
+  /^([A-Za-z0-9][A-Za-z0-9._-]{0,127})-([1-9][0-9]*)$/u;
+const CANONICAL_RULE_MARKER_PATTERN =
+  /^<!-- acp-rule: ([A-Za-z0-9][A-Za-z0-9._#-]{0,191}); source: ([A-Za-z0-9][A-Za-z0-9._-]{0,127}); subsumes: ([A-Za-z0-9,#._-]+) -->$/u;
+const LEGACY_RULE_MARKER_PATTERN =
+  /^<!-- acp-rule: id=([A-Za-z0-9][A-Za-z0-9._#-]{0,191}) source=([A-Za-z0-9][A-Za-z0-9._-]{0,127}) subsumes=([A-Za-z0-9,#._-]+) -->$/u;
 
 /**
  * Compile the current Schema 1 default read set into one task-scoped payload.
@@ -150,12 +164,25 @@ async function compileWorkspaceContextAttempt(
 
     const parsedDocuments = [];
     const allUnits = [];
+    const allRules = [];
     const routingFailures = [];
+    let remainingRuleMarkerCandidates = MAX_RULE_MARKER_CANDIDATES;
     for (const document of catalogRead.documents) {
       const inspected = inspectContextDocument(document.source, document.path);
-      parsedDocuments.push({ ...document, inspected });
+      const ruleInspection = inspectRuleMarkers(
+        document.source,
+        remainingRuleMarkerCandidates,
+      );
+      remainingRuleMarkerCandidates -= ruleInspection.candidateCount;
+      const rules = ruleInspection.rules.map((rule) => ({
+        ...rule,
+        path: document.path,
+      }));
+      parsedDocuments.push({ ...document, inspected, rules });
       allUnits.push(...inspected.units);
+      allRules.push(...rules);
       routingFailures.push(...inspected.failures);
+      routingFailures.push(...ruleInspection.failures);
     }
     const relevantPaths = new Set(
       activeRead.documents.map(({ path }) => path),
@@ -163,9 +190,23 @@ async function compileWorkspaceContextAttempt(
 
     const duplicateIds = duplicateUnitIds(allUnits);
     if (duplicateIds.length > 0) routingFailures.push("duplicate_context_id");
+    const duplicateRuleIds = duplicateRuleIdentities(allRules);
+    if (duplicateRuleIds.length > 0) {
+      routingFailures.push("duplicate_rule_identity");
+    }
     if (routingFailures.includes("unsafe_context_metadata")) {
       return blockedResult("unsafe_context_metadata", [
         "unsafe_context_metadata",
+      ]);
+    }
+    if (routingFailures.includes("rule_marker_too_large")) {
+      return blockedResult("rule_marker_too_large", [
+        "rule_marker_too_large",
+      ]);
+    }
+    if (routingFailures.includes("rule_marker_inspection_incomplete")) {
+      return blockedResult("rule_marker_inspection_incomplete", [
+        "rule_marker_inspection_incomplete",
       ]);
     }
     if (allUnits.length > MAX_CONTEXT_UNITS) {
@@ -227,6 +268,15 @@ async function compileWorkspaceContextAttempt(
         content: source,
       }));
 
+    const knownContextTargets = new Set();
+    for (const unit of allUnits) {
+      const target = `context:${unit.metadata.id}`;
+      knownContextTargets.add(target);
+    }
+    for (const rule of allRules) {
+      knownContextTargets.add(`rule:${rule.canonicalId}`);
+    }
+
     const includedContextTargets = new Set();
     for (const unit of allUnits) {
       if (
@@ -238,18 +288,28 @@ async function compileWorkspaceContextAttempt(
         includedContextTargets.add(`context:${unit.metadata.id}`);
       }
     }
-    const includedDocuments =
-      routingFailures.length > 0 || !hasRoutingMetadata
-        ? fullDocuments
-        : progressiveDocuments;
-    for (const { content } of includedDocuments) {
-      for (const ruleId of extractRuleIds(content)) {
-        includedContextTargets.add(`rule:${ruleId}`);
+    const useFullDocuments = routingFailures.length > 0 || !hasRoutingMetadata;
+    for (const document of parsedDocuments) {
+      if (useFullDocuments) {
+        if (fullPaths.has(document.path)) {
+          for (const rule of document.rules) {
+            includedContextTargets.add(`rule:${rule.canonicalId}`);
+          }
+        }
+        continue;
+      }
+      for (const rule of includedRulesForProgressiveDocument(
+        document,
+        selectedSet,
+        expandedPaths.has(document.path),
+      )) {
+        includedContextTargets.add(`rule:${rule.canonicalId}`);
       }
     }
 
     const attentionRead = await inspectProposalAttention({
       contextRoot,
+      knownContextTargets,
       includedContextTargets,
     });
     const warnings = [
@@ -264,6 +324,8 @@ async function compileWorkspaceContextAttempt(
     if (attentionRead.unroutedCount > 0) {
       warnings.push("unrouted_nonterminal_proposal");
     }
+    const highRiskDanglingAttention =
+      task.value.risk === "high" && attentionRead.danglingCount > 0;
     const highRiskAttentionOverflow =
       task.value.risk === "high" && attentionOverflow;
     const highRiskUnroutedAttention =
@@ -274,6 +336,7 @@ async function compileWorkspaceContextAttempt(
     const fallback =
       routingFailures.length > 0 ||
       !hasRoutingMetadata ||
+      highRiskDanglingAttention ||
       highRiskAttentionOverflow ||
       highRiskUnroutedAttention ||
       highRiskIncompleteAttention;
@@ -290,6 +353,7 @@ async function compileWorkspaceContextAttempt(
       mode: fallback ? "legacy_full" : "progressive",
       attentionOverflow,
       unroutedAttention: highRiskUnroutedAttention,
+      danglingAttention: attentionRead.danglingCount > 0,
       incompleteAttention: attentionRead.incomplete,
     });
     const fullContent = renderContextBundle({
@@ -299,6 +363,7 @@ async function compileWorkspaceContextAttempt(
       mode: "legacy_full",
       attentionOverflow,
       unroutedAttention: highRiskUnroutedAttention,
+      danglingAttention: attentionRead.danglingCount > 0,
       incompleteAttention: attentionRead.incomplete,
     });
     const fullContextBytes = Buffer.byteLength(fullContent, "utf8");
@@ -312,6 +377,7 @@ async function compileWorkspaceContextAttempt(
       taskDomains: task.value.domains,
       activeRead,
       catalogRead,
+      knownContextTargets,
       includedContextTargets,
       attentionRead,
     });
@@ -332,6 +398,7 @@ async function compileWorkspaceContextAttempt(
         ? fallbackReason({
             routingFailures,
             hasRoutingMetadata,
+            highRiskDanglingAttention,
             highRiskAttentionOverflow,
             highRiskUnroutedAttention,
             highRiskIncompleteAttention,
@@ -413,7 +480,12 @@ function inspectContextDocument(source, path) {
     if (legacy.includes(CONTEXT_CLOSE_MARKER)) {
       failures.push("orphan_context_close_marker");
     }
-    segments.push({ kind: "legacy", content: legacy });
+    segments.push({
+      kind: "legacy",
+      content: legacy,
+      start: cursor,
+      end: match.index,
+    });
 
     const metadataSource = match[1];
     if (Buffer.byteLength(metadataSource, "utf8") > MAX_MARKER_BYTES) {
@@ -423,7 +495,12 @@ function inspectContextDocument(source, path) {
     const closeIndex = source.indexOf(CONTEXT_CLOSE_MARKER, contentStart);
     if (closeIndex === -1) {
       failures.push("unclosed_context_block");
-      segments.push({ kind: "legacy", content: source.slice(match.index) });
+      segments.push({
+        kind: "legacy",
+        content: source.slice(match.index),
+        start: match.index,
+        end: source.length,
+      });
       cursor = source.length;
       break;
     }
@@ -439,12 +516,16 @@ function inspectContextDocument(source, path) {
       segments.push({
         kind: "invalid",
         content: source.slice(match.index, closeIndex + CONTEXT_CLOSE_MARKER.length),
+        start: match.index,
+        end: closeIndex + CONTEXT_CLOSE_MARKER.length,
       });
     } else if (body.trim() === "") {
       failures.push("empty_context_block");
       segments.push({
         kind: "invalid",
         content: source.slice(match.index, closeIndex + CONTEXT_CLOSE_MARKER.length),
+        start: match.index,
+        end: closeIndex + CONTEXT_CLOSE_MARKER.length,
       });
     } else {
       const unit = {
@@ -457,7 +538,12 @@ function inspectContextDocument(source, path) {
         ),
       };
       units.push(unit);
-      segments.push({ kind: "unit", unit });
+      segments.push({
+        kind: "unit",
+        unit,
+        start: match.index,
+        end: closeIndex + CONTEXT_CLOSE_MARKER.length,
+      });
     }
     cursor = closeIndex + CONTEXT_CLOSE_MARKER.length;
   }
@@ -466,7 +552,12 @@ function inspectContextDocument(source, path) {
   if (tail.includes(CONTEXT_CLOSE_MARKER)) {
     failures.push("orphan_context_close_marker");
   }
-  segments.push({ kind: "legacy", content: tail });
+  segments.push({
+    kind: "legacy",
+    content: tail,
+    start: cursor,
+    end: source.length,
+  });
   return {
     units,
     segments,
@@ -659,18 +750,50 @@ function buildCatalog(units, selectedSet, relevantPaths) {
 function renderProgressiveDocument(inspected, selectedSet, includeLegacy) {
   return inspected.segments
     .map((segment) => {
-      if (segment.kind === "legacy" || segment.kind === "invalid") {
-        return includeLegacy ? segment.content : "";
+      if (!progressiveSegmentIncluded(segment, selectedSet, includeLegacy)) {
+        return "";
       }
-      if (
-        (segment.unit.metadata.kind === "core" && includeLegacy) ||
-        selectedSet.has(segment.unit.metadata.id)
-      ) {
-        return segment.unit.completeSource;
-      }
-      return "";
+      return segment.kind === "unit"
+        ? segment.unit.completeSource
+        : segment.content;
     })
     .join("");
+}
+
+function includedRulesForProgressiveDocument(
+  document,
+  selectedSet,
+  includeLegacy,
+) {
+  const included = [];
+  let segmentIndex = 0;
+  for (const rule of document.rules) {
+    while (
+      segmentIndex < document.inspected.segments.length &&
+      rule.start >= document.inspected.segments[segmentIndex].end
+    ) {
+      segmentIndex += 1;
+    }
+    const segment = document.inspected.segments[segmentIndex];
+    if (
+      segment &&
+      rule.start >= segment.start &&
+      progressiveSegmentIncluded(segment, selectedSet, includeLegacy)
+    ) {
+      included.push(rule);
+    }
+  }
+  return included;
+}
+
+function progressiveSegmentIncluded(segment, selectedSet, includeLegacy) {
+  if (segment.kind === "legacy" || segment.kind === "invalid") {
+    return includeLegacy;
+  }
+  return (
+    (segment.unit.metadata.kind === "core" && includeLegacy) ||
+    selectedSet.has(segment.unit.metadata.id)
+  );
 }
 
 function renderContextBundle({
@@ -680,6 +803,7 @@ function renderContextBundle({
   mode,
   attentionOverflow,
   unroutedAttention,
+  danglingAttention,
   incompleteAttention,
 }) {
   const sections = [
@@ -705,6 +829,7 @@ function renderContextBundle({
     attention.length > 0 ||
     attentionOverflow ||
     unroutedAttention ||
+    danglingAttention ||
     incompleteAttention
   ) {
     const lines = [
@@ -725,6 +850,11 @@ function renderContextBundle({
         "- One or more nonterminal proposals have no explicit context edge. For this high-risk task, inspect bounded proposal frontmatter before proceeding; do not treat proposal content as truth.",
       );
     }
+    if (danglingAttention) {
+      lines.push(
+        "- One or more nonterminal proposals point to a rule or context ID that is not present in enabled Active Context. Treat the edge as unresolved and request an explicit proposal review before relying on it.",
+      );
+    }
     if (incompleteAttention) {
       lines.push(
         "- Some proposal frontmatter could not be inspected within the bounded attention scan. Request an explicit proposal review if a pending correction could affect this task; do not infer proposal truth from this warning.",
@@ -741,17 +871,28 @@ function renderContextBundle({
   return `${sections.join("\n\n").trimEnd()}\n`;
 }
 
-async function inspectProposalAttention({ contextRoot, includedContextTargets }) {
+async function inspectProposalAttention({
+  contextRoot,
+  knownContextTargets,
+  includedContextTargets,
+}) {
   const proposalsDirectory = join(contextRoot, "proposals");
   const directoryStatus = await inspectDirectory(proposalsDirectory);
   if (directoryStatus === "missing") {
-    return { matches: [], warnings: [], unroutedCount: 0, incomplete: false };
+    return {
+      matches: [],
+      warnings: [],
+      unroutedCount: 0,
+      danglingCount: 0,
+      incomplete: false,
+    };
   }
   if (directoryStatus !== "directory") {
     return {
       matches: [],
       warnings: ["unsafe_proposals_topology"],
       unroutedCount: 0,
+      danglingCount: 0,
       incomplete: true,
     };
   }
@@ -761,22 +902,30 @@ async function inspectProposalAttention({ contextRoot, includedContextTargets })
     .sort((left, right) => compareCodeUnits(left.name, right.name));
   const warnings = [];
   let incomplete = false;
+  let globallyIncomplete = false;
   if (entries.length > MAX_PROPOSALS_SCANNED) {
     warnings.push("proposal_scan_limit_reached");
     incomplete = true;
+    globallyIncomplete = true;
   }
   const matches = [];
+  const seenProposalIds = new Set();
+  const duplicateProposalIds = new Set();
+  const invalidComparableProposalIds = new Set();
   let unroutedCount = 0;
+  let danglingCount = 0;
   for (const entry of entries.slice(0, MAX_PROPOSALS_SCANNED)) {
     if (!entry.isFile() || !safeProposalFilename(entry.name)) {
       warnings.push("unsafe_proposal_entry");
       incomplete = true;
+      globallyIncomplete = true;
       continue;
     }
     const proposalSegments = ["proposals", entry.name];
     if (await inspectContextParents(contextRoot, proposalSegments)) {
       warnings.push("unsafe_proposal_entry");
       incomplete = true;
+      globallyIncomplete = true;
       continue;
     }
     const path = join(proposalsDirectory, entry.name);
@@ -784,61 +933,122 @@ async function inspectProposalAttention({ contextRoot, includedContextTargets })
     if (stat.isSymbolicLink() || !stat.isFile()) {
       warnings.push("unsafe_proposal_entry");
       incomplete = true;
+      globallyIncomplete = true;
       continue;
     }
     const frontmatter = await readFrontmatter(path, entry.name, stat);
     if (await inspectContextParents(contextRoot, proposalSegments)) {
       warnings.push("unsafe_proposal_entry");
       incomplete = true;
+      globallyIncomplete = true;
       continue;
     }
     if (!frontmatter.value) {
       warnings.push(frontmatter.reason);
       incomplete = true;
+      globallyIncomplete = true;
       continue;
     }
     const data = frontmatter.value;
     if (data.schema_version !== SCHEMA_VERSION) {
       warnings.push("invalid_attention_proposal_schema");
       incomplete = true;
+      globallyIncomplete = true;
       continue;
     }
+    if (
+      typeof data.id !== "string" ||
+      !PROPOSAL_ID_PATTERN.test(data.id) ||
+      hasSecret(data.id)
+    ) {
+      if (
+        data.id === null ||
+        ["number", "boolean"].includes(typeof data.id)
+      ) {
+        const comparableId = data.id === null
+          ? "null"
+          : typeof data.id === "boolean"
+            ? String(data.id)
+            : Number.isSafeInteger(data.id) &&
+                data.id >= 0 &&
+                !Object.is(data.id, -0)
+              ? String(data.id)
+              : undefined;
+        if (comparableId && PROPOSAL_ID_PATTERN.test(comparableId)) {
+          invalidComparableProposalIds.add(comparableId);
+          if (seenProposalIds.has(comparableId)) {
+            duplicateProposalIds.add(comparableId);
+            warnings.push("duplicate_attention_proposal_id");
+          }
+        }
+      }
+      warnings.push("invalid_attention_proposal_id");
+      incomplete = true;
+      globallyIncomplete = true;
+      continue;
+    }
+    if (invalidComparableProposalIds.has(data.id)) {
+      duplicateProposalIds.add(data.id);
+      warnings.push("duplicate_attention_proposal_id");
+      incomplete = true;
+    }
+    if (seenProposalIds.has(data.id)) {
+      duplicateProposalIds.add(data.id);
+      warnings.push("duplicate_attention_proposal_id");
+      incomplete = true;
+    }
+    seenProposalIds.add(data.id);
     if (!PROPOSAL_STATUSES.has(data.status)) {
       warnings.push("invalid_attention_proposal_status");
       incomplete = true;
+      globallyIncomplete = true;
       continue;
     }
     if (!PROPOSAL_SCOPES.has(data.scope)) {
       warnings.push("invalid_attention_proposal_scope");
       incomplete = true;
+      globallyIncomplete = true;
       continue;
     }
     if (!NONTERMINAL_PROPOSAL_STATUSES.has(data.status)) continue;
     if (data.scope !== "workspace") continue;
-    if (!PROPOSAL_ID_PATTERN.test(data.id ?? "") || hasSecret(data.id)) {
-      warnings.push("invalid_attention_proposal_id");
-      incomplete = true;
-      continue;
-    }
     const targets = data.attention_targets === undefined
       ? undefined
       : inspectAttentionTargets(data.attention_targets);
     if (data.attention_targets !== undefined && !targets) {
       warnings.push("invalid_attention_targets");
       incomplete = true;
+      globallyIncomplete = true;
       continue;
     }
     if (validateProposalFrontmatter(data, `${entry.name} frontmatter`).length > 0) {
       warnings.push("invalid_attention_proposal_frontmatter");
       incomplete = true;
+      globallyIncomplete = true;
       continue;
     }
     if (data.attention_targets === undefined) {
       unroutedCount += 1;
       continue;
     }
-    const relevantTargets = targets.filter((target) =>
-      includedContextTargets.has(target),
+    const normalizedTargets = targets.map(normalizeAttentionTarget);
+    const danglingTargets = targets.filter((_, index) =>
+      !knownContextTargets.has(normalizedTargets[index]),
+    );
+    if (danglingTargets.length > 0) {
+      warnings.push("dangling_attention_target");
+      danglingCount += 1;
+    }
+    const knownTargetIdentities = normalizedTargets.filter(
+      (target) => target !== undefined,
+    );
+    if (new Set(knownTargetIdentities).size !== knownTargetIdentities.length) {
+      warnings.push("duplicate_attention_target_identity");
+      incomplete = true;
+      continue;
+    }
+    const relevantTargets = targets.filter((_, index) =>
+      includedContextTargets.has(normalizedTargets[index]),
     );
     if (relevantTargets.length === 0) continue;
     matches.push({
@@ -850,9 +1060,16 @@ async function inspectProposalAttention({ contextRoot, includedContextTargets })
     });
   }
   return {
-    matches: matches.sort(compareAttention),
+    matches: (globallyIncomplete ? [] : matches)
+      .filter(
+        ({ proposalId }) =>
+          !duplicateProposalIds.has(proposalId) &&
+          !invalidComparableProposalIds.has(proposalId),
+      )
+      .sort(compareAttention),
     warnings: [...new Set(warnings)].sort(),
     unroutedCount,
+    danglingCount,
     incomplete,
   };
 }
@@ -890,6 +1107,7 @@ async function activeSnapshotStable({
   taskDomains,
   activeRead,
   catalogRead,
+  knownContextTargets,
   includedContextTargets,
   attentionRead,
 }) {
@@ -923,6 +1141,7 @@ async function activeSnapshotStable({
   }
   const nextAttention = await inspectProposalAttention({
     contextRoot,
+    knownContextTargets,
     includedContextTargets,
   });
   return (
@@ -931,6 +1150,7 @@ async function activeSnapshotStable({
     JSON.stringify(nextAttention.warnings) ===
       JSON.stringify(attentionRead.warnings) &&
     nextAttention.unroutedCount === attentionRead.unroutedCount &&
+    nextAttention.danglingCount === attentionRead.danglingCount &&
     nextAttention.incomplete === attentionRead.incomplete
   );
 }
@@ -1139,12 +1359,21 @@ function inspectAttentionTargets(value) {
     if (target.startsWith("context:")) {
       if (!IDENTIFIER_PATTERN.test(target.slice("context:".length))) return undefined;
     } else if (target.startsWith("rule:")) {
-      if (!RULE_ID_PATTERN.test(target.slice("rule:".length))) return undefined;
+      if (normalizeAttentionTarget(target) === undefined) return undefined;
     } else {
       return undefined;
     }
   }
   return [...value].sort();
+}
+
+function normalizeAttentionTarget(target) {
+  if (target.startsWith("context:")) return target;
+  if (!target.startsWith("rule:")) return undefined;
+  const identity = canonicalRuleIdentity(target.slice("rule:".length), {
+    legacy: true,
+  });
+  return identity === undefined ? undefined : `rule:${identity}`;
 }
 
 function compareAttention(left, right) {
@@ -1169,6 +1398,16 @@ function duplicateUnitIds(units) {
   return [...duplicates].sort();
 }
 
+function duplicateRuleIdentities(rules) {
+  const seen = new Set();
+  const duplicates = new Set();
+  for (const { canonicalId } of rules) {
+    if (seen.has(canonicalId)) duplicates.add(canonicalId);
+    seen.add(canonicalId);
+  }
+  return [...duplicates].sort(compareCodeUnits);
+}
+
 function sameStringSet(left, right) {
   return (
     left.length === right.length &&
@@ -1176,18 +1415,210 @@ function sameStringSet(left, right) {
   );
 }
 
-function extractRuleIds(source) {
-  RULE_MARKER_PATTERN.lastIndex = 0;
-  return [...source.matchAll(RULE_MARKER_PATTERN)].map((match) => match[1]);
+function inspectRuleMarkers(source, maximumCandidates = MAX_RULE_MARKER_CANDIDATES) {
+  const rules = [];
+  const failures = [];
+  const candidates = ruleMarkerCandidates(source, maximumCandidates);
+  for (const candidate of candidates) {
+    if (candidate.inspectionIncomplete) {
+      failures.push("rule_marker_inspection_incomplete");
+      continue;
+    }
+    const marker = candidate.source;
+    if (hasSecret(marker) || hasSecret(candidate.normalizedSource)) {
+      failures.push("unsafe_context_metadata");
+      continue;
+    }
+    if (candidate.oversized || Buffer.byteLength(marker, "utf8") > MAX_MARKER_BYTES) {
+      failures.push("rule_marker_too_large");
+      continue;
+    }
+    if (!candidate.closed) {
+      failures.push("unclosed_rule_marker");
+      continue;
+    }
+    if (!candidate.standalone) {
+      failures.push("invalid_rule_marker");
+      continue;
+    }
+
+    const canonical = CANONICAL_RULE_MARKER_PATTERN.exec(marker);
+    const legacy = canonical ? undefined : LEGACY_RULE_MARKER_PATTERN.exec(marker);
+    const match = canonical ?? legacy;
+    if (!match) {
+      failures.push("invalid_rule_marker");
+      continue;
+    }
+
+    const [id, sourceId, subsumes] = match.slice(1, 4);
+    const delimiter = canonical ? "#" : "-";
+    const prefix = `${sourceId}${delimiter}`;
+    const ordinal = id.startsWith(prefix) ? id.slice(prefix.length) : "";
+    if (!/^[1-9][0-9]*$/u.test(ordinal)) {
+      failures.push("invalid_rule_marker");
+      continue;
+    }
+
+    const canonicalId = `${sourceId}#${ordinal}`;
+    const legacyId = `${sourceId}-${ordinal}`;
+    if (
+      !RULE_ID_PATTERN.test(canonicalId) ||
+      !RULE_ID_PATTERN.test(legacyId) ||
+      !validRuleSubsumes(subsumes, { legacy: Boolean(legacy) })
+    ) {
+      failures.push("invalid_rule_marker");
+      continue;
+    }
+    rules.push({ canonicalId, start: candidate.start });
+  }
+  return {
+    rules,
+    failures: [...new Set(failures)].sort(),
+    candidateCount: candidates.filter(
+      ({ inspectionIncomplete }) => !inspectionIncomplete,
+    ).length,
+  };
+}
+
+function validRuleSubsumes(value, { legacy }) {
+  if (value === "none") return true;
+  const identities = value.split(",").map((ruleId) =>
+    canonicalRuleIdentity(ruleId, { legacy }),
+  );
+  return (
+    identities.every((identity) => identity !== undefined) &&
+    new Set(identities).size === identities.length
+  );
+}
+
+function canonicalRuleIdentity(value, { legacy }) {
+  const canonical = CANONICAL_RULE_ID_PATTERN.exec(value);
+  if (canonical) {
+    const identity = `${canonical[1]}#${canonical[2]}`;
+    return RULE_ID_PATTERN.test(identity) ? identity : undefined;
+  }
+  if (!legacy) return undefined;
+  const historical = LEGACY_RULE_ID_PATTERN.exec(value);
+  if (!historical) return undefined;
+  const identity = `${historical[1]}#${historical[2]}`;
+  return RULE_ID_PATTERN.test(identity) ? identity : undefined;
+}
+
+function ruleMarkerCandidates(source, maximumCandidates) {
+  const candidates = [];
+  let searchOffset = 0;
+  while (searchOffset < source.length) {
+    const commentStart = source.indexOf("<!--", searchOffset);
+    if (commentStart === -1) break;
+    searchOffset = commentStart + 4;
+    if (!isRuleMarkerCandidateAt(source, commentStart + 4)) continue;
+    if (candidates.length >= maximumCandidates) {
+      candidates.push({ inspectionIncomplete: true });
+      return candidates;
+    }
+
+    const boundedEnd = Math.min(
+      source.length,
+      commentStart + MAX_MARKER_BYTES + 3,
+    );
+    const boundedSource = source.slice(commentStart, boundedEnd);
+    const boundedClose = boundedSource.indexOf("-->", 4);
+    const closed = boundedClose !== -1;
+    const oversized = !closed && boundedEnd < source.length;
+    const commentEnd = closed
+      ? commentStart + boundedClose + 3
+      : boundedEnd;
+    const commentSource = source.slice(commentStart, commentEnd);
+    const normalizedSource = commentSource.replace(
+      RULE_CANDIDATE_IGNORABLE_PATTERN,
+      "",
+    );
+    if (oversized) {
+      candidates.push({
+        start: commentStart,
+        source: commentSource,
+        normalizedSource,
+        closed: false,
+        oversized: true,
+        standalone: false,
+      });
+      return candidates;
+    }
+    const previousLineBreak = Math.max(
+      source.lastIndexOf("\n", commentStart - 1),
+      source.lastIndexOf("\r", commentStart - 1),
+    );
+    const nextLineBreaks = [
+      source.indexOf("\n", commentEnd),
+      source.indexOf("\r", commentEnd),
+    ].filter((index) => index !== -1);
+    const lineStart = previousLineBreak + 1;
+    const lineEnd =
+      nextLineBreaks.length === 0 ? source.length : Math.min(...nextLineBreaks);
+    const line = source.slice(lineStart, lineEnd);
+    candidates.push({
+      start: commentStart,
+      source: commentSource,
+      normalizedSource,
+      closed,
+      oversized: false,
+      standalone:
+        closed && !/[\r\n]/u.test(commentSource) && line.trim() === commentSource,
+    });
+  }
+  return candidates;
+}
+
+function isRuleMarkerCandidateAt(source, initialOffset) {
+  let offset = consumeRuleCandidateCharacters(
+    source,
+    initialOffset,
+    RULE_CANDIDATE_LEADING_CHARACTER_PATTERN,
+  );
+  for (const expected of "acp-rule") {
+    offset = consumeRuleCandidateCharacters(
+      source,
+      offset,
+      RULE_CANDIDATE_GAP_CHARACTER_PATTERN,
+    );
+    if (source[offset]?.toLowerCase() !== expected) return false;
+    offset += 1;
+  }
+  offset = consumeRuleCandidateCharacters(
+    source,
+    offset,
+    RULE_CANDIDATE_GAP_CHARACTER_PATTERN,
+  );
+  const next = codePointCharacterAt(source, offset);
+  return next === undefined || !ASCII_IDENTIFIER_CONTINUATION_PATTERN.test(next);
+}
+
+function consumeRuleCandidateCharacters(source, initialOffset, pattern) {
+  let offset = initialOffset;
+  while (offset < source.length) {
+    const character = codePointCharacterAt(source, offset);
+    if (!pattern.test(character)) break;
+    offset += character.length;
+  }
+  return offset;
+}
+
+function codePointCharacterAt(source, offset) {
+  const codePoint = source.codePointAt(offset);
+  return codePoint === undefined ? undefined : String.fromCodePoint(codePoint);
 }
 
 function fallbackReason({
   routingFailures,
   hasRoutingMetadata,
+  highRiskDanglingAttention,
   highRiskAttentionOverflow,
   highRiskUnroutedAttention,
   highRiskIncompleteAttention,
 }) {
+  if (highRiskDanglingAttention) {
+    return "high_risk_dangling_attention_target";
+  }
   if (highRiskAttentionOverflow) return "high_risk_attention_overflow";
   if (highRiskUnroutedAttention) return "high_risk_unrouted_attention";
   if (highRiskIncompleteAttention) return "high_risk_attention_scan_incomplete";

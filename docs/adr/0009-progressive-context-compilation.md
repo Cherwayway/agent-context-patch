@@ -116,8 +116,10 @@ malformed or overlapping blocks, unsafe paths, unsupported schema, missing
 high-risk safety coverage, or another ambiguous parse never produce a partial
 context. A high-risk task also falls back when relevant attention exceeds three
 items, any non-terminal proposal lacks an explicit context edge, or the bounded
-proposal scan is incomplete. The compiler either returns the complete legacy
-default read set with
+proposal scan is incomplete. At normal risk a globally incomplete proposal scan
+keeps the independently compiled context projection but suppresses all
+attention pointers, because global proposal-ID uniqueness cannot be established.
+The compiler either returns the complete legacy default read set with
 `mode: "legacy_full"` or blocks when
 even that read cannot be performed safely.
 
@@ -156,6 +158,27 @@ never inferred. Without `attention_targets`, normal-risk compilation creates no
 attention item for that proposal; high-risk compilation falls back with a
 bounded manual-inspection hint.
 
+New Active Context rules use the exact canonical marker
+`<!-- acp-rule: <source>#<positive ordinal>; source: <source>; subsumes: none -->`.
+For reader compatibility only, the compiler also accepts historical markers of
+the exact form
+`<!-- acp-rule: id=<source>-<positive ordinal> source=<source> subsumes=<rule-id-list-or-none> -->`.
+Both marker spellings and both rule-edge spellings normalize to
+`<source>#<positive ordinal>`. New writers never emit the historical form, and
+the compiler does not migrate or rewrite an existing workspace.
+
+A malformed bounded marker or duplicate logical rule identity forces complete
+fallback at any risk. Oversized, incompletely bounded, or credential-shaped
+rule metadata blocks with empty content instead of being echoed. The
+512-candidate inspection budget is shared by the complete enabled Active
+Context catalog for one compilation. A missing normalized attention target is
+dangling: normal risk warns and omits that
+target, while high risk falls back. A known rule in an unselected pack is
+irrelevant rather than dangling. Duplicate proposal IDs or two aliases for the
+same rule in one proposal cannot yield a pointer; normal risk warns and high
+risk falls back because the scan is incomplete. Any globally incomplete bounded
+proposal scan likewise suppresses all normal-risk attention pointers.
+
 ### 4. Progressive disclosure is fail-open to complete guidance
 
 The safety fallback is the previous behavior: load the complete Schema 1
@@ -193,9 +216,12 @@ Workspace Schema remains 1:
   and
 - no existing workspace must be rewritten or migrated to remain valid.
 
-Kit Version 0.6.0 identifies this new read behavior. It does not set
-`last_migrated_with_kit_version` and does not authorize a Workspace Schema
-migration. A required routing registry, new config envelope, durable usage
+Kit Version 0.6.0 identifies this new read behavior. Kit Version 0.6.1 repairs
+historical `acp-rule` reader compatibility and ambiguous attention handling;
+it does not set `last_migrated_with_kit_version` or authorize a Workspace
+Schema migration. Its scope is limited to `acp-rule` metadata. The
+`acp-context` grammar and unrelated context-fence or cross-line behavior are
+unchanged. A required routing registry, new config envelope, durable usage
 ledger, or persisted compiled-context artifact would be a separate schema
 decision.
 

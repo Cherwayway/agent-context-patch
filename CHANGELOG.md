@@ -5,6 +5,39 @@ semantic versions for the Kit independently from the Workspace Schema version.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-02
+
+### Fixed
+
+- Restored rule-target proposal attention for Schema 1 workspaces whose active
+  rules use the historical `acp-rule` spelling, while normalizing both marker
+  and attention-edge spellings to one canonical rule identity.
+- Malformed, oversized, unclosed, duplicate, or credential-shaped rule
+  metadata now fails safely. Unsafe, oversized, or incompletely bounded
+  metadata blocks without echo; other rule ambiguity falls back to the
+  complete context. The 512-candidate inspection bound applies across the
+  complete enabled Active Context catalog for one compilation.
+- Dangling attention targets now warn at normal risk and force complete
+  high-risk fallback. Duplicate proposal IDs and duplicate aliases for one
+  rule no longer create ambiguous pointers; known but unselected rules are not
+  treated as dangling.
+- A globally incomplete bounded proposal scan now suppresses every normal-risk
+  attention pointer while retaining the independently compiled context;
+  proposal-local duplicate identities suppress only their ambiguous pointer.
+
+### Changed
+
+- New rule markers use only
+  `<!-- acp-rule: <source>#<positive ordinal>; source: <source>; subsumes: ... -->`;
+  the historical `id=<source>-<ordinal>` form remains reader-only
+  compatibility.
+
+### Compatibility
+
+- Workspace Schema remains 1. This release performs no marker migration or
+  workspace rewrite, changes no `acp-context` fence behavior, and adds no hook,
+  telemetry, or token-savings claim.
+
 ## [0.6.0] - 2026-09-01
 
 ### Added
