@@ -799,7 +799,7 @@ function Add-TreePlan([string]$SourceRoot, [string]$DestinationRoot, [string]$Ki
     $sourceHash = Get-Sha256File $_.FullName
     if (-not (Test-Path -LiteralPath $destination)) {
       Add-PlanAction "Create" $Kind $_.FullName $destination "source-sha256=$sourceHash"
-    } elseif ((Get-Item -LiteralPath $destination).PSIsContainer) {
+    } elseif ((Get-Item -LiteralPath $destination -Force).PSIsContainer) {
       Add-PlanAction "Conflict" $Kind $_.FullName $destination "target-is-directory;source-sha256=$sourceHash"
     } elseif ($sourceHash -eq (Get-Sha256File $destination)) {
       Add-PlanAction "Skip" $Kind $_.FullName $destination "identical;source-sha256=$sourceHash"
