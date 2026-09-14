@@ -118,38 +118,18 @@ add_action() {
   ACTION_DETAILS+=("${5:-}")
 }
 
-inspect_v1_config() {
+inspect_workspace_config() {
+  # Classifies an existing .agent-context/config.yml by its top-level
+  # schema_version. Schema 2 is the current workspace schema and only needs a
+  # light check: the document must parse and schema_version must be the
+  # integer 2. Older schemas stay read-only until `evolve migrate` runs.
   LC_ALL=C awk '
     BEGIN {
       dq = sprintf("%c", 34)
       sq = sprintf("%c", 39)
       bs = sprintf("%c", 92)
-      require_path("schema_version")
-      require_path("created_with_kit_version")
-      require_path("last_migrated_with_kit_version")
-      require_path("context_write_policy")
-      require_path("enabled_domains")
-      require_path("budgets")
-      require_path("budgets.active_context")
-      require_path("budgets.active_context.unit")
-      require_path("budgets.active_context.warn")
-      require_path("budgets.active_context.block_auto")
-      require_path("budgets.single_proposal")
-      require_path("budgets.single_proposal.unit")
-      require_path("budgets.single_proposal.warn")
-      require_path("budgets.pending_proposals")
-      require_path("budgets.pending_proposals.unit")
-      require_path("budgets.pending_proposals.warn")
-      require_path("budgets.pending_proposals.block_auto")
-      require_path("privacy")
-      require_path("privacy.raw_conversation_stored")
-      require_path("privacy.full_logs_stored")
-      require_path("privacy.secrets_stored")
-      require_path("privacy.customer_data_stored")
-      require_path("privacy.absolute_user_paths_stored")
     }
 
-    function require_path(path) { required[path] = 1 }
     function trim(value) {
       sub(/^[ ]+/, "", value)
       sub(/[ ]+$/, "", value)
@@ -272,16 +252,9 @@ inspect_v1_config() {
     function add_inline_part(part) {
       part = trim(part)
       if (part == "") return fail("empty-inline-list-item")
-      if (!parse_nonlist_scalar(part)) return 0
-      inline_count++
-      inline_type[inline_count] = parsed_type
-      inline_value[inline_count] = parsed_value
-      return 1
+      return parse_nonlist_scalar(part)
     }
     function parse_inline_list(raw, inner, i, start, character, quote, escaped) {
-      for (i in inline_type) delete inline_type[i]
-      for (i in inline_value) delete inline_value[i]
-      inline_count = 0
       if (substr(raw, length(raw), 1) != "]") return fail("unclosed-inline-list")
       inner = trim(substr(raw, 2, length(raw) - 2))
       if (inner == "") return 1
@@ -324,48 +297,6 @@ inspect_v1_config() {
       value[path] = entry_value
       return 1
     }
-    function copy_inline_domains(i) {
-      domain_count = inline_count
-      for (i = 1; i <= inline_count; i++) {
-        domain_type[i] = inline_type[i]
-        domain_value[i] = inline_value[i]
-      }
-    }
-    function check_scalar(path, expected_type, expected_value) {
-      return kind[path] == expected_type && value[path] == expected_value
-    }
-    function valid_semver_identifiers(identifiers, reject_numeric_leading_zero, parts, count, i) {
-      if (identifiers == "") return 0
-      count = split(identifiers, parts, "[.]")
-      for (i = 1; i <= count; i++) {
-        if (parts[i] == "" || parts[i] !~ /^[0-9A-Za-z-]+$/) return 0
-        if (reject_numeric_leading_zero && parts[i] ~ /^[0-9]+$/ &&
-            length(parts[i]) > 1 && substr(parts[i], 1, 1) == "0") return 0
-      }
-      return 1
-    }
-    function is_semver(version, core, marker, metadata, parts, count, i) {
-      core = version
-      marker = index(core, "+")
-      if (marker > 0) {
-        metadata = substr(core, marker + 1)
-        if (!valid_semver_identifiers(metadata, 0)) return 0
-        core = substr(core, 1, marker - 1)
-      }
-      marker = index(core, "-")
-      if (marker > 0) {
-        metadata = substr(core, marker + 1)
-        if (!valid_semver_identifiers(metadata, 1)) return 0
-        core = substr(core, 1, marker - 1)
-      }
-      count = split(core, parts, "[.]")
-      if (count != 3) return 0
-      for (i = 1; i <= count; i++) {
-        if (parts[i] !~ /^[0-9]+$/ ||
-            (length(parts[i]) > 1 && substr(parts[i], 1, 1) == "0")) return 0
-      }
-      return 1
-    }
 
     {
       raw = $0
@@ -399,7 +330,7 @@ inspect_v1_config() {
       }
 
       if (content == "-" || index(content, "- ") == 1) {
-        if (parent_path != "enabled_domains") {
+        if (parent_path == "") {
           fail("unsupported-sequence")
           next
         }
@@ -410,9 +341,6 @@ inspect_v1_config() {
         }
         if (kind[parent_path] == "container") kind[parent_path] = "list"
         else if (kind[parent_path] != "list") fail("invalid-sequence-parent")
-        domain_count++
-        domain_type[domain_count] = parsed_type
-        domain_value[domain_count] = parsed_value
         next
       }
 
@@ -441,13 +369,12 @@ inspect_v1_config() {
       } else {
         if (!parse_scalar(raw_value)) next
         if (!add_entry(path, parsed_type, parsed_value)) next
-        if (path == "enabled_domains" && parsed_type == "list") copy_inline_domains()
       }
     }
 
     END {
       if (schema_count == 0) {
-        print "legacy:missing-schema-version"
+        print "legacy:legacy-v0-is-read-only"
         exit
       }
       if (schema_count > 1) {
@@ -462,79 +389,20 @@ inspect_v1_config() {
         print "legacy:legacy-v0-is-read-only"
         exit
       }
-      if (schema_value > 1) {
+      if (schema_value == 1) {
+        print "legacy:schema-1-run-evolve-migrate-v1"
+        exit
+      }
+      if (schema_value > 2) {
         print "future:" schema_value
         exit
       }
-      if (schema_value != 1 || first_error != "") {
-        print "invalid:" (first_error == "" ? "schema-version-invalid" : first_error)
+      if (schema_value != 2) {
+        print "invalid:schema-version-invalid"
         exit
       }
-
-      for (path in seen) {
-        if (!(path in required)) {
-          print "invalid:unsupported-key"
-          exit
-        }
-      }
-      for (path in required) {
-        if (!(path in seen)) {
-          print "invalid:missing-required-key"
-          exit
-        }
-      }
-      if (kind["budgets"] != "container" ||
-          kind["budgets.active_context"] != "container" ||
-          kind["budgets.single_proposal"] != "container" ||
-          kind["budgets.pending_proposals"] != "container" ||
-          kind["privacy"] != "container") {
-        print "invalid:mapping-required"
-        exit
-      }
-      if (!check_scalar("schema_version", "integer", 1) ||
-          kind["created_with_kit_version"] != "string" ||
-          !is_semver(value["created_with_kit_version"]) ||
-          !(kind["last_migrated_with_kit_version"] == "null" ||
-            (kind["last_migrated_with_kit_version"] == "string" &&
-             is_semver(value["last_migrated_with_kit_version"]))) ||
-          !(check_scalar("context_write_policy", "string", "propose") ||
-            check_scalar("context_write_policy", "string", "auto"))) {
-        print "invalid:config-header-invalid"
-        exit
-      }
-      if (kind["enabled_domains"] != "list") {
-        print "invalid:enabled-domains-invalid"
-        exit
-      }
-      for (i = 1; i <= domain_count; i++) {
-        if (domain_type[i] != "string" || domain_value[i] !~ /^[a-z0-9][a-z0-9-]*$/) {
-          print "invalid:enabled-domain-invalid"
-          exit
-        }
-        if (++domain_seen[domain_value[i]] > 1) {
-          print "invalid:enabled-domain-duplicate"
-          exit
-        }
-      }
-      if (!check_scalar("budgets.active_context.unit", "string", "lines") ||
-          !check_scalar("budgets.single_proposal.unit", "string", "lines") ||
-          !check_scalar("budgets.pending_proposals.unit", "string", "count") ||
-          kind["budgets.active_context.warn"] != "integer" || value["budgets.active_context.warn"] <= 0 ||
-          kind["budgets.single_proposal.warn"] != "integer" || value["budgets.single_proposal.warn"] <= 0 ||
-          kind["budgets.pending_proposals.warn"] != "integer" || value["budgets.pending_proposals.warn"] <= 0 ||
-          kind["budgets.active_context.block_auto"] != "integer" ||
-          value["budgets.active_context.block_auto"] <= value["budgets.active_context.warn"] ||
-          kind["budgets.pending_proposals.block_auto"] != "integer" ||
-          value["budgets.pending_proposals.block_auto"] <= value["budgets.pending_proposals.warn"]) {
-        print "invalid:budget-invalid"
-        exit
-      }
-      if (!check_scalar("privacy.raw_conversation_stored", "boolean", "false") ||
-          !check_scalar("privacy.full_logs_stored", "boolean", "false") ||
-          !check_scalar("privacy.secrets_stored", "boolean", "false") ||
-          !check_scalar("privacy.customer_data_stored", "boolean", "false") ||
-          !check_scalar("privacy.absolute_user_paths_stored", "boolean", "false")) {
-        print "invalid:privacy-invalid"
+      if (first_error != "") {
+        print "invalid:" first_error
         exit
       }
       print "valid"
@@ -1169,13 +1037,13 @@ elif [[ -e "$LEGACY_CONFIG" && ! -f "$LEGACY_CONFIG" ]]; then
   LEGACY_WORKSPACE=true
   add_action "Conflict" "workspace-context" "" "$LEGACY_CONFIG" "config-is-not-a-file"
 elif [[ -f "$LEGACY_CONFIG" ]]; then
-  CONFIG_CLASSIFICATION="$(inspect_v1_config "$LEGACY_CONFIG")"
+  CONFIG_CLASSIFICATION="$(inspect_workspace_config "$LEGACY_CONFIG")"
   case "$CONFIG_CLASSIFICATION" in
     valid)
       ;;
     legacy:*)
       LEGACY_WORKSPACE=true
-      add_action "MigrationRequired" "workspace-context" "" "$LEGACY_CONFIG" "legacy-v0-is-read-only"
+      add_action "MigrationRequired" "workspace-context" "" "$LEGACY_CONFIG" "${CONFIG_CLASSIFICATION#legacy:}"
       ;;
     future:*)
       LEGACY_WORKSPACE=true
@@ -1188,7 +1056,7 @@ elif [[ -f "$LEGACY_CONFIG" ]]; then
       ;;
     invalid:*|*)
       LEGACY_WORKSPACE=true
-      add_action "InvalidConfig" "workspace-context" "" "$LEGACY_CONFIG" "schema-v1-envelope-invalid;${CONFIG_CLASSIFICATION#invalid:}"
+      add_action "InvalidConfig" "workspace-context" "" "$LEGACY_CONFIG" "schema-2-config-invalid;${CONFIG_CLASSIFICATION#invalid:}"
       ;;
   esac
 elif [[ -d "$TARGET_ROOT" && ! -f "$LEGACY_CONFIG" ]] &&

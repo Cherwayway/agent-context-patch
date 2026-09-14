@@ -12,8 +12,9 @@
 **你的 Coding Agent 上周刚修过这个错误，今天却又犯了一次。**
 
 Agent Context Patch 把已经验证过的纠正，变成 **Claude Code 和 OpenAI Codex**
-都能在后续任务中读取的短小 workspace memory。后续 Agent 可以只拿到始终相关的 core
-和当前任务命中的规则 pack，不必从旧对话重新发现经验，也不必加载所有累积规则。
+都能读取的短小 workspace memory。后续每个 Agent 任务都会在它本来就要读的指令文件里
+看到一份单行 catalog，只在 hook 命中当前任务时再读完整规则，不必从旧对话重新发现经验，
+也不必加载所有累积规则。
 
 它完全本地、可以审阅：没有托管服务、后台守护进程和遥测，也不会静默修改全局指令。
 
@@ -34,10 +35,10 @@ Agent 修复并验证行为，再把一条可复用 guard 写入 workspace conte
 保持 content-safe：
 
 ```text
-Evolution outcome: detect=candidate; propose=created; apply=applied; proposal=2026-07-19-caller-input-data-flow; targets=.agent-context/checklists/coding.md.
+Evolution outcome: detect=candidate; propose=created; apply=applied; proposal=2026-07-19-caller-input-data-flow; targets=.agent-context/rules/caller-input-data-flow.md; catalog=612B/1 rules.
 ```
 
-持久 context 保存 guard；回执永远不会暴露经验正文或 PatchPlan 内容。
+持久 context 保存 guard；回执永远不会暴露经验正文或 proposal 内容。
 
 有效路径保持很短：
 
@@ -94,11 +95,14 @@ Bootstrap 永远不会自行合并已有的 `AGENTS.md` 或 `CLAUDE.md`。
 ## 为什么安全
 
 - Agent 负责语义判断：发生了什么、是否值得复用、最小有效经验是什么。
-- Active Context 遵循“先替换再新增”，并显式清理过期内容。
-- 只读 Context Compiler 始终保留 core，按结构化任务事实选择 pack；遇到歧义就回退到完整 context。
-- deterministic Commit Kernel 只负责文件安全、精确计划、冲突、审计证据与回滚边界。
-- 合格的低风险 workspace 新增可以在当前 Agent 回合完成；approval-only 操作始终
-  进入人工审阅，完整边界见[写入策略](#写入策略)。
+- catalog 有硬性字节预算，新 hook 与现有 hook 重叠时会被机械地阻断，context
+  从结构上就保持短小。
+- 每次写入都经过同一个带门禁的 `apply`：schema、修复已验证、隐私扫描、字节上限、
+  相似度、预算，然后原子提交并写入带 unified diff 的审计记录。
+- runtime 只碰 `.agent-context/` 和指令文件里的受管 block；`AGENTS.md` 或
+  `CLAUDE.md` 的其他内容永远不会被修改。
+- 合格的低风险新增在当前 Agent 回合内完成；重叠和预算例外才需要人工决策，
+  见[写入策略](#写入策略)。
 
 可以继续查看[可执行 Demo](demos/README.md)、
 [fresh-Agent 验收证据](docs/acceptance/2026-07-19-observable-delivery-checkpoint.md)
@@ -106,59 +110,52 @@ Bootstrap 永远不会自行合并已有的 `AGENTS.md` 或 `CLAUDE.md`。
 
 ## 工作原理
 
-1. 发现可复用的失败、纠正、过期规则或工作流经验。
-2. 先修复并验证当前任务。
-3. 先协调未完成的 proposal 生命周期，再检查 Active Context，优先替换而不是追加。
-4. 生成带证据和精确 PatchPlan 的内部审计记录。
-5. 由 `auto` 通过 Commit Kernel 立即应用合格的低风险计划，再返回内容安全的
-   `detect / propose / apply` 简短回执。
-6. 只有安全门禁要求例外决策时才询问用户，并持续提出语义清理 proposal。
+1. workspace 指令文件里有一个生成的 `acp-catalog` block：每条活跃规则一行 hook，
+   按 repo 和 operation 分组，后面是带日期的工作状态。Codex 逐字读取 `AGENTS.md`，
+   Claude Code 通过 import 读取，两个 Agent 看到同一份 catalog，不需要任何读取决策。
+2. hook 命中当前任务时，Agent 读取该规则的正文：直接打开文件，或用由路径、
+   operation、skill、repo 构成的 task signature 运行 `evolve select`。Skill 激活时
+   会用固定的 signature 调用 `select`，让 gate 规则随工作流一起出现。
+3. Agent 先修复并验证当前任务。
+4. 修复验证通过后，只有出现高信号事件才运行 delivery checkpoint：失败验证后来通过、
+   用户明确纠正、独立 QA 缺陷、发现过期 workspace context，或首个修复失败而后续修复
+   通过。普通无触发任务保持静默。
+5. Agent 编写一个 proposal（trigger、evidence、operations）并调用 `evolve apply`。
+   runtime 校验、跑完全部门禁、原子写入规则与状态文件、记录带 unified diff 的审计、
+   重新渲染 catalog，然后返回一条内容安全的 `detect / propose / apply` 回执。
+6. 任务结束时，Agent 用 `evolve consult` 记录真正用到的规则。周报按这些计数排序、
+   合并和退役规则。
 
-生命周期协调只会续跑仍然完全一致的精确计划。目标内容即使恰好等于 after hash，缺少
-applied 审计时也只会进入恢复流程，不能据此反推“就是本 proposal 写的”。它不会新增
-公开命令，也不会后台扫描。
+## 读优先的 Catalog
 
-当前修复验证通过后，只有出现高信号事件才运行 delivery checkpoint：失败验证后来通过、
-用户明确纠正、独立 QA 缺陷、发现过期 workspace context，或首个修复失败而后续修复通过。
-普通无触发任务保持静默，不会为了报告 no-op 创建 proposal 或持久化 context 写入。
+catalog 是这个版本的核心。存下来却没人读的经验毫无价值，所以 Schema 2 把读取一侧
+的成本降到零：
 
-## 渐进式 Context Loading
+```markdown
+<!-- acp-catalog: kit=0.7.0 schema=2 rendered=2026-09-14T08:12:31.000Z rules=12 state=1 -->
+## Workspace Context Catalog
 
-当兼容的 instruction adapter 调用 v0.6.0 Context Compiler 时，它按四层生成一份临时
-model-visible payload：
+### ilands · migration
+- gate [hot-table-partial-index-cic] Adding a partial index on a hot table: run CIC in its own workflow step and reject the batch when it fails.
 
-```text
-core + 未标记规则 -> 派生 catalog -> 命中的 packs -> bounded attention
+### any · general
+- gate [verify-before-evolve] Before evolving context: the current fix must be verified.
+
+### STATE (auto-expires)
+- (09-21) ilands: PR 3070 is in review round 3; index recycling is a separate PR.
+<!-- /acp-catalog -->
 ```
 
-Task signature 只包含结构化的 operation、workspace-relative path、tool、skill、domain、
-risk 与精确 requested pack ID，不包含原始 prompt。Domain 表示本任务相关的 enabled
-checklist；如果 domain 为空，则保守读取所有 enabled checklist，并把所有 enabled domain
-都视为可参与匹配。Host-side catalog scan 仍覆盖全部 enabled checklist，以保证 context ID
-在 workspace 内全局唯一；普通硬匹配只在 task-relevant 集合中进行。精确 pack 请求会把
-该 pack 所在 checklist 纳入读取，高风险任务则加载 task-relevant 集合内的全部 safety pack。
-Core 与旧的未标记内容始终可见；普通 pack 只由确定性的硬信号或精确请求选中。Catalog 直接
-从与 Markdown 共址的 metadata 派生，不存在第二份 routing registry。渐进式 catalog 硬限制
-为 64 个 context block；超限时不截断，而是回退到不带 catalog 的完整旧 read set。
-
-Bounded scanner 只解析有效、非终态 proposal frontmatter 中显式的 `attention_targets`，不会
-把 proposal body 输出给模型。最终 payload 最多包含三条 attention pointer；它们只提示先用
-current source 核验，不代表 proposal 已经正确、获批或生效。旧 proposal 不会自动回填，也
-不会推断 edge：没有 edge 时，normal-risk 任务不会为它生成 attention item，high-risk 任务则
-完整回退并提示人工检查。Marker 缺失或损坏、请求了未知 pack、高风险任务缺少 safety
-coverage，或 routing 有歧义时，也会回退到完整旧 default read set。高风险任务遇到
-attention 超限或 bounded scan 不完整时同样完整回退。Credential-shaped routing metadata
-不会进入 catalog 或 fallback payload，而是以空 content 阻断，避免再次暴露该值。
-
-Compiler 本身不调用模型。Byte metrics 比较同一任务的旧完整 bundle 与返回 payload 的 UTF-8
-字节，并包含渲染后的 catalog 与 attention。v0.6.0 没有安装 platform 或首个模型调用前的
-hook，因此真实 model-context/token 节省取决于兼容 host 是否只注入 `content`；bytes 下降也
-不等于规则发生了 material use，更不等于 Agent 效果已提升。
-
-这是只读 runtime API，不是 daemon、平台 hook、模型 router 或新公开命令。Fresh-install
-流程可以提出新的 instruction adapter，供单独语义审阅；Bootstrap 与 `$evolve update` 都不
-修改既有 `AGENTS.md`、`CLAUDE.md` 或 workspace index，因此旧安装会继续原来的完整加载方式，
-直到另行审阅该 instruction patch。
+- 每条规则一个文件 `.agent-context/rules/<id>.md`：hook 不超过 160 字节
+  （“情境 + 动作”）、kind（`gate`、`advice`、`fact`）、`applies_to` 范围
+  （repos、路径 glob、ops、skills）、正文不超过 1500 字节。
+- block 总量不超过 8 KB。新增会超预算时，`apply` 会被阻断，直到有规则被替换或退役。
+- `evolve select --signature '{"paths":[...],"ops":[...],"skills":[...]}'`
+  返回命中的规则正文：repos 作为过滤条件，任一维度相交即命中，全局 gate 总是带上，
+  gate 优先，上限 12 KB。
+- `evolve consult --consulted a,b --missed c` 把真实使用计数写回规则 frontmatter。
+  这是项目第一次拥有“规则是否被用到”的数据，周报就建立在它之上。
+- 受管 block 之外的内容永远不会被改动。
 
 ## 本地 Bootstrap 开发
 
@@ -225,40 +222,43 @@ v0.2.0 skill 早于 `$evolve update` 出现，因此第一次升级把上述候�
 
 ## Workspace Context
 
-V1 只在 workspace 内写 Active Context：
+Schema 2 的全部内容都在 `.agent-context/` 下：
 
 ```text
 .agent-context/
-  PROJECT_CONTEXT_INDEX.md
-  PROJECT_PROFILE.md
-  config.yml
-  checklists/
-  proposals/
-  reports/
-  archive/
+  config.yml            schema_version 2、write_policy、agents_file、budgets、state TTL
+  rules/<id>.md         每条规则一个文件：frontmatter（hook、kind、applies_to、计数）+ 正文
+  STATE.yml             带日期的工作状态；每条都会过期（默认 14 天，最长 90 天）
+  PROFILE.md            只放已验证的 workspace 事实，不放规则
+  proposals/<id>.md     每次已应用变更一条审计记录：证据 + unified diff
+  reports/              可重建的周报
+  archive/              被替换或退役的规则、过期状态、迁移前历史
 ```
 
-旧路径会完整读取 index、profile 和相关 enabled checklist；兼容 adapter 也可以只把
-compiler 生成的一份 task-local payload 交给模型。Proposal 自己保存 Decision Log 与
-Apply Attempts；只有 bounded 非终态 frontmatter 可以生成非权威 attention。Report 是
-派生视图，archive 默认不读取，也不会新建 `mistakes/`、`receipts/`、catalog 或 usage
-ledger 真相源。
+渲染进指令文件的 catalog 由 `rules/` 和 `STATE.yml` 派生，永远不是第二份真相源。
+proposal 是审计记录而不是收件箱：变更和记录在同一次调用里写入。report 是派生视图，
+archive 不参与读取。
 
 ## 核心命令
 
-- `$evolve init`：检查 workspace，报告 `contextRead`，自动应用合格的 profile/index
-  补充；只有 config 或 domain activation 需要变化时才请求一次决策。
-- `$evolve after-failure`：由 Agent 在发现可复用错误后自动运行；先修复当前任务，
-  再协调未完成 proposal、执行 replace-before-add、生成审计记录并立即应用合格的
-  低风险补充。成功时只返回一条覆盖 `detect`、`propose`、`apply` 的非阻塞回执；
-  重叠或冲突才转为 cleanup proposal。
-- `$evolve approve`：只处理需要人工决策的例外路径。先展示简短语义摘要和完整精确
-  PatchPlan；用户回复“应用”即可，不需要复制 plan hash。内部仍区分 `approved` 与
-  `applied`；文件未变时既有精确批准可在后续 Agent 回合续跑，文件变化会让授权失效。
-- `$evolve review-context`：先协调未完成 proposal，再按冲突、过期、重复、authority
-  与 retention value 生成语义清理 proposal；不按数量自动删除。
-- `$evolve weekly`：先协调未完成 proposal，再生成派生健康报告，不反向覆盖 Active
-  Context。
+所有命令都以 `node <installed-skill>/runtime/cli.mjs <command>` 运行，
+`<installed-skill>` 是 user-level 的 evolve skill 目录。每个命令都接受
+`--workspace <dir>` 和 `--today YYYY-MM-DD`。
+
+- `init`：创建 Schema 2 workspace 并渲染空 catalog block。
+- `status`：校验 workspace 并输出 JSON 摘要（规则数、待重写草稿数、状态条数、
+  catalog 字节与预算、写入策略）。
+- `catalog [--write]`：打印 block，或把它重新渲染进指令文件。
+- `select --signature '<json>' | @file [--json]`：打印命中 task signature 的规则正文。
+- `apply --proposal '<json>' | @file [--approved]`：一次调用完成校验、门禁、写入、
+  审计和重新渲染。状态：`applied`、`approval_required`、`blocked`、`failed`。
+- `consult --consulted a,b [--missed c,d]`：把真实使用记录写入规则 frontmatter。
+- `expire`：归档过期的 STATE 条目并重新渲染 catalog。
+- `weekly [--memory-dir <dir>]`：写入 `reports/weekly-<date>.md`。
+- `memory-sync --memory-dir <dir> [--dry-run]`：把 Claude Code 的项目级 `MEMORY.md`
+  重新生成为只保留 `user` 类记忆的视图，其余文件报告为迁移候选。
+- `migrate-v1`：把 Schema 1 workspace 就地转换，一次性且有损。
+- `receipt --detect <status>:<reason> --propose <status>:<reason>`：格式化无候选回执。
 - `$evolve update`：显式检查最新稳定的不可变 Release，校验 checksum、tag 和 source
   commit，并在替换 user-level skill 前展示完整 UpdatePlan 与精确 plan hash。升级成功后
   需要开启一个新的 Agent 任务加载新版；不会后台检查、上传遥测或静默升级。
@@ -267,35 +267,34 @@ ledger 真相源。
 
 ## 写入策略
 
-默认：
-
 ```yaml
-context_write_policy: auto
+write_policy: auto
 ```
 
-只支持两档：
+- `auto`：新 workspace 的默认策略。通过全部门禁的 proposal 在同一次调用里应用，
+  不需要用户回合。
+- `propose`：显式谨慎模式，`migrate-v1` 也会保留 Schema 1 配置里的这个选择。
+  `apply` 返回 `approval_required`，直到用同样的调用加上 `--approved` 重跑。
 
-- `auto`：新 workspace 的默认写入策略；在当前 Agent 回合通过 Node Commit Kernel
-  应用合格的低风险 create/update 计划。Kernel 会重读 workspace config；只有已启用
-  domain 的 checklist 才可能自动写入。
-- `propose`：显式谨慎模式，也会为已有 workspace 保留；生成计划并等待精确批准。
+`--approved` 代表一次人工决策，只绕过相似度门禁和 catalog 预算。它永远不会绕过
+schema 校验、修复已验证要求、隐私扫描、字节上限或 profile hash 检查。
 
-Node 或 kernel 不可用时，`auto` 必须明确降级为 `propose`。删除、archive、
-supersede、migration、instruction 文件、domain activation 和 user-global promotion
-永远需要人工批准。
-
-Bootstrap 和 Kit update 永远不会改写已有 workspace 的策略。高信号修复自动应用成功后，
-Agent 默认只打印共享的内容安全 Outcome 回执：三个阶段、非成功阶段的稳定 reason，以及
-可用时的 proposal ID 和 workspace-relative 目标；不暴露经验或计划正文，也不在 applied
-路径请求用户批准或回复。
+Bootstrap 和 Kit update 永远不会改写已有 workspace 的策略。高信号修复成功应用后，
+Agent 只打印 `apply` 返回的回执行：三个阶段、proposal id、workspace-relative 目标
+和 catalog 大小；不暴露经验正文，也不在 applied 路径请求用户回复。
 
 ## Context Health
 
-- 新规则必须先执行 replace-before-add；
-- authority 决定冲突时哪份证据优先；
-- retention value 决定规则是否仍值得占据 Active Context；
-- 数量和 budget 只触发 review、阻断 `auto`，永远不自动截断；
-- cleanup proposal 必须展示删除后损失、替代规则和 context 净变化。
+context 不会因为变大而变好。
+
+- 新 hook 与活跃 hook 的 token 相似度达到 0.5 时被 `similar_rule_exists` 阻断；
+  正确做法是 `supersede`，不是换个说法再 add。
+- 8 KB 的 catalog 预算会阻断新增，直到有规则被替换或退役。
+- `consulted`、`last_consulted`、`missed` 计数记录真实使用；周报列出最常被查阅的规则、
+  相关但被错过的规则、30 天内从未被查阅的规则、相似度达到 0.35 的 hook 对，以及
+  3 天内到期的状态。
+- STATE 条目自动过期；带日期的内容不进规则。
+- 周报只给建议；只有 `apply` 会改变 context。
 
 ## Evidence Privacy
 
@@ -303,20 +302,27 @@ Evidence 优先保存指针和摘要：使用 workspace-relative 路径、命令
 简短转述用户纠正；不持久化原始聊天、完整日志、secret、credential、客户数据或无关
 个人信息。晋升 user-global 前必须去除 workspace 特定内容。
 
+隐私扫描在每个 proposal 上运行，遇到私钥、常见 token 形态、凭据赋值和用户主目录绝对
+路径即失败；`--approved` 无法绕过。
+
 ## Legacy Workspace
 
-无 `schema_version` 的 `.agent-context/` 是只读 `legacy_v0`。V1 可以读取，但迁移
-必须通过 MigrationPlan、备份、精确批准和 ApplyAttempt。Bootstrap 不会用新模板覆盖
-legacy context。
+Kit 0.7.0 不再读取 Schema 1 workspace（`PROJECT_CONTEXT_INDEX.md`、
+`PROJECT_PROFILE.md`、`checklists/`、PatchPlan proposal）。`migrate-v1` 会就地转换一次：
+每条 checklist 条目和 profile 规则变成标记为 `needs_rewrite` 的草稿规则，历史移入
+`archive/`，然后渲染 catalog。转换是有损的，这是接受的代价；原文件保留在 `archive/`
+供查阅。迁移后 catalog 通常会超预算，下一步是一次性的重写与合并（目标不超过 60 条规则），
+之后才接受新增。Bootstrap 永远不会自行转换 workspace。
 
 ## 架构与开发
 
 领域词汇见 [CONTEXT.md](CONTEXT.md)，原始架构决策见
 [ADR-0001](docs/adr/0001-agent-first-context-evolution.md)，auto-first 默认见
-[ADR-0003](docs/adr/0003-auto-first-low-risk-context.md)，delivery checkpoint 与三阶段
-临时结果见 [ADR-0005](docs/adr/0005-observable-evolution-outcomes.md)，只读渐进披露与完整
-legacy fallback 见 [ADR-0009](docs/adr/0009-progressive-context-compilation.md)，决策与验证证据的映射见
-[v1 verification matrix](docs/v1-verification-matrix.md)。
+[ADR-0003](docs/adr/0003-auto-first-low-risk-context.md)，delivery checkpoint 与回执行见
+[ADR-0005](docs/adr/0005-observable-evolution-outcomes.md)，读优先 catalog、Workspace
+Schema 2 以及移除 compiler、lifecycle coordinator 和 marker 规则的决定见
+[ADR-0010](docs/adr/0010-read-first-catalog-and-schema-2.md)，行为与测试文件的映射见
+[verification matrix](docs/v1-verification-matrix.md)。
 
 统一验证入口：
 
@@ -324,6 +330,7 @@ legacy fallback 见 [ADR-0009](docs/adr/0009-progressive-context-compilation.md)
 npm test
 ```
 
-验证会执行真实 demo、协议 fixtures、Context Compiler routing/fallback、Commit Kernel、
-Lifecycle/Outcome 行为、Bootstrap dry-run/apply/idempotency、仓库卫生和平台契约；CI 在
-Windows 与 Ubuntu 运行同一入口。
+验证会执行 `tests/runtime/` 下的 runtime 测试（YAML 子集、文本工具、workspace 校验、
+catalog 渲染与替换、选择、apply 门禁与回滚、consult 回写、weekly、memory bridge、
+migrate-v1、CLI）、Bootstrap 安装器测试（dry-run、apply、幂等、升级）和仓库卫生检查；
+CI 在 Windows 与 Ubuntu 运行同一入口。

@@ -1,67 +1,44 @@
-# V1 Verification Matrix
+# Verification Matrix (Kit 0.7.0, Workspace Schema 2)
 
-This matrix maps the accepted decisions in
-`docs/adr/0001-agent-first-context-evolution.md` and
-`docs/adr/0003-auto-first-low-risk-context.md`, plus the lifecycle extension in
-`docs/adr/0004-lifecycle-reconciliation-around-commit-kernel.md`, observable
-delivery extension in `docs/adr/0005-observable-evolution-outcomes.md`, and
-effectiveness-review extension in
-`docs/adr/0007-agent-owned-context-effectiveness-review.md`, and progressive
-context-compilation extension in
-`docs/adr/0009-progressive-context-compilation.md`, to
-durable repository evidence.
-It distinguishes executable guarantees from semantic Agent responsibilities so
-future changes do not turn documentation claims into untested promises.
+This matrix maps each behavior accepted in
+`docs/adr/0010-read-first-catalog-and-schema-2.md` (with ADR-0001, ADR-0003,
+and ADR-0005 where they still apply) to the test file that proves it. Tests
+exercise observable file outcomes, not token presence. Semantic judgment
+(whether a lesson is reusable, what its hook should say, which rule to
+supersede) remains the Agent's responsibility and is not encoded in tests.
 
-| Decision | V1 contract | Durable evidence |
+| Behavior | Contract | Test file |
 |---|---|---|
-| Agent-first architecture | Agents decide meaning; the kernel commits exact plans only. | `skills/evolve/SKILL.md`, `skills/evolve/runtime/index.mjs`, kernel behavior tests |
-| Scope | Workspace is the only active write scope; user-global is a sanitized, approved handoff. | proposal fixtures and validator; `references/protocol-v1.md` |
-| Write policy | Only `propose` and `auto`; new workspaces default to auto, existing config is preserved, and every automatic write still requires one complete live v1 config plus all target, domain, risk, health, and privacy gates. | default-policy contract; shared production config validator; installer preservation tests; kernel live-config and auto-gate tests |
-| Approval lifecycle | Eligible auto plans complete in the current Agent turn with a `policy_auto` Decision and one non-blocking receipt. `$evolve approve` handles exceptions and binds a complete persisted PatchPlan, including its semantic operation, to the exact external `planHash`. | auto-default Kernel outcome; applied `policy_auto` demo aggregate; fresh-Agent acceptance record; recomputed proposal/Decision/Attempt and exact-approval tests |
-| Lifecycle reconciliation | Unfinished exact auto or approved plans resume only from all-before state; all-after without an applied audit, mixed state, and semantic target drift fail closed. After an exact application, a bounded follow-up pass makes the result reflect the coordinator's own final target and policy state independent of filename order, then marks that post-application observation explicitly. Current unrelated approval-only proposals remain non-blocking. A never-applied stale approval terminates only after a recognized conflict and a valid named replacement exists. | production proposal validator and shared auto-eligibility predicate; lifecycle coordinator fixed-point, proposal-store retry, approval-waiting tighten, and target-inspection behavior tests; real Outcome integration; lock, idempotency, stale replacement, and content-safe result assertions |
-| Observable delivery | After a verified high-signal repair, the Agent supplies semantic detect/propose results and the Outcome Interface maps exact Coordinator evidence to apply. Applied success also requires explicit post-application verification, so pre-fixed-point evidence fails closed. Only legal state families produce one content-safe three-stage receipt; no-trigger tasks stay silent and create no no-op proposal. | Outcome unit and real-Coordinator integration tests; shared Codex/Claude adapter contract; fresh-Agent positive and negative acceptance record |
-| Installation | Agent resolves semantics; Bootstrap plans deterministic files, validates the complete config envelope without Node, and never edits instructions. | shared PowerShell/Bash invalid/valid config, dry-run/apply/idempotency, and guidance-preservation tests |
-| Runtime capability | Bootstrap and propose do not require Node; the default auto path uses the Node kernel or explicitly downgrades with one blocking reason. | native installer adapters; skill and adapter auto-default contract; kernel tests |
-| Migration | Legacy context is read-only until a reviewed migration creates byte-identical backups and applies exact v1 updates; future schemas remain read-only. | legacy, invalid, missing-config, and future-schema tests; approved backup-and-migrate plus missing-backup kernel tests |
-| Domain activation | Detection is temporary; `config.enabled_domains` is the only activation truth. | empty template checklist contract; config validator; enabled coding demo |
-| Context health | Replace before add; numbers schedule review and block auto but never choose content to delete. | budget fixtures; cleanup/context-budget references; kernel health gate |
-| Context effectiveness | Stable inline rule IDs and bounded Agent-owned observations distinguish material use, loaded-only evidence, relevant misses, non-applicability, and unknown coverage. Reports stay derived; low use schedules review and never authorizes cleanup. | ADR-0007; Skill and cleanup-policy contracts; fresh-Agent effectiveness and paired-impact acceptance records |
-| Context compilation | The read-only compiler keeps core and unmarked guidance visible, derives its catalog from co-located markers, selects packs only from structured hard signals or exact requests, adds safety packs for high-risk work, and falls back to the complete task-relevant legacy read set on ambiguity. Its bounded scanner parses only proposal frontmatter and emits at most three non-authoritative pointers, never proposal body. Byte fixtures are not evidence of real token savings without compatible host injection. | ADR-0009; Context Compiler unit fixtures for matching, requested packs, multi-domain baseline fairness, safety selection, legacy fallback, attention bounds, privacy, and final UTF-8 payload metrics; fresh-Agent routing acceptance when available |
-| Information topology | One proposal owns evidence, decisions, and attempts but is never a kernel target; reports are derived; archive is inactive and create-only. | proposal target rejection; complete terminal-state validator; archive-update rejection; template topology test; no mistake/receipt stores |
-| Placement | Skill/kernel default user-level; context/guidance workspace-local; global trigger opt-in. | install guide, adapters, and skill-target installer tests |
-| Evidence privacy | Evidence is pointer-first and summary-first; secrets, full logs, customer data, and user-home paths are prohibited. | config/proposal privacy contracts; kernel credential, key, and path tests |
+| YAML subset | Mappings, sequences, scalars, inline lists, quoted strings, comments; duplicate keys and tabs rejected; `toYaml` round-trips config, frontmatter, and STATE. | `tests/runtime/yaml.test.mjs` |
+| Text helpers | Byte length, SHA-256, identifier pattern, ISO dates and TTL arithmetic, privacy hazard classes (private key, credential, credential assignment, absolute user path), similarity tokens and Jaccard, glob matching, unified diff. | `tests/runtime/text.test.mjs` |
+| Workspace validation | `config.yml` must be exactly the Schema 2 envelope; every `rules/*.md` must satisfy the frontmatter table and byte budgets with `id` equal to the file name; `STATE.yml` entries must be valid; any invalid file invalidates the whole workspace; Schema 1 config is reported as not loadable. | `tests/runtime/workspace.test.mjs` |
+| Catalog render and replace | Groups by `<repo> · <op>` with `any`/`general` last; order gate, advice, fact, then `consulted`; STATE section with `(MM-DD)` prefix and only unexpired entries; header counts; block replaced in place or appended; content outside the block byte-identical; unbalanced block is an error. | `tests/runtime/catalog.test.mjs` |
+| Select semantics | Signature validation (five keys, 64-entry limit, identifiers); repos derived from path prefixes; repos filter; any intersecting paths/ops/skills matches; repos-only scope matches on repos; global gates selected, global advice not; explicit ids always included; gates first; `select_bytes` cap with first rule always emitted and omitted ids reported. | `tests/runtime/select.test.mjs` |
+| Apply gates | In order: `workspace_invalid`, `invalid_proposal`, `current_fix_not_verified`, `privacy_hazard`, `invalid_rule`, `invalid_state`, `profile_changed`, `similar_rule_exists` (with similar ids), `catalog_budget_exceeded`, `no_effective_change`, `policy_requires_approval`, `workspace_locked`, `proposal_exists`. `--approved` bypasses only similarity and budget. | `tests/runtime/apply.test.mjs` |
+| Apply commit | Rule, archive, STATE, and PROFILE files written atomically under `.lock`; audit record with frontmatter hashes and unified diff; catalog re-rendered; expired STATE removed; rollback restores every written file on failure; lock always released; applied receipt line format. | `tests/runtime/apply.test.mjs` |
+| Supersede and retire | Replaced rule must be active; it moves to `archive/rules/<id>.md` with `superseded_by` or `retired` and `retired_reason`; new rule's `supersedes` is the union. | `tests/runtime/apply.test.mjs` |
+| Consult writeback | `consulted` and `last_consulted` updated for `--consulted`, `missed` for `--missed`; ids deduplicated; unknown ids reported not failed; malformed ids fail with `invalid_ids`; `Context use:` receipt format. | `tests/runtime/consult.test.mjs` |
+| Expire | Entries with `expires < today` removed from `STATE.yml`, appended with `archived` date to `archive/state.yml`, catalog re-rendered. | `tests/runtime/apply.test.mjs` |
+| Weekly | Report sections and thresholds: never consulted after 30 days, not consulted for 30 or more days, missed, similar pairs at or above 0.35, state expiring within 3 days, `needs_rewrite` count, memory candidates, recommended actions; report is a derived file that changes no rule. | `tests/runtime/weekly.test.mjs` |
+| Memory bridge | `scanMemory` classifies by `metadata.type`; `user` kept, others candidates; generated `MEMORY.md` with the `acp-memory` header; `--dry-run` writes nothing; missing directory reports `missing`. | `tests/runtime/memory-bridge.test.mjs` |
+| Migrate v1 | Requires `schema_version: 1`; checklist and profile bullets become draft rules with `needs_rewrite`, hook truncated to budget, inferred scope, body pointing to the archived original; proposals, checklists, and profile archived; Schema 1 files removed; write policy preserved; catalog rendered; result counts. | `tests/runtime/migrate-v1.test.mjs` |
+| CLI | Command dispatch, `--workspace` / `ACP_WORKSPACE` / ancestor discovery, `@file` JSON options, exit codes 0 (ok/applied), 1 (blocked/failed/approval_required), 2 (usage), text versus JSON output per command, `receipt` stage parsing. | `tests/runtime/cli.test.mjs` |
+| Installer | Bootstrap dry-run and apply plan hash, idempotency, skill target placement, instruction file never edited, update dry-run and apply with backup and restore, Schema 2 template awareness. | `tests/verification/installer-*.test.mjs`, `tests/verification/installer-upgrade-*.test.mjs` |
+| Repository contract and hygiene | Kit version agreement across package, manifest, and template; public update surface (`releases/latest`, `$evolve update`, no background polling, no schema migration by update); no placeholder URLs or obsolete names. | `tests/verification/repository-contract.test.mjs`, `tests/verification/repository-hygiene.test.mjs` |
 
 ## Semantic review boundaries
 
-The test suite deliberately does not encode project meaning. A capable Agent
-must still judge reuse value, evidence authority, semantic overlap, retention
-value, domain fit, wording, and whether a user-global candidate is sufficiently
-generalized. These decisions remain reviewable in the proposal aggregate.
+The tests do not decide whether a hook is well written, whether two rules
+that pass the similarity gate are nevertheless duplicates in meaning, whether
+a `fact` is still true, or which of several similar rules should survive a
+supersede. Those decisions are visible in the audit record and the weekly
+report and remain reviewable by a person.
 
-Proposal audit is also an explicit boundary: Decision Log and Apply Attempts do
-not enter `planHash`. The Agent or Lifecycle Coordinator records either
-`policy_auto` or exact approval before calling the kernel and persists the
-returned content-free ApplyAttempt afterward. An audit writeback failure is
-reported as `audit_write_pending`; a later all-after state becomes explicit
-audit recovery rather than inferred application. Neither path creates a second
-receipt source of truth.
-
-The Evolution Outcome boundary is similarly explicit: the Agent decides whether
-a reusable candidate exists and what it means. Deterministic code validates only
-the cross-stage family and mechanical lifecycle evidence, strips unsafe detail,
-and formats an ephemeral receipt. It never persists the result or infers
-semantics from failure text.
-
-The Context Compiler boundary is independent: structured selection and byte
-accounting are executable guarantees, while task-signature construction,
-current-source verification after attention, and any claim that selected
-guidance improved behavior remain Agent or acceptance responsibilities.
-`active`, `selected`, `loaded`, and `material_use` are not interchangeable.
+`select` proves that a rule was returned; `consult` proves that the Agent
+reported using it. Neither proves that the rule changed the outcome. Claims
+about effectiveness need paired task evidence outside this matrix.
 
 ## Required gate
-
-Run:
 
 ```text
 npm test

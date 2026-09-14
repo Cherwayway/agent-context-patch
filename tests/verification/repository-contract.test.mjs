@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -16,20 +16,28 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { validateConfigDocument } from "./config-contract.mjs";
-import { validateProposalDocument } from "./proposal-contract.mjs";
-import { parseMarkdownFrontmatter, parseYamlSubset } from "./yaml-subset.mjs";
+import {
+  inspectConfig,
+  loadWorkspace,
+  parseFrontmatter,
+  parseYaml,
+  renderCatalog,
+  SCHEMA_VERSION,
+} from "../../skills/evolve/runtime/index.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
+const TEMPLATE_FILES = ["config.yml", "README.md", "STATE.yml", "PROFILE.md"];
+const TEMPLATE_DIRECTORIES = ["rules", "proposals", "reports", "archive"];
+const FIXTURE_WORKSPACES = [".", "demos/fake-js-repo", "demos/markdown-smoke"];
 
-test("package, skill manifest, and context schema versions agree", () => {
+test("package, skill manifest, and workspace schema versions agree", () => {
   const packageJson = readJson("package.json");
   const manifest = readJson("skills/evolve/manifest.json");
   const sourceSnapshotManifest = readJson("skills/source-snapshot/manifest.json");
   const pluginSourceSnapshotManifest = readJson(
     "plugins/agent-context-patch/skills/source-snapshot/manifest.json",
   );
-  const config = parseYamlSubset(read("templates/.agent-context/config.yml"), "template config");
+  const config = parseYaml(read("templates/.agent-context/config.yml"), "template config");
 
   execFileSync(process.execPath, ["scripts/sync-kit-version.mjs", "--check"], {
     cwd: repositoryRoot,
@@ -38,7 +46,8 @@ test("package, skill manifest, and context schema versions agree", () => {
   assert.equal(packageJson.engines?.node, ">=20");
   assert.equal(manifest.kit, "agent-context-patch");
   assert.equal(manifest.version, packageJson.version);
-  assert.equal(manifest.schemaVersion, 1);
+  assert.equal(manifest.schemaVersion, SCHEMA_VERSION);
+  assert.equal(SCHEMA_VERSION, 2);
   assert.deepEqual(sourceSnapshotManifest, {
     kit: "agent-context-patch",
     skill: "source-snapshot",
@@ -47,37 +56,81 @@ test("package, skill manifest, and context schema versions agree", () => {
   });
   assert.deepEqual(pluginSourceSnapshotManifest, sourceSnapshotManifest);
   assert.equal(config.schema_version, manifest.schemaVersion);
-  assert.equal(config.created_with_kit_version, packageJson.version);
-  assert.equal(config.last_migrated_with_kit_version, null);
+  assert.equal(config.kit_version, packageJson.version);
+  assert.equal(config.write_policy, "auto");
+  assert.equal(config.agents_file, "AGENTS.md");
 });
 
-test("workspace template has one active topology and no pre-enabled domain materialization", () => {
-  for (const path of [
-    "PROJECT_CONTEXT_INDEX.md",
-    "PROJECT_PROFILE.md",
-    "config.yml",
-    "checklists/README.md",
-    "proposals/README.md",
-    "reports/README.md",
-    "archive/README.md",
-  ]) {
-    assert.ok(existsSync(resolveTemplate(path)), `missing template path: ${path}`);
+test("the workspace template is a complete, valid Schema 2 scaffold", async () => {
+  for (const path of TEMPLATE_FILES) {
+    assert.ok(existsSync(resolveTemplate(path)), `missing template file: ${path}`);
   }
+  for (const directory of TEMPLATE_DIRECTORIES) {
+    assert.ok(statSync(resolveTemplate(directory)).isDirectory(), `missing template directory: ${directory}`);
+    assert.deepEqual(
+      readdirSync(resolveTemplate(directory)).filter((entry) => entry !== ".gitkeep"),
+      [],
+      `template directory ${directory} must ship empty`,
+    );
+  }
+  for (const obsoletePath of ["PROJECT_CONTEXT_INDEX.md", "PROJECT_PROFILE.md", "checklists", "mistakes", "receipts"]) {
+    assert.equal(existsSync(resolveTemplate(obsoletePath)), false, `template still ships Schema 1 path: ${obsoletePath}`);
+  }
+  assert.deepEqual(inspectConfig(parseYaml(read("templates/.agent-context/config.yml"))).failures, []);
+  assert.equal(read("templates/.agent-context/STATE.yml"), "[]\n");
 
-  for (const obsoletePath of ["mistakes", "receipts"]) {
-    assert.equal(
-      containsFiles(resolveTemplate(obsoletePath)),
-      false,
-      `template contains obsolete files under: ${obsoletePath}`,
-    );
+  const sandbox = mkdtempSync(join(tmpdir(), "agent-context-template-"));
+  try {
+    cpSync(join(repositoryRoot, "templates", ".agent-context"), join(sandbox, ".agent-context"), { recursive: true });
+    const workspace = await loadWorkspace(sandbox);
+    assert.equal(workspace.status, "ok", JSON.stringify(workspace.failures));
+    assert.deepEqual(workspace.rules, []);
+    assert.deepEqual(workspace.state, []);
+    assert.match(workspace.profile, /^# Profile/u);
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
   }
-  for (const domainFile of ["coding.md", "prd.md", "seo.md"]) {
-    assert.equal(
-      existsSync(resolveTemplate(`checklists/${domainFile}`)),
-      false,
-      `template prematurely materializes domain checklist: ${domainFile}`,
-    );
+});
+
+test("demo and dogfood workspaces are Schema 2 and their catalog blocks match a fresh render", async () => {
+  const packageJson = readJson("package.json");
+  for (const relativeRoot of FIXTURE_WORKSPACES) {
+    const workspaceRoot = join(repositoryRoot, relativeRoot);
+    const workspace = await loadWorkspace(workspaceRoot);
+    assert.equal(workspace.status, "ok", `${relativeRoot}: ${JSON.stringify(workspace.failures)}`);
+    assert.ok(workspace.rules.length > 0, `${relativeRoot} should carry at least one rule`);
+    assert.equal(workspace.config.kit_version, packageJson.version, `${relativeRoot} config.kit_version is stale`);
+    for (const obsoletePath of ["PROJECT_CONTEXT_INDEX.md", "PROJECT_PROFILE.md", "checklists", "mistakes"]) {
+      assert.equal(existsSync(join(workspace.contextRoot, obsoletePath)), false, `${relativeRoot} still has ${obsoletePath}`);
+    }
+
+    const agentsSource = read(join(relativeRoot, workspace.config.agents_file));
+    const header = /<!-- acp-catalog: kit=(\S+) schema=2 rendered=(\S+) rules=\d+ state=\d+ -->/u.exec(agentsSource);
+    assert.ok(header, `${relativeRoot}: instruction file has no acp-catalog block`);
+    assert.equal(header[1], packageJson.version, `${relativeRoot}: catalog was rendered by a stale kit`);
+    const fresh = renderCatalog(workspace, { renderedAt: header[2], kitVersion: header[1] });
+    assert.ok(agentsSource.replaceAll("\r\n", "\n").includes(fresh.text), `${relativeRoot}: catalog block is stale; re-render with evolve catalog --write`);
+    assert.ok(fresh.bytes <= workspace.config.budgets.catalog_bytes, `${relativeRoot}: catalog exceeds its budget`);
+
+    for (const proposal of readdirSync(join(workspace.contextRoot, "proposals")).filter((entry) => entry.endsWith(".md"))) {
+      const { data, body } = parseFrontmatter(read(join(relativeRoot, ".agent-context", "proposals", proposal)), proposal);
+      assert.equal(data.decision, "auto_applied", `${proposal} must document an applied audit`);
+      assert.equal(data.kit_version, packageJson.version);
+      assert.match(body, /## Diff\n\n```diff\n/u, `${proposal} must carry a unified diff, not a full file copy`);
+      for (const target of data.targets) {
+        assert.ok(data.after_hashes[target], `${proposal} lacks an after hash for ${target}`);
+      }
+    }
   }
+});
+
+test("the fake JavaScript demo rule points at the behavior its test protects", async () => {
+  const workspace = await loadWorkspace(join(repositoryRoot, "demos", "fake-js-repo"));
+  const rule = workspace.rules.find((entry) => entry.id === "greeting-preserve-caller-name");
+  assert.ok(rule, "demo rule greeting-preserve-caller-name is missing");
+  assert.equal(rule.kind, "gate");
+  assert.deepEqual(rule.applies_to.paths, ["src/greeting.js"]);
+  assert.match(read("demos/fake-js-repo/test/greeting.test.js"), /greeting must preserve caller-provided names/u);
 });
 
 test("the public update surface is release-based, explicit, and workspace-independent", () => {
@@ -102,12 +155,13 @@ test("the public update surface is release-based, explicit, and workspace-indepe
   assert.match(powershellInstaller, /UpdateApply/iu);
   assert.match(bashInstaller, /update-dry-run/iu);
   assert.match(bashInstaller, /update-apply/iu);
-  assert.match(skill, /never poll in\s+the background/iu);
-  assert.match(skill, /never.*workspace-schema migration/isu);
+  assert.match(bashInstaller, /migrate-v1/u, "bash installer must tell Schema 1 users to run migrate-v1");
+  assert.match(powershellInstaller, /migrate-v1/u, "PowerShell installer must tell Schema 1 users to run migrate-v1");
+  assert.match(skill, /acp-catalog/u);
+  assert.match(skill, /migrate-v1/u);
+  assert.match(skill, /select/u);
   assert.match(updatePolicy, /GitHub-enforced immutable Release/iu);
   assert.match(updatePolicy, /Create a draft/iu);
-  assert.match(installGuide, /One-time handoff from v0\.2\.0/iu);
-  assert.match(readme, /v0\.2\.0 skill predates `\$evolve update`/iu);
 });
 
 test("Kit Version check treats CRLF JSON as semantically synchronized", () => {
@@ -121,7 +175,6 @@ test("Kit Version check treats CRLF JSON as semantically synchronized", () => {
     "plugins/agent-context-patch/.claude-plugin/plugin.json",
     "docs/launch/experiment.json",
     "templates/.agent-context/config.yml",
-    "skills/evolve/references/config-schema.md",
   ];
 
   try {
@@ -177,7 +230,7 @@ test("the Claude marketplace resolves install and synchronized source snapshot s
     "source-snapshot",
   ]);
   const skillPath = join(skillsRoot, "install", "SKILL.md");
-  const { data } = parseMarkdownFrontmatter(readFileSync(skillPath, "utf8"), skillPath);
+  const { data } = parseFrontmatter(readFileSync(skillPath, "utf8"), skillPath);
   assert.deepEqual({ ...data }, {
     name: "install",
     description:
@@ -189,7 +242,7 @@ test("the Claude marketplace resolves install and synchronized source snapshot s
     stdio: "pipe",
   });
   const sourceSnapshotSkillPath = join(skillsRoot, "source-snapshot", "SKILL.md");
-  const sourceSnapshotFrontmatter = parseMarkdownFrontmatter(
+  const sourceSnapshotFrontmatter = parseFrontmatter(
     readFileSync(sourceSnapshotSkillPath, "utf8"),
     sourceSnapshotSkillPath,
   );
@@ -225,143 +278,23 @@ test("the discoverability clock is bound to the first external distribution even
   );
 });
 
-test("template config expresses the v1 policy and health thresholds", () => {
-  const path = "templates/.agent-context/config.yml";
-  assert.deepEqual(validateConfigDocument(read(path), path), []);
-});
-
-test("personal dogfooding is an installed reference and this repository follows Schema 1", () => {
-  const playbookPath = "skills/evolve/references/personal-dogfooding.zh-CN.md";
-  const playbook = read(playbookPath);
-  const skill = read("skills/evolve/SKILL.md");
-  const profile = read(".agent-context/PROJECT_PROFILE.md");
-
-  assert.match(skill, /references\/personal-dogfooding\.zh-CN\.md/u);
-  for (const token of [
-    "Default Personal Loop",
-    "$evolve after-failure",
-    "Weekly Review",
-    "Promotion Gate",
-    "Success Check",
+test("the Schema 1 runtime surface is gone", () => {
+  for (const stalePath of [
+    "skills/evolve/runtime/lifecycle.mjs",
+    "skills/evolve/runtime/outcome.mjs",
+    "skills/evolve/runtime/context-compiler.mjs",
+    "skills/evolve/runtime/proposal-store.mjs",
+    "skills/evolve/references/protocol-v1.md",
+    "skills/evolve/references/config-schema.md",
+    "tests/kernel",
+    "tests/lifecycle",
   ]) {
-    assert.ok(playbook.includes(token), `${playbookPath} is missing: ${token}`);
+    assert.equal(existsSync(join(repositoryRoot, stalePath)), false, `Schema 1 surface still present: ${stalePath}`);
   }
-
-  assert.deepEqual(
-    validateConfigDocument(read(".agent-context/config.yml"), ".agent-context/config.yml"),
-    [],
-  );
-  assert.match(profile, /0\.5\.1 observable-delivery/u);
-  assert.match(profile, /personal-dogfooding\.zh-CN\.md/u);
-  assert.equal(
-    containsFiles(join(repositoryRoot, ".agent-context", "mistakes")),
-    false,
-    "dogfood context revived the obsolete mistakes store",
-  );
-});
-
-test("the auto-first fresh-Agent acceptance evidence is retained", () => {
-  const acceptance = read("docs/acceptance/2026-07-12-auto-first-fresh-context.md");
-
-  assert.match(acceptance, /^- Result: PASS$/mu);
-  assert.match(acceptance, /No approval turn\s+occurred/u);
-  assert.match(acceptance, /production proposal validator returned no failures/u);
-  assert.match(acceptance, /Proposal count remained zero/u);
-  assert.match(acceptance, /no raw conversation/u);
-});
-
-test("the observable delivery fresh-Agent acceptance evidence is retained", () => {
-  const acceptance = read(
-    "docs/acceptance/2026-07-19-observable-delivery-checkpoint.md",
-  );
-
-  assert.match(acceptance, /^- Result: PASS$/mu);
-  assert.match(acceptance, /without naming `?\$?evolve`?/iu);
-  assert.match(acceptance, /detect=candidate/u);
-  assert.match(acceptance, /propose=created/u);
-  assert.match(acceptance, /apply=applied/u);
-  assert.match(acceptance, /production proposal validator returned no failures/iu);
-  assert.match(acceptance, /Proposal count remained zero/u);
-  assert.match(acceptance, /no durable context write/iu);
-  assert.match(acceptance, /no evolution receipt/iu);
-  assert.match(acceptance, /no raw conversation/iu);
-  assert.match(acceptance, /no private absolute workspace path/iu);
-});
-
-test("lifecycle transitions have one Coordinator-owned runtime contract", () => {
-  const contract = read("skills/evolve/runtime/lifecycle-contract.mjs");
-  const coordinator = read("skills/evolve/runtime/lifecycle.mjs");
-  const outcome = read("skills/evolve/runtime/outcome.mjs");
-
-  assert.match(contract, /function isLifecycleOutcome/u);
-  assert.match(contract, /function deriveLifecycleReconciliationStatus/u);
-  assert.match(coordinator, /from "\.\/lifecycle-contract\.mjs"/u);
-  assert.match(coordinator, /deriveLifecycleReconciliationStatus/u);
-  assert.match(outcome, /from "\.\/lifecycle-contract\.mjs"/u);
-  assert.match(outcome, /isLifecycleOutcome/u);
-  assert.doesNotMatch(outcome, /function validCoordinatorTransition/u);
-});
-
-test("the applied demo proposal is a valid v1 evolution aggregate", () => {
-  const proposalPath =
-    "demos/fake-js-repo/.agent-context/proposals/2026-07-09-greeting-contract.md";
-  const source = read(proposalPath);
-  const { data } = parseMarkdownFrontmatter(source, proposalPath);
-
-  assert.equal(data.status, "applied", "demo must exercise the applied audit path");
-  assert.match(source, /"requestedPolicy": "auto"/u);
-  assert.match(source, /"policy": "auto"/u);
-  assert.match(source, /^- decision: policy_auto$/mu);
-  assert.match(source, /^  result: applied$/mu);
-  assert.deepEqual(validateProposalDocument(source, proposalPath), []);
-});
-
-test("the demo Apply Attempt hashes describe its actual two-file transition", () => {
-  const proposal = read(
-    "demos/fake-js-repo/.agent-context/proposals/2026-07-09-greeting-contract.md",
-  );
-  const transitions = [
-    {
-      target: ".agent-context/PROJECT_PROFILE.md",
-      repositoryPath: "demos/fake-js-repo/.agent-context/PROJECT_PROFILE.md",
-      addedLine: "- Greeting output must preserve caller-provided names.\n",
-    },
-    {
-      target: ".agent-context/checklists/coding.md",
-      repositoryPath: "demos/fake-js-repo/.agent-context/checklists/coding.md",
-      addedLine: "- Preserve caller-provided names in greeting output.\n",
-    },
-  ];
-
-  for (const { target, repositoryPath, addedLine } of transitions) {
-    const after = readFileSync(join(repositoryRoot, repositoryPath));
-    const addition = Buffer.from(addedLine, "utf8");
-    const additionAt = after.indexOf(addition);
-    assert.notEqual(additionAt, -1, `${repositoryPath} is missing its demonstrated addition`);
-    const before = Buffer.concat([
-      after.subarray(0, additionAt),
-      after.subarray(additionAt + addition.length),
-    ]);
-    assert.match(
-      proposal,
-      new RegExp(`${escapeRegExp(target)}:\\s+${sha256(before)}`, "u"),
-      `proposal before_hash does not reconstruct ${target}`,
-    );
-    assert.match(
-      proposal,
-      new RegExp(`${escapeRegExp(target)}:\\s+${sha256(after)}`, "u"),
-      `proposal after_hash does not match ${target}`,
-    );
+  for (const runtimeFile of ["cli.mjs", "index.mjs", "apply.mjs", "select.mjs", "catalog.mjs", "workspace.mjs", "migrate-v1.mjs"]) {
+    assert.ok(existsSync(join(repositoryRoot, "skills", "evolve", "runtime", runtimeFile)), `runtime file missing: ${runtimeFile}`);
   }
 });
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-}
-
-function sha256(value) {
-  return createHash("sha256").update(value).digest("hex");
-}
 
 function read(relativePath) {
   return readFileSync(join(repositoryRoot, relativePath), "utf8");
@@ -373,10 +306,4 @@ function readJson(relativePath) {
 
 function resolveTemplate(relativePath) {
   return join(repositoryRoot, "templates", ".agent-context", relativePath);
-}
-
-function containsFiles(path) {
-  if (!existsSync(path)) return false;
-  if (statSync(path).isFile()) return true;
-  return readdirSync(path).some((entry) => containsFiles(join(path, entry)));
 }

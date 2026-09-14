@@ -278,7 +278,7 @@ function ConvertFrom-V1YamlDocument([string]$Source) {
     }
 
     if ($record.Content -ceq "-" -or $record.Content.StartsWith("- ")) {
-      if (-not $parent -or $parent.Path -cne "enabled_domains") {
+      if (-not $parent) {
         throw "line $($record.Line) has an unsupported sequence"
       }
       $rawItem = $record.Content.Substring(1).Trim()
@@ -387,115 +387,24 @@ function Compare-SemanticVersion([string]$Left, [string]$Right) {
   return 0
 }
 
-function Test-V1ConfigDocument([string]$Source) {
+function Test-WorkspaceConfigDocument([string]$Source) {
+  # Schema 2 is the current workspace schema. The installer only needs a light
+  # check here: the document must parse and schema_version must be the
+  # integer 2. Everything else in the file is owned by the evolve runtime.
   try {
     $entries = ConvertFrom-V1YamlDocument $Source
   } catch {
     return "yaml-syntax-invalid"
   }
-
-  $requiredPaths = [string[]]@(
-    "schema_version",
-    "created_with_kit_version",
-    "last_migrated_with_kit_version",
-    "context_write_policy",
-    "enabled_domains",
-    "budgets",
-    "budgets.active_context",
-    "budgets.active_context.unit",
-    "budgets.active_context.warn",
-    "budgets.active_context.block_auto",
-    "budgets.single_proposal",
-    "budgets.single_proposal.unit",
-    "budgets.single_proposal.warn",
-    "budgets.pending_proposals",
-    "budgets.pending_proposals.unit",
-    "budgets.pending_proposals.warn",
-    "budgets.pending_proposals.block_auto",
-    "privacy",
-    "privacy.raw_conversation_stored",
-    "privacy.full_logs_stored",
-    "privacy.secrets_stored",
-    "privacy.customer_data_stored",
-    "privacy.absolute_user_paths_stored"
-  )
-  $allowed = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-  foreach ($path in $requiredPaths) { $allowed.Add($path) | Out-Null }
-  foreach ($path in $entries.Keys) {
-    if (-not $allowed.Contains($path)) { return "unsupported-key" }
-  }
-  foreach ($path in $requiredPaths) {
-    if (-not $entries.ContainsKey($path)) { return "missing-required-key" }
-  }
-
-  foreach ($container in [string[]]@(
-    "budgets",
-    "budgets.active_context",
-    "budgets.single_proposal",
-    "budgets.pending_proposals",
-    "privacy"
-  )) {
-    if ($entries[$container].Kind -cne "container") { return "mapping-required" }
-  }
-  if ($entries["schema_version"].Kind -cne "integer" -or $entries["schema_version"].Value -ne 1) {
+  if (-not $entries.ContainsKey("schema_version") -or
+    $entries["schema_version"].Kind -cne "integer" -or
+    $entries["schema_version"].Value -ne 2) {
     return "schema-version-invalid"
-  }
-  if ($entries["created_with_kit_version"].Kind -cne "string" -or
-    -not (Test-SemanticVersion $entries["created_with_kit_version"].Value)) {
-    return "created-kit-version-invalid"
-  }
-  $migratedVersion = $entries["last_migrated_with_kit_version"]
-  if (-not (($migratedVersion.Kind -ceq "null") -or
-    ($migratedVersion.Kind -ceq "string" -and (Test-SemanticVersion $migratedVersion.Value)))) {
-    return "migrated-kit-version-invalid"
-  }
-  $policy = $entries["context_write_policy"]
-  if ($policy.Kind -cne "string" -or
-    -not ($policy.Value -ceq "propose" -or $policy.Value -ceq "auto")) {
-    return "write-policy-invalid"
-  }
-
-  $domains = $entries["enabled_domains"]
-  if ($domains.Kind -cne "list") { return "enabled-domains-invalid" }
-  $seenDomains = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-  foreach ($domain in $domains.Value) {
-    if ($domain.Type -cne "string" -or $domain.Value -cnotmatch '^[a-z0-9][a-z0-9-]*$') {
-      return "enabled-domain-invalid"
-    }
-    if (-not $seenDomains.Add($domain.Value)) { return "enabled-domain-duplicate" }
-  }
-
-  foreach ($budget in @(
-    @{ Path = "budgets.active_context"; Unit = "lines"; Bounded = $true },
-    @{ Path = "budgets.single_proposal"; Unit = "lines"; Bounded = $false },
-    @{ Path = "budgets.pending_proposals"; Unit = "count"; Bounded = $true }
-  )) {
-    $unit = $entries["$($budget.Path).unit"]
-    $warn = $entries["$($budget.Path).warn"]
-    if ($unit.Kind -cne "string" -or $unit.Value -cne $budget.Unit) { return "budget-unit-invalid" }
-    if ($warn.Kind -cne "integer" -or $warn.Value -le 0) { return "budget-warning-invalid" }
-    if ($budget.Bounded) {
-      $block = $entries["$($budget.Path).block_auto"]
-      if ($block.Kind -cne "integer" -or $block.Value -le $warn.Value) {
-        return "budget-block-invalid"
-      }
-    }
-  }
-
-  foreach ($privacyKey in [string[]]@(
-    "raw_conversation_stored",
-    "full_logs_stored",
-    "secrets_stored",
-    "customer_data_stored",
-    "absolute_user_paths_stored"
-  )) {
-    $privacy = $entries["privacy.$privacyKey"]
-    if ($privacy.Kind -cne "boolean" -or $privacy.Value -ne $false) { return "privacy-invalid" }
   }
   return ""
 }
 
-function Get-V1ConfigClassification([string]$Source) {
+function Get-WorkspaceConfigClassification([string]$Source) {
   $normalized = $Source
   if ($normalized.Length -gt 0 -and [int]$normalized[0] -eq 0xFEFF) {
     $normalized = $normalized.Substring(1)
@@ -508,7 +417,7 @@ function Get-V1ConfigClassification([string]$Source) {
     }
   }
   if ($schemaValues.Count -eq 0) {
-    return [pscustomobject]@{ Kind = "legacy"; Version = ""; Reason = "missing-schema-version" }
+    return [pscustomobject]@{ Kind = "legacy"; Version = ""; Reason = "legacy-v0-is-read-only" }
   }
   if ($schemaValues.Count -gt 1) {
     return [pscustomobject]@{ Kind = "conflict"; Version = ""; Reason = "duplicate-schema-version" }
@@ -524,17 +433,20 @@ function Get-V1ConfigClassification([string]$Source) {
   if ($schema.Value -eq 0) {
     return [pscustomobject]@{ Kind = "legacy"; Version = "0"; Reason = "legacy-v0-is-read-only" }
   }
-  if ($schema.Value -gt 1) {
+  if ($schema.Value -eq 1) {
+    return [pscustomobject]@{ Kind = "legacy"; Version = "1"; Reason = "schema-1-run-evolve-migrate-v1" }
+  }
+  if ($schema.Value -gt 2) {
     return [pscustomobject]@{ Kind = "future"; Version = [string]$schema.Value; Reason = "newer-bootstrap-required" }
   }
-  if ($schema.Value -ne 1) {
+  if ($schema.Value -ne 2) {
     return [pscustomobject]@{ Kind = "invalid"; Version = [string]$schema.Value; Reason = "schema-version-invalid" }
   }
-  $reason = Test-V1ConfigDocument $Source
+  $reason = Test-WorkspaceConfigDocument $Source
   if ($reason) {
-    return [pscustomobject]@{ Kind = "invalid"; Version = "1"; Reason = $reason }
+    return [pscustomobject]@{ Kind = "invalid"; Version = "2"; Reason = $reason }
   }
-  return [pscustomobject]@{ Kind = "valid"; Version = "1"; Reason = "" }
+  return [pscustomobject]@{ Kind = "valid"; Version = "2"; Reason = "" }
 }
 
 function Get-TreeFingerprint([string]$Root) {
@@ -887,7 +799,7 @@ function Add-TreePlan([string]$SourceRoot, [string]$DestinationRoot, [string]$Ki
     $sourceHash = Get-Sha256File $_.FullName
     if (-not (Test-Path -LiteralPath $destination)) {
       Add-PlanAction "Create" $Kind $_.FullName $destination "source-sha256=$sourceHash"
-    } elseif ((Get-Item -LiteralPath $destination).PSIsContainer) {
+    } elseif ((Get-Item -LiteralPath $destination -Force).PSIsContainer) {
       Add-PlanAction "Conflict" $Kind $_.FullName $destination "target-is-directory;source-sha256=$sourceHash"
     } elseif ($sourceHash -eq (Get-Sha256File $destination)) {
       Add-PlanAction "Skip" $Kind $_.FullName $destination "identical;source-sha256=$sourceHash"
@@ -912,19 +824,19 @@ if ($contextReparsePoint) {
   $legacyWorkspace = $true
   Add-PlanAction "Conflict" "workspace-context" "" $legacyConfig "config-is-not-a-file"
 } elseif (Test-Path -LiteralPath $legacyConfig -PathType Leaf) {
-  $configClassification = Get-V1ConfigClassification (Get-Content -Raw -LiteralPath $legacyConfig)
+  $configClassification = Get-WorkspaceConfigClassification (Get-Content -Raw -LiteralPath $legacyConfig)
   if ($configClassification.Kind -ceq "conflict") {
     $legacyWorkspace = $true
     Add-PlanAction "Conflict" "workspace-context" "" $legacyConfig $configClassification.Reason
   } elseif ($configClassification.Kind -ceq "legacy") {
     $legacyWorkspace = $true
-    Add-PlanAction "MigrationRequired" "workspace-context" "" $legacyConfig "legacy-v0-is-read-only"
+    Add-PlanAction "MigrationRequired" "workspace-context" "" $legacyConfig $configClassification.Reason
   } elseif ($configClassification.Kind -ceq "future") {
     $legacyWorkspace = $true
     Add-PlanAction "UpgradeRequired" "workspace-context" "" $legacyConfig "schema-version=$($configClassification.Version);newer-bootstrap-required"
   } elseif ($configClassification.Kind -ceq "invalid") {
     $legacyWorkspace = $true
-    Add-PlanAction "InvalidConfig" "workspace-context" "" $legacyConfig "schema-v1-envelope-invalid;$($configClassification.Reason)"
+    Add-PlanAction "InvalidConfig" "workspace-context" "" $legacyConfig "schema-2-config-invalid;$($configClassification.Reason)"
   }
 } elseif ((Test-Path -LiteralPath $targetRoot -PathType Container) -and
   @(Get-ChildItem -LiteralPath $targetRoot -Force).Count -gt 0) {

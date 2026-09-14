@@ -1,26 +1,13 @@
-schema_version: 1
-created_with_kit_version: "0.6.1"
-last_migrated_with_kit_version: null
-
-context_write_policy: auto
-enabled_domains: []
-
+schema_version: 2
+kit_version: "0.7.0"
+write_policy: auto
+agents_file: AGENTS.md
 budgets:
-  active_context:
-    unit: lines
-    warn: 500
-    block_auto: 800
-  single_proposal:
-    unit: lines
-    warn: 220
-  pending_proposals:
-    unit: count
-    warn: 8
-    block_auto: 12
-
-privacy:
-  raw_conversation_stored: false
-  full_logs_stored: false
-  secrets_stored: false
-  customer_data_stored: false
-  absolute_user_paths_stored: false
+  catalog_bytes: 8192
+  hook_bytes: 160
+  body_bytes: 1500
+  select_bytes: 12288
+  similarity_block: 0.5
+state:
+  default_ttl_days: 14
+  max_ttl_days: 90

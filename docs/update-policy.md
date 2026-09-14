@@ -44,9 +44,10 @@ creation-version metadata describes provenance; it is not an equality lock to
 the currently installed Kit Version.
 
 If the current Workspace Schema is supported, upgrading the Kit must not rewrite
-the workspace merely to refresh version metadata. If migration is needed, it is
-planned, approved, backed up, and applied separately from the Kit upgrade. A
-future unsupported schema remains read-only.
+the workspace merely to refresh version metadata. If migration is needed, it
+runs separately from the Kit upgrade through `evolve migrate-v1`, only when the
+user asks; the original files are kept under `archive/`. A future unsupported
+schema remains read-only.
 
 ## Upgrade protocol
 

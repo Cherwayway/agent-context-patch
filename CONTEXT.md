@@ -2,205 +2,154 @@
 
 ## Purpose
 
-Agent Context Patch turns reusable, evidence-backed lessons into small,
-reviewable workspace context. It fixes the current task first and never treats
-context growth as success by itself.
+Agent Context Patch turns reusable, evidence-backed lessons into small
+workspace context that every later task actually sees. It fixes the current
+task first, puts the read side in the instruction file so no read decision is
+needed, and never treats context growth as success by itself.
 
 ## Ubiquitous Language
 
-- **Workspace**: the only active writable scope in v1. It may be a Git repo, a
-  multi-repo directory, or a non-code folder.
-- **Active Context**: current workspace guidance eligible for ordinary tasks:
-  the context index, project profile, and enabled checklists. Active does not
-  mean selected, loaded, or materially used on every task.
-- **Context Compiler**: a deterministic read-only runtime that renders core,
-  unmarked guidance, a derived catalog, selected packs, and bounded proposal
-  attention into one ephemeral model-visible payload. Ambiguity falls back to
-  the complete legacy read set.
-- **Context Block**: a core or task-routed pack whose strict JSON routing
-  metadata is co-located with its Active Markdown content.
-- **Catalog**: the ephemeral inventory derived from Context Blocks. It is not a
-  persisted registry or another source of truth.
-- **Task Signature**: content-safe structured routing inputs: operations,
-  workspace-relative paths, tools, skills, domains, risk, and explicitly
-  requested packs. It contains no raw prompt.
-- **Proposal Attention**: up to three non-authoritative pointers derived from
-  valid non-terminal proposal frontmatter. It requires current-source
-  verification and never promotes proposal body into Active Context.
-- **Proposal**: the internal evolution aggregate for one lesson. It owns the
-  evidence, exact patch, decision log, and apply attempts; it is not a default
-  user approval inbox.
-- **PatchPlan**: the exact, immutable file operations prepared for application.
-  A decision binds to its `planHash`. It persists workspace-relative targets;
-  the absolute runtime workspace root is injected only at apply time.
-- **Decision**: an automatic policy decision, approval, or rejection of one
-  PatchPlan.
-- **ApplyAttempt**: the result of committing an authorized PatchPlan, including
-  relative targets and before/after hashes but not duplicated patch content.
-- **Lifecycle Reconciliation**: a deterministic pass over unfinished proposals
-  that compares each immutable PatchPlan with live target hashes, resumes only
-  exact safe work, and reports semantic or audit recovery to the Agent.
-- **Lifecycle Coordinator**: the deep runtime module that performs Lifecycle
-  Reconciliation around, but not inside, the Commit Kernel.
-- **Evolution Outcome**: an ephemeral, content-safe task result with Agent-owned
-  detect/propose stages and a mechanically evidenced apply stage. It never
-  replaces proposal audit.
-- **Delivery Checkpoint**: the post-verification, high-signal-only point where
-  an Agent finalizes and reports one Evolution Outcome.
-- **Promotion**: an approved proposal to generalize a workspace lesson into
-  user-level guidance. User-global context is never an active v1 write scope.
-- **Domain Candidate**: an Agent-detected domain with evidence and confidence.
-- **Enabled Domain**: a user-approved domain recorded in config. Only enabled
-  domains materialize active checklists.
-- **Authority**: which evidence wins when context conflicts.
-- **Retention Value**: whether a rule still earns space in Active Context.
-- **Legacy Workspace**: an unversioned `.agent-context/` tree. It is read-only
-  until an approved migration is applied.
-- **Kit Version**: the semantic version of one Agent Context Patch
-  distribution. It identifies product behavior and is independent of durable
-  workspace compatibility.
+- **Workspace**: the only writable scope. It may be a Git repo, a multi-repo
+  directory, or a non-code folder. Its context lives under `.agent-context/`.
 - **Workspace Schema**: the versioned compatibility contract for durable
-  workspace context. It changes only when existing context needs migration,
-  not whenever the Kit Version changes.
+  workspace context. Kit 0.7.0 reads and writes Schema 2 only.
+- **Instruction file**: the file the agents already read (`AGENTS.md` by
+  default, imported by `CLAUDE.md`). It carries the catalog block; nothing
+  else in it is ever edited by the runtime.
+- **Catalog**: the generated managed block in the instruction file between
+  `<!-- acp-catalog: ... -->` and `<!-- /acp-catalog -->`: one hook per active
+  rule grouped by `<repo> · <op>`, then STATE. It is derived from `rules/` and
+  `STATE.yml`, never a source of truth, and bounded by `catalog_bytes`.
+- **Rule**: one file, `rules/<id>.md`, with frontmatter and a body of at most
+  1500 bytes. It is a lesson that should still hold next quarter.
+- **Hook**: the rule's one-line summary (at most 160 bytes), written as
+  "situation + action" so it is usable without the body. Hooks are what the
+  catalog shows and what the similarity gate compares.
+- **Kind**: `gate` (must be satisfied before an action; selected even when
+  global), `advice` (improves an outcome), `fact` (a verified property).
+- **applies_to**: the rule's scope: `repos`, `paths` (globs), `ops`, `skills`.
+  A rule with no scope is global.
+- **STATE**: dated working state in `STATE.yml`. Every entry has an expiry
+  (default 14 days, at most 90, never `never`) and one line of text. Expired
+  entries leave the catalog and are archived automatically.
+- **Profile**: `PROFILE.md`, verified workspace facts only. Replaced whole by
+  a `profile` operation that carries the current content hash.
+- **Task signature**: content-safe structured input to `select`: `repos`,
+  `paths`, `ops`, `skills`, explicit `ids`. It never contains the prompt.
+- **Select**: the read-side command that returns the bodies of rules matching
+  a task signature, gates first, capped by `select_bytes`.
+- **Consult**: the writeback of real use: `consulted`, `last_consulted`, and
+  `missed` counters in rule frontmatter. "Consulted" means the rule influenced
+  the work; "missed" means it was relevant but found too late.
+- **Proposal**: the JSON input to `apply`: id, trigger, `fix_status`,
+  evidence, optional observed and root cause, and 1 to 20 operations.
+- **Operation**: `add`, `supersede`, `retire`, `state_set`, `state_clear`, or
+  `profile`.
+- **Gate**: a mechanical check inside `apply`. The reason codes are fixed:
+  `invalid_proposal`, `invalid_rule`, `invalid_state`, `privacy_hazard`,
+  `current_fix_not_verified`, `similar_rule_exists`,
+  `catalog_budget_exceeded`, `profile_changed`, `no_effective_change`,
+  `policy_requires_approval`, `workspace_locked`, `proposal_exists`,
+  `commit_failed`.
+- **Proposal audit**: `proposals/<id>.md`, written in the same call as the
+  change: frontmatter with hashes and targets, short narrative sections, and a
+  unified diff. Never full file contents.
+- **Receipt**: the one line printed after the checkpoint.
+  `Evolution outcome: detect=...; propose=...; apply=...` for evolution and
+  `Context use: consulted=...` for consultation. The applied receipt is
+  produced by the runtime and never hand-formatted.
+- **Delivery checkpoint**: the post-verification, high-signal-only point
+  where an Agent authors one proposal and calls `apply`, or stays silent.
+- **Weekly report**: `reports/weekly-<date>.md`, a rebuildable view built from
+  consult counters, hook similarity, and state expiry. It recommends; it never
+  removes.
+- **Memory bridge**: `memory-sync`, which regenerates Claude Code's
+  per-project `MEMORY.md` as a view that keeps only `user`-type memories and
+  reports `feedback` and `project` memories as migration candidates.
+- **Migration (`migrate-v1`)**: the one-shot, lossy conversion of a Schema 1
+  workspace. Its output is draft rules flagged `needs_rewrite` plus an
+  `archive/` of the original files.
+- **Kit Version**: the semantic version of one Agent Context Patch
+  distribution. It identifies product behavior and is independent of the
+  Workspace Schema.
 - **Release**: an immutable, published distribution of exactly one Kit
   Version. A development branch or moving source snapshot is not a Release.
 - **Upgrade Plan**: the exact, reviewable proposal for replacing one installed
-  Kit Version with another, including exact installed/candidate managed-tree
-  identities, replacement scope, and recovery expectations. Its approval does
-  not authorize a Workspace Schema migration.
+  Kit Version with another. Its approval does not authorize a Workspace Schema
+  migration.
 - **Feedback Signal**: a privacy-minimized, reproducible observation from real
   use that can justify or evaluate an iteration. Raw conversations, full logs,
   and untested ideas are not Feedback Signals.
 - **Source Snapshot**: an ephemeral, workspace-external, read-only tree bound
-  to an exact remote Git ref and commit after live resolution and isolated
-  fetch identities match. It is task evidence, not Active Context.
+  to an exact remote Git ref and commit. It is task evidence, not context.
 
 ## Deep Modules And Seams
 
-- `$evolve` is the Agent-facing interface for `init`, `after-failure`,
-  `approve`, `review-context`, `weekly`, and `update`.
+- `$evolve` is the Agent-facing interface. Its CLI is
+  `node <installed-skill>/runtime/cli.mjs <command>` with `init`, `status`,
+  `catalog`, `select`, `apply`, `consult`, `expire`, `weekly`, `memory-sync`,
+  `migrate-v1`, and `receipt`; `$evolve update` is the Kit update entry point.
 - `$source-snapshot` is the independent pre-task interface for pinning current
-  remote Git source without reading from or updating the primary checkout. It
-  has no proposal or context-write authority.
-- The **Context Compiler** accepts a workspace root and structured task
-  signature. It reads Schema 1 Active Context, derives its catalog, selects
-  hard-matched or explicitly requested packs, includes task-relevant safety
-  packs for high-risk work, and returns either one consumer-ready payload or
-  the complete legacy fallback. The derived catalog has a hard 64-block bound.
-  Its bounded scanner parses only proposal frontmatter and emits no proposal
-  body. It makes no model call and has no write or reconciliation authority;
-  v0.6.0 installs no pre-first-model-call hook.
-- The **Commit Kernel** accepts a PatchPlan plus optional external approval and
-  returns an ApplyAttempt. Approval carries the reviewed `planHash` outside the
-  plan, avoiding a self-referential hash. The kernel owns path safety, policy
-  guards, hashes, conflict detection, staging, and rollback.
-- The **Lifecycle Coordinator** accepts only a workspace root. It validates
-  proposal aggregates, classifies live targets as before/after/mixed/changed,
-  resumes exact automatic or already-approved plans through the Commit Kernel,
-  and writes proposal audit state with a lock plus source-hash CAS. It never
-  chooses wording, generates a replacement plan, or infers an applied audit.
-  Its internal lifecycle contract is the single source for output shape,
-  transition validity, and settled-state derivation shared with Outcome.
-- The **Evolution Outcome module** accepts Agent-owned detect/propose results,
-  an optional content-safe proposal ID, and exact Coordinator evidence. It
-  validates legal state families, fails closed on incomplete apply evidence,
-  strips unsafe detail, and formats the shared ephemeral receipt. It never reads
-  or writes workspace files or decides lesson meaning.
-- The **Bootstrap module** plans and applies deterministic skill/template file
-  operations. PowerShell and Bash are its two platform adapters.
-- Codex and Claude guidance files are two Agent adapters. They share the same
-  optional Context Compiler trigger, high-signal Delivery Checkpoint triggers,
-  and Outcome Interface contract, remain short, and load the full skill only
-  when needed. Updating a skill never silently patches an existing adapter.
-- `npm test` is the repository verification interface. Tests cross public seams
-  and must exercise observable file outcomes, not merely search for tokens.
+  remote Git source. It has no context-write authority.
+- `runtime/workspace.mjs` is the Schema 2 contract: config, rule, and state
+  validation, and `loadWorkspace`. Any invalid file invalidates the workspace.
+- `runtime/catalog.mjs` renders the block and replaces it inside the
+  instruction file without touching anything else.
+- `runtime/select.mjs` implements signature normalization and selection.
+- `runtime/apply.mjs` is the only writer of rules, state, profile, and audit.
+  It plans the exact writes without I/O, then commits under
+  `.agent-context/.lock` with rollback.
+- `runtime/consult.mjs`, `runtime/weekly.mjs`, `runtime/memory-bridge.mjs`,
+  `runtime/migrate-v1.mjs`, and `runtime/init.mjs` are single-purpose.
+- The Bootstrap module (PowerShell and Bash) plans and applies deterministic
+  skill and template file operations. It never edits an instruction file and
+  never converts a workspace.
+- Codex and Claude guidance fragments are the two Agent adapters. They are
+  identical apart from the instruction file name.
+- `npm test` is the repository verification interface. Tests exercise
+  observable file outcomes across these seams.
 
 ## Hard Invariants
 
 1. Repair and verify the current task before applying long-term context.
-2. V1 writes Active Context only inside the approved workspace
-   `.agent-context/` root.
-3. New workspaces default to `auto`; eligible low-risk additions complete in
-   the current Agent turn through the Node Commit Kernel. Existing workspace
-   config remains authoritative.
-4. Missing kernel capability downgrades `auto` to `propose` explicitly.
-5. Delete, archive, supersede, migration, instruction-file, and promotion
-   operations always require human approval.
-6. `$evolve after-failure` completes eligible auto plans without another user
-   turn. `$evolve approve` is the exception path; both paths still record
-   separate `approved` and `applied` states.
-7. Every apply requires `currentFixStatus: verified`; approval cannot bypass
-   verification, supported topology, path, or privacy guards.
-8. The proposal aggregate is never a PatchPlan target. Its Decision Log and
-   Apply Attempts stay outside the Commit Kernel boundary.
-9. Unfinished proposals are reconciled before new proposal work. Exact
-   authorization remains reusable only while every target is still at its
-   `beforeHash`; a live `afterHash` without an applied Attempt is an audit
-   recovery blocker, not proof of application.
-10. An approved proposal that never applied may become `superseded` only after
-    a real stale-target conflict and only when the named valid replacement
-    proposal exists.
-11. A non-migration commit requires one complete, valid v1 workspace config.
-   Future schemas remain read-only; a legacy migration must create exact
-   workspace-local backups in the same transaction.
-12. Bootstrap also validates the complete v1 config envelope without requiring
-    Node. Invalid current-looking config is blocked before any template write.
-13. Archive content is append-only history: every archive target is
-    create-only, including after exact approval.
-14. Any target content, operation, policy result, or context-delta change
-   invalidates the approved plan hash.
-15. Domain detection is semantic and temporary; activation is approved and
-   persisted only in `config.enabled_domains`.
-16. Replace before add. Overlap or conflict forces a cleanup proposal instead of
-   automatic accumulation.
-17. Quantity triggers context review; authority and retention value decide what
-    should change. Context is never truncated automatically.
-18. Persist evidence pointers and summaries, not raw conversations or complete
-    logs. Use workspace-relative paths.
-19. Existing instructions, explicit workspace policy, and legacy context are
-   never silently overwritten.
-20. After a verified high-signal repair, one Evolution Outcome reports detect,
-   propose, and apply. Applied requires settled exact Coordinator evidence;
-   unsafe or incomplete evidence fails closed.
-21. Ordinary no-trigger work emits no evolution receipt and creates no proposal
-    or durable context write merely to record a no-op.
-22. Source Snapshot receipts and trees stay outside `.agent-context/`; failure
-    to resolve or fetch an exact remote identity fails closed, and cleanup may
-    remove only the task-owned session after integrity verification.
-23. Context compilation is read-only and ephemeral. It creates no catalog,
-    receipt, task ledger, telemetry, or workspace write.
-24. Core and unmarked guidance are never dropped. Invalid routing, an unknown
-    explicit request, or missing high-risk safety coverage falls back to the
-    complete legacy read set instead of a partial result. High-risk attention
-    overflow or an unrouted non-terminal proposal also forces fallback.
-25. Proposal attention uses only bounded non-terminal frontmatter and is not
-    truth, approval, relevance proof, or effectiveness evidence.
-26. Moving existing always-visible guidance into a pack is semantic narrowing,
-    requires reviewed cleanup, and is never a bulk Schema migration.
+2. The runtime writes only under `.agent-context/` and inside the managed
+   catalog block of the instruction file.
+3. The catalog is derived. Hand edits to `rules/` are allowed but must be
+   followed by `catalog --write`; hand edits to the block are not.
+4. Every `apply` requires `fix_status: verified` and a clean privacy scan.
+   `--approved` cannot bypass either.
+5. Replace before add is mechanical: a similar hook or an over-budget catalog
+   blocks an add until something is superseded or retired.
+6. An apply is all-or-nothing: files, audit, and catalog are written under a
+   lock, and every written file is restored on failure.
+7. Applied is never inferred. The applied receipt comes from `apply`.
+8. STATE entries always expire; nothing dated is stored as a rule.
+9. Evidence is pointer-first and summary-first. Secrets, raw conversation,
+   complete logs, customer data, and absolute user paths are never persisted.
+10. Ordinary no-trigger work emits no receipt and creates no proposal.
+11. At the end of a task that read rule bodies, `consult` is recorded.
+12. Existing instruction content and explicit workspace policy are never
+    silently overwritten. Schema 1 is converted only by an explicit
+    `migrate-v1` run.
+13. Kit updates run only on `$evolve update`, never poll in the background,
+    and never authorize a workspace-schema migration.
+14. Source Snapshot receipts and trees stay outside `.agent-context/`.
 
 ## Repository Reading Map
 
 - `docs/adr/0001-agent-first-context-evolution.md`: original architecture.
-- `docs/adr/0003-auto-first-low-risk-context.md`: current default write and
-  interaction behavior.
-- `docs/adr/0004-lifecycle-reconciliation-around-commit-kernel.md`: unfinished
-  proposal recovery and the narrow stale-supersession rule.
-- `docs/adr/0005-observable-evolution-outcomes.md`: high-signal Delivery
-  Checkpoint, three-stage outcome, and ephemeral receipt boundary.
-- `docs/adr/0008-fresh-source-snapshots.md`: pre-task source provenance,
-  workspace-read-only boundaries, and plugin distribution.
-- `docs/adr/0009-progressive-context-compilation.md`: task-local progressive
-  disclosure, bounded proposal attention, and legacy-full fallback.
-- `docs/v1-verification-matrix.md`: decision-to-contract verification map.
+- `docs/adr/0003-auto-first-low-risk-context.md`: auto-first write default.
+- `docs/adr/0005-observable-evolution-outcomes.md`: delivery checkpoint and
+  the receipt line.
+- `docs/adr/0008-fresh-source-snapshots.md`: pre-task source provenance.
+- `docs/adr/0010-read-first-catalog-and-schema-2.md`: the read-first catalog,
+  Schema 2, and why the compiler, markers, and lifecycle were removed.
+- `docs/v1-verification-matrix.md`: behavior-to-test map.
 - `skills/evolve/SKILL.md`: Agent-facing behavior.
-- `skills/evolve/references/`: protocol, privacy, migration, domain, and cleanup
-  rules loaded on demand.
-- `skills/evolve/runtime/`: optional read-only Context Compiler, Node Commit
-  Kernel, Lifecycle Coordinator, Coordinator-owned lifecycle contract, and
-  Evolution Outcome module.
-- `skills/source-snapshot/`: independent pre-task Skill and runtime for exact
-  remote Git source snapshots.
-- `templates/.agent-context/`: new-workspace v1 shape.
+- `skills/evolve/references/protocol-v2.md`: normative formats and gates.
+- `skills/evolve/runtime/README.md`: module map and programmatic API.
+- `skills/source-snapshot/`: independent pre-task Skill and runtime.
+- `adapters/`: Codex and Claude instruction fragments.
 - `install/`: deterministic Bootstrap platform adapters.
 - `scripts/` and `tests/`: repository verification.
 
@@ -210,19 +159,17 @@ context growth as success by itself.
 npm test
 ```
 
-The full gate must cover the demo, schema fixtures, Context Compiler routing and
-fallback, Commit Kernel, Lifecycle Coordinator, Evolution Outcome behavior,
-Bootstrap dry-run/apply/idempotency, repository hygiene, and supported platform
+The gate covers the runtime tests under `tests/runtime/`, Bootstrap
+dry-run/apply/idempotency/upgrade, repository hygiene, and supported platform
 adapters.
 
 ## Non-Goals
 
-- No database, vector store, cloud sync, background reconciliation daemon, or
-  general workflow engine. Source Snapshot does not run builds, install
-  dependencies, schedule tasks, or manage general-purpose worktrees.
-- No automatic semantic merge of `AGENTS.md` or `CLAUDE.md`.
-- No public `repo`, `team`, or `kit` write scopes in v1.
+- No database, vector store, cloud sync, background daemon, telemetry, or
+  general workflow engine.
+- No automatic semantic merge of `AGENTS.md` or `CLAUDE.md` outside the
+  managed block.
+- No model-based router; selection uses hard signals only.
 - No deterministic module for deciding what a project lesson means.
-- No model-based context router, persisted catalog, proposal-body injection, or
-  automatic migration of existing Active Context into packs.
-- No independent `mistakes/` or `receipts/` source of truth.
+- No compatibility read path for Schema 1.
+- No user-global write scope; promotion is a manual, reviewed act.

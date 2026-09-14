@@ -18,7 +18,7 @@ import { join, relative } from "node:path";
 export function assertInstallerContract({ repositoryRoot, runDryRun, runApply }) {
   const workspace = mkdtempSync(join(tmpdir(), "agent-context-patch-install-"));
   const targetRoot = join(workspace, ".agent-context");
-  const existingProfile = join(targetRoot, "PROJECT_PROFILE.md");
+  const existingProfile = join(targetRoot, "PROFILE.md");
   const existingConfig = join(targetRoot, "config.yml");
   const existingInstructions = join(workspace, "AGENTS.md");
   const profileSentinel = "# Existing project profile\n\nKeep this user-owned content.\n";
@@ -29,8 +29,11 @@ export function assertInstallerContract({ repositoryRoot, runDryRun, runApply })
     writeFileSync(existingProfile, profileSentinel, "utf8");
     writeFileSync(
       existingConfig,
-      readFileSync(join(repositoryRoot, "templates", ".agent-context", "config.yml"), "utf8")
-        .replace("context_write_policy: auto", "context_write_policy: propose"),
+      replaceOnce(
+        readTemplateConfig(repositoryRoot),
+        /^write_policy: auto$/mu,
+        "write_policy: propose",
+      ),
       "utf8",
     );
     writeFileSync(existingInstructions, instructionsSentinel, "utf8");
@@ -43,7 +46,7 @@ export function assertInstallerContract({ repositoryRoot, runDryRun, runApply })
     const firstPlanHash = extractPlanHash(dryRun.stdout);
     assert.match(
       dryRun.stdout,
-      /(?:skip|preserve)[^\r\n]*PROJECT_PROFILE\.md/iu,
+      /(?:skip|preserve)[^\r\n]*PROFILE\.md/iu,
       "dry-run did not report that the existing profile would be preserved",
     );
     assert.match(
@@ -53,24 +56,22 @@ export function assertInstallerContract({ repositoryRoot, runDryRun, runApply })
     );
     assert.match(
       dryRun.stdout,
-      /create[^\r\n]*PROJECT_CONTEXT_INDEX\.md[^\r\n]*source-sha256=[a-f0-9]{64}/iu,
+      /create[^\r\n]*README\.md[^\r\n]*source-sha256=[a-f0-9]{64}/iu,
       "dry-run did not bind a create action to its source content",
     );
 
-    const staleTarget = join(targetRoot, "PROJECT_CONTEXT_INDEX.md");
+    const staleTarget = join(targetRoot, "README.md");
     writeFileSync(
       staleTarget,
-      readFileSync(
-        join(repositoryRoot, "templates", ".agent-context", "PROJECT_CONTEXT_INDEX.md"),
-      ),
+      readFileSync(join(repositoryRoot, "templates", ".agent-context", "README.md")),
     );
     const staleApply = runApply(workspace, firstPlanHash);
     assertCommandFailed(staleApply, "apply with a stale approved plan");
     assert.deepEqual(
       Object.keys(snapshotTree(workspace)).sort(),
       [
-        ".agent-context/PROJECT_CONTEXT_INDEX.md",
-        ".agent-context/PROJECT_PROFILE.md",
+        ".agent-context/PROFILE.md",
+        ".agent-context/README.md",
         ".agent-context/config.yml",
         "AGENTS.md",
       ],
@@ -90,13 +91,13 @@ export function assertInstallerContract({ repositoryRoot, runDryRun, runApply })
     assert.equal(readFileSync(existingInstructions, "utf8"), instructionsSentinel);
     assert.match(
       readFileSync(existingConfig, "utf8"),
-      /^context_write_policy: propose$/mu,
+      /^write_policy: propose$/mu,
       "installer silently expanded an existing workspace policy",
     );
     assertTemplateInventoryInstalled(
       repositoryRoot,
       workspace,
-      new Set(["PROJECT_PROFILE.md", "config.yml"]),
+      new Set(["PROFILE.md", "config.yml"]),
     );
 
     const afterFirstApply = snapshotTree(workspace);
@@ -129,11 +130,9 @@ export function assertFreshInstallerDefaultsToAuto({ repositoryRoot, runDryRun, 
     const kitVersion = JSON.parse(
       readFileSync(join(repositoryRoot, "package.json"), "utf8"),
     ).version;
-    assert.match(
-      config,
-      new RegExp(`^created_with_kit_version: "${escapeRegExp(kitVersion)}"$`, "mu"),
-    );
-    assert.match(config, /^context_write_policy: auto$/mu);
+    assert.match(config, /^schema_version: 2$/mu);
+    assert.match(config, new RegExp(`^kit_version: "${escapeRegExp(kitVersion)}"$`, "mu"));
+    assert.match(config, /^write_policy: auto$/mu);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
@@ -150,11 +149,32 @@ export function assertLegacyWorkspaceIsReadOnly({ runDryRun, runApply }) {
       },
     },
     {
+      name: "schema 0 config",
+      expectedAction: "MigrationRequired",
+      expectedReason: /legacy-v0|legacy[^\r\n]*read-only/iu,
+      arrange(contextRoot) {
+        writeFileSync(
+          join(contextRoot, "config.yml"),
+          "schema_version: 0\ncontext_write_policy: propose\n",
+          "utf8",
+        );
+      },
+    },
+    {
       name: "non-empty context without config",
       expectedAction: "MigrationRequired",
       expectedReason: /legacy-v0|legacy[^\r\n]*read-only/iu,
       arrange(contextRoot) {
-        writeFileSync(join(contextRoot, "PROJECT_PROFILE.md"), "# Legacy profile\n", "utf8");
+        writeFileSync(join(contextRoot, "PROFILE.md"), "# Legacy profile\n", "utf8");
+      },
+    },
+    {
+      name: "schema 1 config",
+      expectedAction: "MigrationRequired",
+      expectedReason: /schema-1-run-evolve-migrate-v1/u,
+      arrange(contextRoot) {
+        writeFileSync(join(contextRoot, "config.yml"), SCHEMA_1_CONFIG, "utf8");
+        writeFileSync(join(contextRoot, "PROJECT_PROFILE.md"), "# Schema 1 profile\n", "utf8");
       },
     },
     {
@@ -162,7 +182,7 @@ export function assertLegacyWorkspaceIsReadOnly({ runDryRun, runApply }) {
       expectedAction: "UpgradeRequired",
       expectedReason: /newer|unsupported|upgrade/iu,
       arrange(contextRoot) {
-        writeFileSync(join(contextRoot, "config.yml"), "schema_version: 2\n", "utf8");
+        writeFileSync(join(contextRoot, "config.yml"), "schema_version: 3\n", "utf8");
       },
     },
   ]) {
@@ -188,34 +208,24 @@ export function assertLegacyWorkspaceIsReadOnly({ runDryRun, runApply }) {
   }
 }
 
-export function assertV1ConfigBootstrapContract({ repositoryRoot, runDryRun, runApply }) {
-  const templateConfig = readFileSync(
-    join(repositoryRoot, "templates", ".agent-context", "config.yml"),
-    "utf8",
-  );
-  const createdVersionLine = templateConfig.match(
-    /^created_with_kit_version: "([^"]+)"$/mu,
-  );
-  assert.ok(createdVersionLine, "template config is missing created Kit Version");
-  const createdVersion = createdVersionLine[1];
+export function assertSchema2ConfigBootstrapContract({ repositoryRoot, runDryRun, runApply }) {
+  const templateConfig = readTemplateConfig(repositoryRoot);
+  assert.match(templateConfig, /^schema_version: 2$/mu, "template config is not Schema 2");
   const invalidScenarios = [
     {
-      name: "incomplete v1 config",
-      config: "schema_version: 1\ncontext_write_policy: propose\nenabled_domains: []\n",
+      name: "string schema version",
+      config: replaceOnce(templateConfig, /^schema_version: 2$/mu, 'schema_version: "2"'),
     },
     {
-      name: "unsafe privacy config",
-      config: templateConfig.replace("raw_conversation_stored: false", "raw_conversation_stored: true"),
-    },
-    {
-      name: "unknown top-level config key",
-      config: `${templateConfig}unexpected_setting: true\n`,
+      name: "duplicate schema version",
+      config: `${templateConfig}schema_version: 2\n`,
     },
     {
       name: "duplicate config key",
-      config: templateConfig.replace(
-        "context_write_policy: auto",
-        "context_write_policy: auto\ncontext_write_policy: propose",
+      config: replaceOnce(
+        templateConfig,
+        /^write_policy: auto$/mu,
+        "write_policy: auto\nwrite_policy: propose",
       ),
     },
     {
@@ -223,34 +233,25 @@ export function assertV1ConfigBootstrapContract({ repositoryRoot, runDryRun, run
       config: `${templateConfig}__proto__: unsafe\n`,
     },
     {
-      name: "duplicate inline domain",
-      config: templateConfig.replace("enabled_domains: []", "enabled_domains: [coding, 'coding']"),
+      name: "tab-indented mapping",
+      config: `${templateConfig}extra:\n\tnested: true\n`,
     },
     {
-      name: "invalid created kit version",
-      config: templateConfig.replace(
-        `created_with_kit_version: "${createdVersion}"`,
-        'created_with_kit_version: "v0.2.0"',
-      ),
+      name: "top-level sequence item",
+      config: `${templateConfig}- stray sequence item\n`,
     },
     {
-      name: "invalid migrated kit version",
-      config: templateConfig.replace(
-        "last_migrated_with_kit_version: null",
-        'last_migrated_with_kit_version: "0.2"',
-      ),
+      name: "unterminated quoted string",
+      config: `${templateConfig}note: "unterminated\n`,
     },
     {
-      name: "created kit version with decoded trailing newline",
-      config: templateConfig.replace(
-        `created_with_kit_version: "${createdVersion}"`,
-        `created_with_kit_version: "${createdVersion}\\n"`,
-      ),
+      name: "non-mapping line",
+      config: `${templateConfig}not a mapping line\n`,
     },
   ];
 
   for (const scenario of invalidScenarios) {
-    const workspace = mkdtempSync(join(tmpdir(), "agent-context-patch-v1-config-invalid-"));
+    const workspace = mkdtempSync(join(tmpdir(), "agent-context-patch-schema2-config-invalid-"));
     try {
       const contextRoot = join(workspace, ".agent-context");
       const configPath = join(contextRoot, "config.yml");
@@ -275,51 +276,52 @@ export function assertV1ConfigBootstrapContract({ repositoryRoot, runDryRun, run
     }
   }
 
-  const workspace = mkdtempSync(join(tmpdir(), "agent-context-patch-v1-config-valid-"));
+  const workspace = mkdtempSync(join(tmpdir(), "agent-context-patch-schema2-config-valid-"));
   try {
     const contextRoot = join(workspace, ".agent-context");
     const configPath = join(contextRoot, "config.yml");
-    const validQuotedInlineConfig = [
-      "schema_version: 1",
-      "created_with_kit_version: '0.1.0'",
-      'last_migrated_with_kit_version: "0.1.1-beta.2+build.7" # historical migration writer',
-      'context_write_policy: "propose"',
-      'enabled_domains: ["coding", \'prd\']',
+    // A user-edited Schema 2 config: quoted scalars, inline and block
+    // sequences, comments, and keys the installer does not know about. The
+    // installer only checks that it parses and that schema_version is 2.
+    const validCustomConfig = [
+      "schema_version: 2 # current workspace schema",
+      "kit_version: '0.7.0'",
+      'write_policy: "propose"',
+      "agents_file: AGENTS.md",
       "budgets:",
-      "  active_context:",
+      "  rules:",
       '    unit: "lines"',
-      "    warn: 500",
-      "    block_auto: 800",
-      "  single_proposal:",
-      "    unit: 'lines'",
-      "    warn: 220",
-      "  pending_proposals:",
-      "    unit: count",
-      "    warn: 8",
-      "    block_auto: 12",
-      "privacy:",
-      "  raw_conversation_stored: false",
-      "  full_logs_stored: false",
-      "  secrets_stored: false",
-      "  customer_data_stored: false",
-      "  absolute_user_paths_stored: false",
+      "    warn: 120",
+      "    block_auto: 200",
+      "state:",
+      "  pinned: [\"rules/example.md\", 'rules/other.md']",
+      "  recent:",
+      "    - rules/example.md",
+      '    - "rules/other.md"',
+      "  last_compiled_at: null",
       "",
     ].join("\n");
     mkdirSync(contextRoot);
-    writeFileSync(configPath, validQuotedInlineConfig, "utf8");
+    writeFileSync(configPath, validCustomConfig, "utf8");
     const before = snapshotTree(workspace);
 
     const dryRun = runDryRun(workspace);
-    assertCommandSucceeded(dryRun, "valid quoted/inline v1 config dry-run");
-    assert.deepEqual(snapshotTree(workspace), before, "valid v1 config dry-run wrote files");
+    assertCommandSucceeded(dryRun, "valid custom Schema 2 config dry-run");
+    assert.match(
+      dryRun.stdout,
+      /preserve[^\r\n]*config\.yml/iu,
+      "valid custom Schema 2 config was not reported as preserved",
+    );
+    assert.deepEqual(snapshotTree(workspace), before, "valid Schema 2 config dry-run wrote files");
 
     const apply = runApply(workspace, extractPlanHash(dryRun.stdout));
-    assertCommandSucceeded(apply, "valid quoted/inline v1 config apply");
+    assertCommandSucceeded(apply, "valid custom Schema 2 config apply");
     assert.equal(
       readFileSync(configPath, "utf8"),
-      validQuotedInlineConfig,
-      "valid custom v1 config was overwritten",
+      validCustomConfig,
+      "valid custom Schema 2 config was overwritten",
     );
+    assertTemplateInventoryInstalled(repositoryRoot, workspace, new Set(["config.yml"]));
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
@@ -407,11 +409,8 @@ export function assertBootstrapRejectsDirectoryRedirects({
       arrange({ workspace, outside }) {
         const contextRoot = join(workspace, ".agent-context");
         mkdirSync(contextRoot);
-        writeFileSync(
-          join(contextRoot, "config.yml"),
-          readFileSync(join(repositoryRoot, "templates", ".agent-context", "config.yml")),
-        );
-        createDirectoryLink(outside, join(contextRoot, "checklists"));
+        writeFileSync(join(contextRoot, "config.yml"), readTemplateConfig(repositoryRoot), "utf8");
+        createDirectoryLink(outside, join(contextRoot, "rules"));
         return { workspace };
       },
     },
@@ -484,6 +483,44 @@ export function run(command, args, options = {}) {
     timeout: 30_000,
     ...options,
   });
+}
+
+// A complete, well-formed Schema 1 config. Schema 1 is no longer current: the
+// installer must refuse to touch such a workspace until `evolve migrate` runs.
+const SCHEMA_1_CONFIG = [
+  "schema_version: 1",
+  'created_with_kit_version: "0.6.1"',
+  "last_migrated_with_kit_version: null",
+  "context_write_policy: auto",
+  "enabled_domains: []",
+  "budgets:",
+  "  active_context:",
+  "    unit: lines",
+  "    warn: 500",
+  "    block_auto: 800",
+  "  single_proposal:",
+  "    unit: lines",
+  "    warn: 220",
+  "  pending_proposals:",
+  "    unit: count",
+  "    warn: 8",
+  "    block_auto: 12",
+  "privacy:",
+  "  raw_conversation_stored: false",
+  "  full_logs_stored: false",
+  "  secrets_stored: false",
+  "  customer_data_stored: false",
+  "  absolute_user_paths_stored: false",
+  "",
+].join("\n");
+
+function readTemplateConfig(repositoryRoot) {
+  return readFileSync(join(repositoryRoot, "templates", ".agent-context", "config.yml"), "utf8");
+}
+
+function replaceOnce(source, pattern, replacement) {
+  assert.match(source, pattern, `fixture base does not contain ${pattern}`);
+  return source.replace(pattern, replacement);
 }
 
 function assertCommandSucceeded(result, label) {
