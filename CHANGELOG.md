@@ -5,6 +5,116 @@ semantic versions for the Kit independently from the Workspace Schema version.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-14
+
+Workspace Schema 2. A read-first rewrite: the always-on context is a
+generated catalog inside the instruction file, rule bodies are selected per
+task, writes are one gated `apply`, and real use is recorded.
+
+### Added
+
+- A generated `acp-catalog` managed block in the workspace instruction file
+  (`AGENTS.md` by default): one hook line per active rule grouped by
+  `<repo> · <op>`, gates first, then a `STATE (auto-expires)` section. Hard
+  budget of 8 KB; everything outside the block is never touched.
+- One rule per file under `.agent-context/rules/<id>.md` with YAML
+  frontmatter (`hook` at most 160 bytes, `kind` gate/advice/fact,
+  `applies_to` repos/paths/ops/skills, `supersedes`, `source`, `created`,
+  use counters) and a body of at most 1500 bytes.
+- `STATE.yml`: dated working state with a required expiry (default TTL 14
+  days, maximum 90, `never` rejected), archived automatically to
+  `archive/state.yml`.
+- `evolve select --signature '<json>'`: returns matching rule bodies from a
+  content-safe task signature (repos, paths, ops, skills, ids). Repos filter;
+  any intersecting dimension matches; global gates are always included;
+  output is capped at 12 KB with gates first.
+- `evolve apply --proposal '<json>' [--approved]`: one call that validates
+  the envelope, requires `fix_status: verified`, runs the privacy scan,
+  enforces byte limits, blocks a hook similar to an active one
+  (`similar_rule_exists`, token Jaccard at or above 0.5), blocks a catalog
+  over budget (`catalog_budget_exceeded`), then writes atomically under
+  `.agent-context/.lock`, records `proposals/<id>.md` with a unified diff,
+  archives expired state, and re-renders the catalog. Operations: `add`,
+  `supersede`, `retire`, `state_set`, `state_clear`, `profile`.
+- `evolve consult --consulted a,b --missed c`: writes `consulted`,
+  `last_consulted`, and `missed` counters into rule frontmatter. This is the
+  first mechanical "was the rule used" record.
+- `evolve weekly`: a rebuildable report of most consulted, relevant but
+  missed, never consulted in 30 days, similar hook pairs at or above 0.35,
+  state expiring within 3 days, migrated drafts still flagged
+  `needs_rewrite`, and Claude memory files not yet migrated.
+- `evolve memory-sync --memory-dir <dir>`: regenerates Claude Code's
+  per-project `MEMORY.md` as a generated view that keeps only `user`-type
+  memories and points to the catalog for rules and state; `feedback` and
+  `project` memory files are reported as migration candidates.
+- `evolve migrate-v1`: a one-shot, lossy in-place conversion of a Schema 1
+  workspace to Schema 2 (see Migration below).
+- `evolve init`, `status`, `catalog [--write]`, `expire`, `receipt`, and a
+  programmatic API from `runtime/index.mjs`.
+- `docs/adr/0010-read-first-catalog-and-schema-2.md`,
+  `skills/evolve/references/protocol-v2.md`, and runtime tests under
+  `tests/runtime/`.
+
+### Changed
+
+- Workspace Schema is now 2. `config.yml` carries `schema_version: 2`,
+  `kit_version`, `write_policy` (`auto` or `propose`), `agents_file`,
+  `budgets`, and `state`. `context_write_policy` is renamed `write_policy`.
+- The delivery checkpoint triggers are unchanged. The Agent now authors one
+  proposal JSON and calls `apply`; the applied receipt line is returned by the
+  runtime and is never hand-formatted. No-candidate receipts are formatted by
+  `evolve receipt`.
+- Replace-before-add is mechanical: overlap is detected by hook similarity
+  and by the catalog budget rather than by Agent judgment alone. `--approved`
+  bypasses only those two gates.
+- `propose` policy returns `approval_required` from `apply` instead of
+  creating a pending proposal file; approval is the same call with
+  `--approved`.
+- The Codex and Claude adapter fragments now describe the catalog, `select`,
+  `apply`, receipts, and `consult`.
+- `PROFILE.md` replaces `PROJECT_PROFILE.md` and holds verified facts only.
+- Kit updates through `$evolve update` are unchanged.
+
+### Removed
+
+- Schema 1 files and concepts: `PROJECT_CONTEXT_INDEX.md`,
+  `PROJECT_PROFILE.md`, `checklists/<domain>.md`, `acp-rule` HTML-comment
+  markers, `acp-context` packs, domain packs (`prd`, `seo`), and
+  `enabled_domains`.
+- PatchPlan JSON proposals with Decision Log and Apply Attempts, the
+  Lifecycle Coordinator and its lock, the Commit Kernel module, the Outcome
+  Interface (`finalizeEvolutionOutcome`), and the Context Compiler
+  (`compileWorkspaceContext`) with its `legacy_full` fallback and byte
+  metrics.
+- `$evolve after-failure`, `$evolve approve`, and `$evolve review-context` as
+  named commands; their work is `apply`, `apply --approved`, and `weekly`
+  plus `apply`.
+- The references `protocol-v1.md`, `config-schema.md`, `proposal-schema.md`,
+  `legacy-migration.md`, `domain-packs.md`, `domain-*.md`,
+  `context-budget.md`, `cleanup-policy.md`, `privacy.md`, and
+  `personal-dogfooding.zh-CN.md`; their surviving content is in
+  `protocol-v2.md` and `SKILL.md`.
+- ADR-0009 (progressive context compilation) is superseded by ADR-0010.
+- There is no backward-compatibility read path for Schema 1.
+
+### Migration
+
+- Run `node <installed-skill>/runtime/cli.mjs migrate-v1 --workspace <dir>`
+  once per Schema 1 workspace. Every checklist bullet and profile "Active
+  Working Rules" bullet becomes a draft rule with `needs_rewrite: true`
+  (hook = first sentence, `applies_to` inferred from keywords, body = original
+  text truncated). Old proposals move to `archive/proposals-v1/`, checklists
+  to `archive/checklists-v1/`, the profile to `archive/PROJECT_PROFILE-v1.md`;
+  `PROJECT_CONTEXT_INDEX.md` is removed; `config.yml` is rewritten with the
+  previous write policy preserved; the catalog is rendered.
+- The conversion is lossy and accepted as such. The catalog will usually be
+  over budget immediately afterwards; do a one-time rewrite and merge pass
+  (target at most 60 rules) before expecting new adds to succeed.
+- Re-apply the adapter fragment to the instruction file through the normal
+  semantic patch review; Bootstrap and `$evolve update` do not edit it.
+- Optionally run `memory-sync --memory-dir ~/.claude/projects/<slug>/memory`
+  and move `feedback`/`project` memories into rules or STATE through `apply`.
+
 ## [0.6.1] - 2026-09-02
 
 ### Fixed

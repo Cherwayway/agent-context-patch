@@ -1,1 +1,11 @@
-export { applyPatchPlan, computePlanHash, sha256Text } from "./internal.mjs";
+export { applyProposal, planProposal, expireWorkspaceState, findSimilar, formatReceipt, serializeRule } from "./apply.mjs";
+export { renderCatalog, replaceCatalogBlock, writeCatalog } from "./catalog.mjs";
+export { recordConsultation } from "./consult.mjs";
+export { initWorkspace } from "./init.mjs";
+export { scanMemory, syncMemoryIndex, renderMemoryIndex } from "./memory-bridge.mjs";
+export { migrateV1 } from "./migrate-v1.mjs";
+export { normalizeSignature, selectRules } from "./select.mjs";
+export { buildWeeklyReport } from "./weekly.mjs";
+export { loadWorkspace, inspectConfig, inspectRule, inspectStateEntry, DEFAULT_CONFIG, SCHEMA_VERSION } from "./workspace.mjs";
+export { parseYaml, parseFrontmatter, serializeFrontmatter, toYaml } from "./yaml.mjs";
+export { sha256Text, unifiedDiff, findPrivacyHazard } from "./text.mjs";

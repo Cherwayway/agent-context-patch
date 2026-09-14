@@ -38,7 +38,8 @@ Determine from the current Agent/runtime rather than stale hard-coded paths:
 - Workspace root.
 - Workspace instruction file (`AGENTS.md`, `CLAUDE.md`, or equivalent).
 - Whether a skill or `.agent-context/` already exists.
-- Whether Node and the optional Commit Kernel are available.
+- Whether Node is available for the evolve runtime
+  (`node <skill>/runtime/cli.mjs`).
 
 Report uncertainties instead of guessing. The Agent-resolved paths are inputs to
 Bootstrap; path discovery is not Bootstrap policy.
@@ -90,7 +91,7 @@ Show the user:
 - every Create, Skip, Preserve, Conflict, UpgradeRequired, and
   MigrationRequired action;
 - the separate instruction patch;
-- whether Node Commit Kernel capability will be available;
+- whether Node is available for the evolve runtime;
 - the exact plan hash;
 - the next action if the plan is blocked.
 
@@ -123,13 +124,22 @@ that its target has not changed.
 ## Existing Installations
 
 - Existing user-modified workspace context is preserved.
-- An unversioned `.agent-context/config.yml` is `legacy_v0`; Bootstrap stops and
-  directs the Agent to create a migration proposal.
-- A `schema_version: 1` config is current only when its complete policy,
-  domain, budget, version, and privacy envelope is valid. PowerShell and Bash
-  fail closed with `InvalidConfig` before materializing any template when that
-  envelope is incomplete, unsafe, duplicated, or contains unknown fields.
-- A future schema is read-only and requires a newer Bootstrap.
+- Bootstrap classifies an existing `.agent-context/config.yml` by its
+  `schema_version`:
+  - `2` is current. Bootstrap only requires the file to parse and the value to
+    be the integer `2`; the full envelope (`kit_version`, `write_policy`,
+    `agents_file`, `budgets`, `state`) is validated by the evolve runtime.
+  - `1` is `MigrationRequired` with reason `schema-1-run-evolve-migrate-v1`.
+    Bootstrap stops; the Agent runs `$evolve migrate-v1` once, only when the
+    user asks, then reruns the install plan.
+  - `0`, a missing `schema_version`, or a `.agent-context/` directory without
+    `config.yml` is legacy v0: `MigrationRequired`, read-only until migrated.
+  - A value above `2` is `UpgradeRequired`; the workspace stays read-only
+    until a newer Bootstrap is installed.
+  - A duplicated or non-integer `schema_version` is a `Conflict` or
+    `InvalidConfig`. PowerShell and Bash fail closed before materializing any
+    template.
+- Bootstrap never converts a workspace; only `evolve migrate-v1` does.
 - A different installed skill version makes the normal install plan report
   `UpgradeRequired`; use `$evolve update` for a reviewed upgrade/backup plan.
 - An unversioned existing skill is a conflict, not an overwrite target.
@@ -196,19 +206,19 @@ subscribe to GitHub Release notifications for external notice and invoke
 
 ## Post-Install
 
-Run `$evolve init` automatically unless the user explicitly opts out. Apply
-eligible low-risk profile and index additions without another approval. Ask
-once only if config or domain activation must change. The compact init result
-must include:
+Run `$evolve init` automatically unless the user explicitly opts out. It
+creates `config.yml` (`schema_version: 2`), `STATE.yml`, `PROFILE.md`, the
+`rules/`, `proposals/`, `reports/`, and `archive/` directories, and renders
+the empty `acp-catalog` block into the instruction file. Existing files are
+left untouched. The compact init result must include:
 
-- `contextRead` for the current run;
-- detected domain candidates with evidence and confidence;
-- the proposed enabled domains;
-- files in the InitPlan;
+- the workspace root and the instruction file that carries the catalog block;
+- files created and files skipped;
 - uncertainties;
 - requested and effective write policy;
 - whether migration is required;
 - the recommended next step.
 
-Domain activation is approved as part of the InitPlan. It is never inferred
-from the mere presence of a checklist file.
+Fill `PROFILE.md` with verified workspace facts only, through a `profile`
+operation that carries the current `before_hash`. Rules are added later by
+`evolve apply` after verified failures or corrections, never by init.

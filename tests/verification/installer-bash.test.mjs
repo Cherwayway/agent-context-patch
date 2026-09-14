@@ -20,7 +20,7 @@ import {
   assertInstallerContract,
   assertLegacyWorkspaceIsReadOnly,
   assertSkillAndGuidanceContract,
-  assertV1ConfigBootstrapContract,
+  assertSchema2ConfigBootstrapContract,
   commandAvailable,
   extractPlanHash,
   run,
@@ -143,7 +143,7 @@ test(
 );
 
 test(
-  "Bash validates the complete v1 config envelope before planning writes",
+  "Bash accepts a Schema 2 config and rejects unparseable or mis-versioned ones",
   {
     skip:
       process.platform === "win32" || !bashAvailable
@@ -151,7 +151,7 @@ test(
         : false,
   },
   () => {
-    assertV1ConfigBootstrapContract({
+    assertSchema2ConfigBootstrapContract({
       repositoryRoot,
       runDryRun(workspace) {
         return invokeAt(installer, ["--mode", "dry-run", "--workspace", workspace]);
@@ -213,7 +213,7 @@ test(
       const approvedHash = extractPlanHash(dryRun.stdout);
 
       appendFileSync(
-        join(sandbox.root, "templates", ".agent-context", "PROJECT_PROFILE.md"),
+        join(sandbox.root, "templates", ".agent-context", "PROFILE.md"),
         "\n<!-- source changed after approval -->\n",
         "utf8",
       );

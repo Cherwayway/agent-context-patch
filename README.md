@@ -13,9 +13,10 @@
 again.**
 
 Agent Context Patch turns verified corrections into small, durable workspace
-memory for **Claude Code and OpenAI Codex**. Later Agent tasks can receive the
-always-relevant core plus task-matched rule packs instead of rediscovering a
-lesson from an old chat or loading every accumulated rule.
+memory for **Claude Code and OpenAI Codex**. Every later Agent task sees a
+one-line catalog of those lessons inside the instruction file it already reads,
+and fetches the full rule only when the hook matches the task, instead of
+rediscovering a lesson from an old chat or loading every accumulated rule.
 
 It is local and inspectable: no hosted service, no daemon, no telemetry, and no
 silent global instruction edits.
@@ -38,11 +39,11 @@ the behavior, then adds one reusable guard to workspace context. The exact
 user-facing result stays content-safe:
 
 ```text
-Evolution outcome: detect=candidate; propose=created; apply=applied; proposal=2026-07-19-caller-input-data-flow; targets=.agent-context/checklists/coding.md.
+Evolution outcome: detect=candidate; propose=created; apply=applied; proposal=2026-07-19-caller-input-data-flow; targets=.agent-context/rules/caller-input-data-flow.md; catalog=612B/1 rules.
 ```
 
 The durable context contains the guard; the receipt never exposes lesson or
-PatchPlan content.
+proposal content.
 
 The useful path stays short:
 
@@ -103,13 +104,16 @@ secrets, raw conversations, customer data, or production credentials.
 
 - The Agent owns semantic judgment: what happened, whether it is reusable, and
   what the smallest useful lesson is.
-- Active Context stays small through replace-before-add and explicit cleanup.
-- A read-only Context Compiler keeps core guidance visible, selects routed packs
-  from structured task facts, and falls back to complete guidance on ambiguity.
-- A deterministic Commit Kernel handles file safety, exact plans, conflicts,
-  audit evidence, and rollback boundaries.
-- Eligible low-risk workspace additions can finish in the same Agent turn.
-  Approval-only operations stay behind review; see
+- The catalog has a hard byte budget, and a new hook that overlaps an active
+  one is blocked mechanically, so context stays small by construction.
+- Every write goes through one gated `apply`: schema, verified fix, privacy
+  scan, byte limits, similarity, budget, then an atomic commit with an audit
+  record and a unified diff.
+- The runtime touches only `.agent-context/` and the managed block of the
+  instruction file; everything else in `AGENTS.md` or `CLAUDE.md` is never
+  edited.
+- Eligible low-risk additions finish in the same Agent turn. Overlap and
+  budget exceptions need a human decision; see
   [Write Policies](#write-policies).
 
 [See the executable demo](demos/README.md), the
@@ -118,76 +122,61 @@ or the [architecture](CONTEXT.md).
 
 ## How It Works
 
-1. Detect a reusable failure, correction, stale rule, or workflow lesson.
-2. Fix and verify the current task first.
-3. Reconcile unfinished proposal lifecycles, then search Active Context and
-   replace before adding.
-4. Write an evidence-backed internal audit record with an exact PatchPlan.
-5. Apply an eligible low-risk plan immediately through `auto`, then finalize a
-   content-safe `detect / propose / apply` receipt with no action required.
-6. Ask only when a safety gate requires an exceptional decision, and keep
-   Active Context current by proposing semantic cleanup.
+1. The workspace instruction file carries a generated `acp-catalog` block: one
+   hook line per active rule, grouped by repo and operation, followed by dated
+   working state. Codex reads `AGENTS.md` literally and Claude Code imports it,
+   so both agents see the same catalog with no read decision.
+2. When a hook matches the task, the Agent reads that rule's body, either
+   directly or through `evolve select` with a task signature built from paths,
+   operations, skills, and repos. Skills call `select` with a fixed signature
+   when they activate, so gate rules ride along with the workflow.
+3. The Agent fixes and verifies the current task first.
+4. After a verified repair, the delivery checkpoint runs only for a high-signal
+   event: a failed verification that later passed, an explicit user correction,
+   an independent QA defect, stale workspace context, or a first fix that failed
+   before a later fix passed. An ordinary no-trigger task stays silent.
+5. The Agent authors one proposal (trigger, evidence, operations) and calls
+   `evolve apply`. The runtime validates, runs every gate, writes the rule and
+   state files atomically, records an audit with a unified diff, and re-renders
+   the catalog, then returns one content-safe `detect / propose / apply`
+   receipt.
+6. At the end of the task the Agent records which rules were actually used with
+   `evolve consult`. The weekly review ranks, merges, and retires by those
+   counters.
 
-Lifecycle reconciliation resumes only an unchanged exact plan. A matching
-post-apply hash without an applied audit is reported for recovery, never treated
-as proof that this proposal wrote the file. There is no background scanner or
-new public command.
+## Read-First Catalog
 
-After a verified repair, the delivery checkpoint runs only for a high-signal
-event: a failed verification that later passed, an explicit user correction,
-an independent QA defect, stale workspace context, or a first fix that failed
-before a later fix passed. An ordinary no-trigger task stays silent and creates
-no proposal or durable context write merely to report a no-op.
+The catalog is the whole point of this release. A lesson that is stored but
+never read is worthless, so Schema 2 makes the read side free:
 
-## Progressive Context Loading
+```markdown
+<!-- acp-catalog: kit=0.7.0 schema=2 rendered=2026-09-14T08:12:31.000Z rules=12 state=1 -->
+## Workspace Context Catalog
 
-When a compatible instruction adapter invokes the v0.6.0 Context Compiler, it
-builds an ephemeral payload in four layers:
+### ilands · migration
+- gate [hot-table-partial-index-cic] Adding a partial index on a hot table: run CIC in its own workflow step and reject the batch when it fails.
 
-```text
-core + unmarked guidance -> derived catalog -> matched packs -> bounded attention
+### any · general
+- gate [verify-before-evolve] Before evolving context: the current fix must be verified.
+
+### STATE (auto-expires)
+- (09-21) ilands: PR 3070 is in review round 3; index recycling is a separate PR.
+<!-- /acp-catalog -->
 ```
 
-The task signature contains structured operations, workspace-relative paths,
-tools, skills, domains, risk, and exact requested pack IDs—not the raw prompt.
-Its domains identify the task-relevant enabled checklists; an empty domain list
-conservatively reads every enabled checklist and treats every enabled domain as
-eligible during matching. The host-side catalog scan still covers every enabled
-checklist so context IDs remain workspace-global. Hard matching stays within the
-task-relevant set. An exact pack request expands the read to that pack's source
-checklist, while high-risk selection loads every safety pack in the
-task-relevant set.
-Task-relevant core and older unmarked content remain visible. Normal packs are
-selected by deterministic hard signals or an exact request; high-risk tasks
-also load task-relevant safety packs. The catalog is derived from metadata
-stored beside the Markdown it describes, so there is no second routing
-registry. The progressive catalog has a hard 64-block bound; overflow returns
-the complete legacy read set without catalog overhead.
-
-The bounded scanner parses valid non-terminal proposal frontmatter for explicit
-`attention_targets`, but never emits proposal body. At most three attention
-pointers enter the compiled payload, and each says to verify current sources—not
-to trust or apply the proposal. Existing proposals are not backfilled and edges
-are never inferred: without one, a normal-risk task gets no attention item for
-that proposal, while a high-risk task falls back with a manual-inspection hint.
-Missing or malformed markers, unknown requested packs, missing high-risk safety
-coverage, or routing ambiguity returns the complete legacy default read set.
-At high risk, attention overflow or an incomplete bounded proposal scan also
-forces full fallback.
-
-The compiler itself makes no model call. Its metrics compare UTF-8 bytes of the
-task-relevant legacy bundle and returned payload, including rendered catalog and
-attention overhead. v0.6.0 installs no platform or pre-first-model-call hook, so
-actual model-context or token savings depend on a compatible host injecting only
-`content`; byte reduction alone does not prove material use or better Agent
-behavior.
-
-This is a read-only runtime API, not a daemon, platform hook, model router, or
-new public command. A fresh-install workflow may propose the updated instruction
-adapter for separate semantic review; Bootstrap and `$evolve update` do not edit
-an existing `AGENTS.md`, `CLAUDE.md`, or workspace index. Old installations
-therefore retain their previous full-loading behavior until that separate patch
-is reviewed.
+- Each rule is one file, `.agent-context/rules/<id>.md`, with a hook of at
+  most 160 bytes ("situation + action"), a kind (`gate`, `advice`, `fact`), an
+  `applies_to` scope (repos, path globs, ops, skills), and a body of at most
+  1500 bytes.
+- The block is at most 8 KB. When an addition would exceed it, `apply` is
+  blocked until something is superseded or retired.
+- `evolve select --signature '{"paths":[...],"ops":[...],"skills":[...]}'`
+  returns matching rule bodies: repos filter, any intersecting dimension
+  matches, global gates always ride along, gates first, capped at 12 KB.
+- `evolve consult --consulted a,b --missed c` writes real use counters back
+  into rule frontmatter. This is the first "was the rule used" data the project
+  has had, and the weekly report is built from it.
+- Everything outside the managed block is never touched.
 
 ## Local Bootstrap Development
 
@@ -264,110 +253,95 @@ single public `$evolve update` command.
 
 ## Workspace Context
 
-V1 writes Active Context only inside the workspace:
+Schema 2 keeps everything under `.agent-context/`:
 
 ```text
 .agent-context/
-  PROJECT_CONTEXT_INDEX.md
-  PROJECT_PROFILE.md
-  config.yml
-  checklists/
-  proposals/
-  reports/
-  archive/
+  config.yml            schema_version 2, write_policy, agents_file, budgets, state TTLs
+  rules/<id>.md         one rule per file: frontmatter (hook, kind, applies_to, counters) + body
+  STATE.yml             dated working state; every entry expires (default 14 days, max 90)
+  PROFILE.md            verified workspace facts only, never rules
+  proposals/<id>.md     one audit record per applied change: evidence + unified diff
+  reports/              rebuildable weekly reviews
+  archive/              superseded or retired rules, expired state, pre-migration history
 ```
 
-The legacy path reads the index, profile, and relevant enabled checklists in
-full. A compatible adapter may instead give the model the compiler's single
-task-local payload. Proposals own their Decision Log and Apply Attempts; only
-bounded non-terminal frontmatter may produce non-authoritative attention.
-Reports are derived and archives are inactive. There is no separate mistake,
-receipt, catalog, or usage-ledger store.
+The catalog rendered into the instruction file is derived from `rules/` and
+`STATE.yml`; it is never a second source of truth. Proposals are audit records,
+not an inbox: an applied change and its record are written in the same call.
+Reports are derived and the archive is inactive.
 
 ## Commands
 
-`$evolve init`
+Run every command as `node <installed-skill>/runtime/cli.mjs <command>`,
+where the installed skill is the user-level evolve directory. Every command
+accepts `--workspace <dir>` and `--today YYYY-MM-DD`.
 
-Inspect the workspace, report `contextRead`, and apply eligible profile or index
-additions automatically. Detect domain candidates with evidence and request one
-decision only if config or domain activation must change; only
-`config.enabled_domains` records activation.
-
-`$evolve after-failure`
-
-The Agent invokes this autonomously after a reusable failure or correction. It
-fixes and verifies the current task, performs replace-before-add analysis,
-reconciles unfinished proposals, creates one evidence-backed audit record, and
-immediately applies an eligible low-risk addition. Success returns one compact
-receipt covering `detect`, `propose`, and `apply`; overlap or conflict produces
-an approval-only cleanup proposal instead of automatic accumulation.
-
-`$evolve approve`
-
-Handle only the exception path that requires a human decision. Show a concise
-semantic summary followed by the complete exact PatchPlan. The user may simply
-reply with approval and never needs to copy the plan hash. A changed file still
-invalidates authorization; an unchanged already-approved plan may resume on a
-later Agent turn, while a failed commit never becomes `applied`.
-
-`$evolve review-context`
-
-Reconcile unfinished proposals, then review conflicts, staleness, duplication,
-authority, and retention value.
-Quantity is only a review trigger. Semantic merge, rewrite, supersede, and
-archive changes always require approval.
-
-`$evolve weekly`
-
-Reconcile unfinished proposals, then create a derived report of recurring
-lessons, proposal health, cleanup candidates, applied improvements, and watch
-items. Reports never overwrite Active Context.
-
-`$evolve update`
-
-Explicitly check the latest stable immutable Release, verify its checksum, tag,
-and source commit, then show the complete UpdatePlan and exact plan hash before
-any user-level skill replacement. A successful update takes effect in a new
-Agent task. There is no background check, telemetry, or silent upgrade.
-For prompt external notice, subscribe to this repository's GitHub Release
-notifications; run `$evolve update` when you choose to check or upgrade.
+- `init`: create a Schema 2 workspace and render the empty catalog block.
+- `status`: validate the workspace and print a JSON summary (rules, drafts
+  needing rewrite, state entries, catalog bytes against budget, policy).
+- `catalog [--write]`: print the block, or re-render it into the instruction
+  file.
+- `select --signature '<json>' | @file [--json]`: print the rule bodies that
+  match a task signature.
+- `apply --proposal '<json>' | @file [--approved]`: validate, gate, write,
+  audit, and re-render in one call. Statuses: `applied`,
+  `approval_required`, `blocked`, `failed`.
+- `consult --consulted a,b [--missed c,d]`: record real use in rule
+  frontmatter.
+- `expire`: archive expired STATE entries and re-render the catalog.
+- `weekly [--memory-dir <dir>]`: write `reports/weekly-<date>.md`.
+- `memory-sync --memory-dir <dir> [--dry-run]`: regenerate Claude Code's
+  per-project `MEMORY.md` as a view that keeps only `user` memories and
+  reports the rest as migration candidates.
+- `migrate-v1`: convert a Schema 1 workspace in place, once, lossily.
+- `receipt --detect <status>:<reason> --propose <status>:<reason>`: format a
+  no-candidate receipt.
+- `$evolve update`: explicitly check the latest stable immutable Release,
+  verify its checksum, tag, and source commit, then show the complete
+  UpdatePlan and exact plan hash before any user-level skill replacement. A
+  successful update takes effect in a new Agent task. There is no background
+  check, telemetry, or silent upgrade. For prompt external notice, subscribe
+  to this repository's GitHub Release notifications; run `$evolve update` when
+  you choose to check or upgrade.
 
 ## Write Policies
 
 ```yaml
-context_write_policy: auto
+write_policy: auto
 ```
 
-Supported policies:
+- `auto`: the default for new workspaces. A proposal that passes every gate is
+  applied in the same call, with no user turn.
+- `propose`: an explicit cautious mode, also preserved from existing Schema 1
+  config by `migrate-v1`. `apply` returns `approval_required` until the same
+  call is repeated with `--approved`.
 
-- `auto`: the default write policy for new workspaces; apply eligible low-risk
-  create/update plans through the Node Commit Kernel in the current Agent turn.
-  The kernel rechecks workspace config; checklist writes are eligible only for
-  enabled domains.
-- `propose`: an explicit cautious mode, also preserved for existing workspaces;
-  draft a plan and wait for exact approval.
-
-If Node or the kernel is unavailable, `auto` explicitly degrades to `propose`.
-Delete, archive, supersede, migration, instruction-file, domain-activation, and
-user-global promotion operations always require human approval.
+`--approved` records a human decision and bypasses only the similarity gate and
+the catalog budget. It never bypasses schema validation, the verified-fix
+requirement, the privacy scan, byte limits, or the profile hash check.
 
 Bootstrap and Kit updates never rewrite an existing workspace policy. After a
-successful high-signal repair the Agent prints only the shared content-safe
-Outcome receipt: all three stages, stable non-success reasons, and the proposal
-ID plus workspace-relative targets when available. It does not expose lesson or
-plan content or ask the user to approve or reply on an applied path.
+successful high-signal repair the Agent prints only the receipt line returned
+by `apply`: three stages, the proposal id, workspace-relative targets, and the
+catalog size. It does not expose lesson content or ask the user to reply on an
+applied path.
 
 ## Context Health
 
 Context is not improved merely by getting larger.
 
-- New rules run replace-before-add analysis.
-- Authority decides which evidence wins a conflict.
-- Retention value decides whether a rule still earns Active Context space.
-- Budget thresholds trigger review and may block `auto`; they never truncate
-  context.
-- Cleanup is proposed with the behavior lost, replacement rule, and net context
-  change visible.
+- A new hook whose token similarity with an active hook is at or above 0.5 is
+  blocked with `similar_rule_exists`; the fix is a `supersede` operation, not
+  a reworded add.
+- The 8 KB catalog budget blocks additions until something is superseded or
+  retired.
+- `consulted`, `last_consulted`, and `missed` counters record real use; the
+  weekly report lists most-consulted rules, relevant-but-missed rules, rules
+  never consulted in 30 days, similar hook pairs at or above 0.35, and state
+  expiring within three days.
+- STATE entries expire automatically; nothing dated lives in a rule.
+- The report recommends; only `apply` changes context.
 
 ## Evidence Privacy
 
@@ -379,27 +353,35 @@ Evidence is pointer-first and summary-first:
   customer data, or unnecessary personal details;
 - scrub workspace-specific information before user-global promotion.
 
+The privacy scan runs on every proposal and fails on private keys, well-known
+token shapes, credential assignments, and absolute user-home paths.
+`--approved` cannot bypass it.
+
 ## Legacy Workspaces
 
-An unversioned `.agent-context/` tree is `legacy_v0` and read-only. V1 may read
-it through a legacy adapter, but migration requires a reviewed MigrationPlan,
-backup, exact approval, and ApplyAttempt. Bootstrap never overwrites legacy
-context with new templates.
+A Schema 1 workspace (`PROJECT_CONTEXT_INDEX.md`, `PROJECT_PROFILE.md`,
+`checklists/`, PatchPlan proposals) is not read by Kit 0.7.0. `migrate-v1`
+converts it in place, once: every checklist bullet and profile rule becomes a
+draft rule flagged `needs_rewrite`, history moves to `archive/`, and the
+catalog is rendered. The conversion is lossy and accepted as such; the
+original files stay in `archive/` for reference. Right after migration the
+catalog usually exceeds its budget, so the next step is a one-time rewrite and
+merge pass (target: at most 60 rules) before new additions are accepted.
+Bootstrap never converts a workspace on its own.
 
 ## Architecture
 
 See [CONTEXT.md](CONTEXT.md) for the domain language,
 [ADR-0001](docs/adr/0001-agent-first-context-evolution.md) for the original
-architecture, and
+architecture,
 [ADR-0003](docs/adr/0003-auto-first-low-risk-context.md) for the auto-first
-default. [ADR-0005](docs/adr/0005-observable-evolution-outcomes.md) defines the
-delivery checkpoint and three-stage ephemeral outcome.
-[ADR-0007](docs/adr/0007-agent-owned-context-effectiveness-review.md) defines
-bounded post-apply effectiveness review without telemetry, and
-[ADR-0009](docs/adr/0009-progressive-context-compilation.md) defines read-only
-progressive disclosure and complete legacy fallback. The
-[v1 verification matrix](docs/v1-verification-matrix.md) maps every accepted
-decision to its durable contract and test evidence.
+default, [ADR-0005](docs/adr/0005-observable-evolution-outcomes.md) for the
+delivery checkpoint and the receipt line, and
+[ADR-0010](docs/adr/0010-read-first-catalog-and-schema-2.md) for the
+read-first catalog, Workspace Schema 2, and the removal of the compiler,
+lifecycle coordinator, and marker-based rules. The
+[verification matrix](docs/v1-verification-matrix.md) maps each behavior to
+its test file.
 
 ## Development
 
@@ -409,7 +391,9 @@ Run the single verification interface:
 npm test
 ```
 
-The gate executes real demo behavior, protocol fixtures, Context Compiler
-routing/fallback, Commit Kernel and Lifecycle/Outcome behavior, Bootstrap
-dry-run/apply/idempotency, repository hygiene, and platform contracts. CI runs
-the same interface on Windows and Ubuntu.
+The gate runs the runtime tests under `tests/runtime/` (YAML subset, text
+helpers, workspace validation, catalog render and replace, selection, apply
+gates and rollback, consult writeback, weekly, memory bridge, migrate-v1, and
+the CLI), the Bootstrap installer tests (dry-run, apply, idempotency,
+upgrade), and repository hygiene. CI runs the same interface on Windows and
+Ubuntu.

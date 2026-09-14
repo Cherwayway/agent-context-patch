@@ -34,7 +34,9 @@ follow it as the canonical installation contract:
 
 1. Detect the Agent, workspace root, instruction file, user-level skill target,
    existing context, and Node capability instead of guessing paths.
-2. Run the candidate Release's Bootstrap in dry-run mode.
+2. Run the candidate Release's Bootstrap in dry-run mode. A
+   `MigrationRequired` action means a Schema 1 or legacy v0 workspace: stop,
+   offer `$evolve migrate-v1`, and never convert it as part of the install.
 3. Show the complete deterministic plan, exact plan hash, and a separate
    minimal semantic patch for `CLAUDE.md`, `AGENTS.md`, or the matching
    instruction file.

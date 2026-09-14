@@ -21,9 +21,9 @@ workspace.
 ## Setup before recording
 
 1. Copy `demos/fake-js-repo` to a temporary directory.
-2. Remove the already-applied greeting guard from the copied
-   `.agent-context/PROJECT_PROFILE.md` and checklist.
-3. Remove the copied proposal aggregate so the recording begins fresh.
+2. Remove the already-applied greeting rule from the copied
+   `.agent-context/rules/` and re-render the catalog with `evolve catalog --write`.
+3. Remove the copied proposal audit record so the recording begins fresh.
 4. Change the copied `src/greeting.js` to ignore the caller-provided name.
 5. Keep the terminal width near 100 columns and increase the font enough for a
    phone-sized preview.
@@ -45,7 +45,7 @@ caller-input reason before recording.
 Use this exact content-safe receipt shape on screen:
 
 ```text
-Evolution outcome: detect=candidate; propose=created; apply=applied; proposal=2026-07-19-caller-input-data-flow; targets=.agent-context/checklists/coding.md.
+Evolution outcome: detect=candidate; propose=created; apply=applied; proposal=2026-07-19-caller-input-data-flow; targets=.agent-context/rules/greeting-preserve-caller-name.md; catalog=568B/1 rules.
 ```
 
 The recording must expose no raw conversation, lesson prose, full PatchPlan,

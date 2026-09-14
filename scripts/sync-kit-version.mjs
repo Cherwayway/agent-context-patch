@@ -25,16 +25,7 @@ updateJson("plugins/agent-context-patch/.claude-plugin/plugin.json", (document) 
   document.version = kitVersion;
 });
 updateText("templates/.agent-context/config.yml", (source) =>
-  source.replace(
-    /^created_with_kit_version: "[^"\r\n]*"(?=\r?$)/mu,
-    `created_with_kit_version: "${kitVersion}"`,
-  ),
-);
-updateText("skills/evolve/references/config-schema.md", (source) =>
-  source.replace(
-    /^created_with_kit_version: "[^"\r\n]*"(?=\r?$)/mu,
-    `created_with_kit_version: "${kitVersion}"`,
-  ),
+  source.replace(/^kit_version: "?[^"\r\n]*"?(?=\r?$)/mu, `kit_version: "${kitVersion}"`),
 );
 
 if (checkOnly && changes.length > 0) {

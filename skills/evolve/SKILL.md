@@ -1,362 +1,160 @@
 ---
 name: evolve
-description: Turn verified failures, repeated corrections, and stale workspace context into automatically applied low-risk workspace patches, with review reserved for safety exceptions, or explicitly check and safely update the installed Kit.
+description: Keep verified workspace lessons in a read-first catalog that Claude Code and Codex both see inside the instruction file, turn failures and corrections into auto-applied rule patches behind mechanical gates, record which rules were actually used, or explicitly check and safely update the installed Kit with $evolve update.
 ---
 
 # Evolve
 
-Use this skill when current work exposes a lesson that is likely to prevent a
-future mistake. Fix and verify the current task first. Do not invoke it for a
-one-off detail that has no recurring value.
+Kit 0.7.0, Workspace Schema 2. The normative formats are in
+`references/protocol-v2.md`; the runtime is documented in `runtime/README.md`.
 
-Agent Context Patch is agent-first:
+## Purpose
 
-- The agent understands the project, judges evidence, chooses wording, and
-  prepares semantic changes.
-- The deterministic commit kernel validates the plan envelope, paths, policy,
-  hashes, conflicts, and application. The Lifecycle Coordinator owns
-  deterministic proposal reconciliation and audit continuation. The Outcome
-  Interface validates and formats the ephemeral delivery result; the agent owns
-  detection, proposal meaning, and semantic lifecycle decisions. Neither
-  deterministic module judges project meaning or edits proposal prose.
-- `auto` is the default write policy for new workspaces. It requires the Node
-  kernel; if the kernel is unavailable, preserve the exact proposal, report
-  the reason, and use the approval path instead of pretending the patch was
-  applied.
+A workspace lesson is worth keeping only if a later task reads it. Schema 2
+therefore puts the read side first: every active rule has a one-line hook that
+is rendered into the workspace instruction file, so both agents see it with
+zero read decision. Rule bodies are fetched only for the task at hand. The
+write side is one direct, gated `apply` call with an audit record; there is no
+proposal inbox, lifecycle coordinator, or context compiler any more.
 
-Read references/protocol-v1.md for the normative v1 contract.
+Fix and verify the current task before touching long-term context. Never let
+evolution delay the repair.
 
-## Context loading
+## How context reaches the agent
 
-For normal project work, load only:
+1. The catalog is already in front of you. It is the managed block between
+   `<!-- acp-catalog: ... -->` and `<!-- /acp-catalog -->` in the instruction
+   file (`AGENTS.md` by default; Claude Code imports it through `CLAUDE.md`).
+   It lists one hook per active rule under `### <repo> · <op>` headings, gates
+   first, then a `### STATE (auto-expires)` section of dated working state.
+2. Read a rule body when its hook matches the task. Either open
+   `.agent-context/rules/<id>.md` or run `select` with a task signature built
+   from hard facts (paths, ops, skills, repos, explicit ids), never from the
+   raw prompt. Do this before the first edit of a task that touches a matched
+   repo, path, op, or skill, and again when the task changes shape.
+3. Skills call `select` when they activate, with a fixed signature such as
+   `{"ops":["pr"],"skills":["pawlogic-ship"]}`, so gate rules ride along with
+   the workflow without a separate decision.
+4. Global rules (no `applies_to` scope) are selected only when they are gates;
+   a global advice is fully expressed by its hook.
 
-1. .agent-context/PROJECT_CONTEXT_INDEX.md
-2. .agent-context/PROJECT_PROFILE.md
-3. the relevant checklist for a domain enabled in config.yml
+## Delivery checkpoint and proposal authoring
 
-Do not load proposals, reports, or archive by default. Read config.yml and the
-relevant reference only when evolving context.
+After the current fix is verified, run the checkpoint only when a high-signal
+event occurred: `failed_verification_later_passed`,
+`explicit_user_correction`, `independent_qa_defect`, `stale_context`, or
+`first_fix_failed_then_passed`. Otherwise stay silent: no proposal, no receipt,
+no durable write.
 
-## Lifecycle reconciliation
+When there is a candidate, author one proposal JSON and call `apply` once:
 
-For `$evolve after-failure`, `$evolve approve`, `$evolve review-context`, and
-`$evolve weekly`, invoke the installed runtime's dedicated coordinator before
-creating, approving, or reporting more proposal work. Invoke it again after a
-new eligible auto proposal or an exact approval is persisted so the coordinator
-owns the apply-and-audit continuation:
+- `hook`: one line, at most 160 bytes, "situation + action". Name the trigger
+  situation first, then the action, so the hook is usable without the body.
+  Example: `Adding a partial index on a hot table: run CIC in its own
+  workflow step and reject the batch when it fails.`
+- `kind`: `gate` blocks or requires something before an action; `advice`
+  improves an outcome; `fact` records a verified property of the workspace.
+- `applies_to`: `{repos, paths (globs), ops, skills}`. Leave a dimension empty
+  when it does not narrow the rule; leave all empty only for a global gate.
+- `body`: at most 1500 bytes, Markdown with `Why`, `Do`, and an evidence
+  pointer (workspace-relative path, command, exit code, PR number). No raw
+  conversation, no secrets, no absolute user paths.
+- `trigger`, `fix_status: verified`, and `evidence` are required in the
+  envelope. `trigger` is one of `verification_failure`, `review_failure`,
+  `user_correction`, `independent_qa_defect`, `stale_context`,
+  `repeated_observation`, `agent_self_detected`, or
+  `first_fix_failed_then_passed`. `observed` and `root_cause` are optional,
+  each at most 800 bytes.
 
-~~~js
-import { reconcileWorkspaceProposalLifecycles } from "./runtime/lifecycle.mjs";
+Replace-before-add is mechanical now. A new hook whose token similarity with
+an active hook is at or above `similarity_block` is blocked with
+`similar_rule_exists` and the similar ids. Respond with a `supersede`
+operation that names those ids, not with a reworded `add`. When the catalog
+would exceed `catalog_bytes`, `apply` blocks with `catalog_budget_exceeded`;
+supersede or retire something first. `--approved` bypasses only those two
+gates and only when a human made that decision.
 
-const reconciliation = await reconcileWorkspaceProposalLifecycles({
-  workspaceRoot,
-});
-~~~
+## Consult at the end of a task
 
-Resolve the module path from the installed Skill; the example path is relative
-to this file, not the user's current directory. This is not a new public
-command. Do not run it from `init`, `update`, installation, Agent startup, a
-daemon, or a background scan.
+At the end of any task in which you read rule bodies, record what was used:
 
-Handle its content-safe outcomes as follows:
+```bash
+node <skill>/runtime/cli.mjs consult --consulted <id>,<id> --missed <id>
+```
 
-- `resume_exact_auto` or `resume_exact_authorized`: report the resulting state;
-  do not append another Decision for an already-approved plan.
-- `regenerate_required`: re-read current sources and semantically rebuild the
-  history-free proposal; deterministic code must not choose new wording.
-- `superseding_proposal_required`: create a replacement proposal, write that
-  exact proposal ID in the old Supersession section, then reconcile again. The
-  coordinator alone verifies the cross-proposal edge before changing the old
-  status to superseded.
-- `audit_recovery_required`: stop. Matching after hashes do not prove that this
-  proposal applied; never invent the missing Attempt or silently reapply.
-- `manual_recovery_required`: stop automatic work and report the one
-  machine-readable reason.
-- `approval_required`: continue only through the existing informed approval
-  path.
-- `settled`: no additional lifecycle action is needed for that proposal.
+`--consulted` lists rules that actually influenced planning, execution, or
+verification; `--missed` lists rules that were relevant but discovered too
+late. Print the returned `Context use:` line. These counters are the only
+real "was the rule used" data, and `weekly` ranks, merges, and retires by
+them.
 
-If the lifecycle lock remains after a crash, verify that no coordinator is
-active before manually removing only
-`.agent-context/.lifecycle-coordinator.lock`. Never delete it based on age.
+## STATE
 
-## Delivery checkpoint
-
-After the current fix is verified, run one delivery checkpoint only when at
-least one high-signal event occurred:
-
-- `failed_verification_later_passed`
-- `explicit_user_correction`
-- `independent_qa_defect`
-- `stale_context`
-- `first_fix_failed_then_passed`
-
-The Agent decides the semantic `detect` and `propose` stages. If a proposal was
-created or an existing proposal was reconciled, pass the exact content-safe
-Lifecycle Coordinator result as mechanical evidence; never synthesize the
-`apply` stage. Finalize the task-level result through the installed Skill's
-separate Outcome Interface:
-
-~~~js
-import { finalizeEvolutionOutcome } from "./runtime/outcome.mjs";
-
-const outcome = finalizeEvolutionOutcome({
-  detect,
-  propose,
-  proposalId,
-  reconciliation,
-});
-~~~
-
-Omit `proposalId` and `reconciliation` for `no_candidate` or a semantic blocker.
-Resolve the module path from the installed Skill. Print only `outcome.receipt.text`:
-it covers `detect`, `propose`, and `apply`; every non-success stage includes one
-stable machine-readable reason. Applied results may also include only a
-content-safe proposal ID and sorted workspace-relative targets. Do not add
-lesson prose, PatchPlan content, target content, secrets, conversation data, or
-absolute paths to the receipt.
-
-The valid state families are:
-
-- `no_candidate / not_needed / not_attempted`
-- `skipped / blocked / not_attempted`
-- `candidate / blocked / not_attempted`
-- `candidate / created / applied | approval_required | blocked`
-- `skipped(existing_proposal) / not_needed(existing_proposal) / applied |
-  approval_required | blocked`
-
-Any other combination is invalid and must fail closed. In particular, the
-Outcome Interface cannot report `applied` without the exact proposal ID and a
-verified applied audit from settled reconciliation. If finalization itself
-rejects the inputs, report only `invalid_evolution_outcome`; do not hand-format
-a success receipt.
-
-If there is no high-signal trigger, stay silent: do not create a proposal or
-durable context write merely to emit an outcome. `detect: skipped` is available
-only when an explicit diagnostic result is required. The outcome and receipt
-are ephemeral task results; proposal aggregates remain the durable audit source.
-
-## Hard invariants
-
-- Never let evolution delay repair of the current task.
-- Never apply a proposal until current_fix_status is verified.
-- Workspace is the only active context scope in v1.
-- User-global is valid only for a manually approved promotion proposal; the
-  workspace kernel cannot apply it.
-- Supported write policies are propose and auto. New workspaces default to
-  auto; an existing workspace's explicit config remains authoritative.
-- Deletion, cleanup, migration, domain activation, instruction-file changes,
-  and user-global promotion always require human approval.
-- Approval covers one immutable PatchPlan and its plan_hash. Changed targets
-  require a new plan and new approval.
-- The proposal aggregate itself is never a PatchPlan target. Decision and
-  Apply Attempt writes stay outside the kernel transaction.
-- Never infer `applied` from target content. Exact before hashes permit resume;
-  after hashes without an applied Attempt require audit recovery.
-- Never hand-format a detect-to-apply success. The Outcome Interface requires
-  settled Lifecycle Coordinator evidence and strips unsafe detail.
-- Every non-migration kernel call requires a complete current v1 config.
-  Future schemas remain read-only; legacy migration requires exact backups for
-  every changed existing file in the same approved transaction.
-- Archive targets are create-only history. Approval can add a new snapshot but
-  cannot rewrite an existing archive file.
-- A workspace proposal persists the complete JSON PatchPlan. Its target_files,
-  frontmatter plan_hash, Decision Log hashes, and Apply Attempt hashes must
-  agree with that plan.
-- PatchPlan semanticOperation must equal proposal frontmatter operation. Auto
-  is possible only for semanticOperation add.
-- Approval and application are separate internal states. Eligible auto plans
-  do not require a user decision; `$evolve approve` handles only the exception
-  path that requires one.
-- Active context changes use replace-before-add. Never append a rule before
-  checking for duplication, overlap, conflict, or a better replacement.
-- Evidence is pointer-first and summary-first. Never persist secrets, raw
-  conversations, complete logs, customer data, or unnecessary absolute paths.
-- Kit updates run only when the user invokes $evolve update. They never poll in
-  the background, emit telemetry, silently replace the installed skill, edit a
-  workspace, or authorize a workspace-schema migration.
+STATE is dated working state, not guidance: an in-flight PR, a temporarily
+broken environment, a decision that expires. A rule is a lesson that should
+still hold next quarter. If a sentence starts with "right now" or "until", it
+is state. Entries carry `expires` (default TTL 14 days, at most 90, never
+`never`) and one line of text at most 240 bytes. Expired entries leave the
+catalog automatically and are archived to `archive/state.yml`. Set or clear
+state through `state_set` and `state_clear` operations in a proposal.
 
 ## Commands
 
-### $evolve init
+`<skill>` is the installed evolve skill directory, for example
+`~/.agents/skills/evolve` (Claude Code reaches it through the
+`~/.claude/skills/evolve` symlink). Every command accepts
+`--workspace <dir>` (default: the nearest ancestor containing
+`.agent-context/config.yml`, or `ACP_WORKSPACE`) and `--today YYYY-MM-DD`.
 
-Initialize or refresh the current workspace:
+```bash
+node <skill>/runtime/cli.mjs init [--policy auto|propose] [--agents-file AGENTS.md]
+node <skill>/runtime/cli.mjs status
+node <skill>/runtime/cli.mjs catalog [--write]
+node <skill>/runtime/cli.mjs select --signature '{"paths":["ilands/migrations/481.sql"],"ops":["migration"],"skills":[],"repos":[],"ids":[]}' [--json]
+node <skill>/runtime/cli.mjs apply --proposal '<json>' [--approved]
+node <skill>/runtime/cli.mjs apply --proposal @proposal.json [--approved]
+node <skill>/runtime/cli.mjs consult --consulted a,b [--missed c,d]
+node <skill>/runtime/cli.mjs expire
+node <skill>/runtime/cli.mjs weekly [--memory-dir <dir>]
+node <skill>/runtime/cli.mjs memory-sync --memory-dir <dir> [--dry-run]
+node <skill>/runtime/cli.mjs migrate-v1 [--agents-file AGENTS.md]
+node <skill>/runtime/cli.mjs receipt --detect no_candidate:<reason> --propose not_needed:<reason>
+```
 
-1. Resolve the workspace root; a Git repository is one possible workspace, not
-   a separate scope.
-2. If config.yml has no schema_version, read references/legacy-migration.md and
-   remain read-only until a migration proposal is approved.
-   If it claims v1 but fails the complete config envelope, stop as invalid
-   rather than materializing missing templates.
-3. Inspect source-of-truth files and mark uncertainties rather than guessing.
-4. Detect candidate domains with evidence, confidence, and uncertainties.
-5. Build one InitPlan containing candidate domains, active files, exact patches,
-   and context impact. Split safe Active Context additions from approval-only
-   config or domain changes.
-6. Apply every eligible auto addition immediately. Request one concise decision
-   only when the plan also changes config or enabled domains; the user never
-   needs to copy a plan hash.
-7. Store only approved enabled_domains in config.yml. Materialize checklists
-   only for enabled domains; detected candidates remain temporary plan data.
-8. Give one compact receipt for applied changes and list only unresolved safety
-   exceptions. Do not dump the full InitPlan unless the user asks.
+Exit codes: 0 for `ok` or `applied`, 1 for `blocked`, `failed`, or
+`approval_required`, 2 for a usage error. `status` prints JSON; `catalog`
+prints the block and `--write` re-renders it into the instruction file;
+`select` prints rule bodies (`--json` prints ids, hooks, scores, reasons).
 
-Auto cannot enable or disable domains.
+## Receipts
 
-### $evolve after-failure
+Print only the receipt line, never lesson prose, proposal JSON, or a diff.
 
-Run autonomously after a correction, failed verification, repeated mistake,
-missed context read, or stale-context discovery. The user does not need to
-invoke this command manually:
+- Applied: the `receipt` field returned by `apply`, verbatim:
+  `Evolution outcome: detect=candidate; propose=created; apply=applied; proposal=<id>; targets=<paths>; catalog=<bytes>B/<n> rules.`
+- No candidate: the output of `receipt`, for example
+  `Evolution outcome: detect=no_candidate(one_off); propose=not_needed(one_off); apply=not_attempted(no_proposal).`
+- Blocked or approval required: report the `status` and `reason` from the
+  `apply` result in the same shape, for example
+  `Evolution outcome: detect=candidate; propose=created; apply=blocked(similar_rule_exists); proposal=<id>.`
+  and, if a human decision is genuinely needed, ask for that one decision.
 
-1. Repair the current issue and verify it when possible.
-2. Reconcile unfinished proposal lifecycles before creating another aggregate;
-   handle every blocking outcome using the rules above.
-3. After verification, run the delivery checkpoint. Decide whether the lesson
-   is reusable. If not, finalize `no_candidate / not_needed / not_attempted`
-   and print only its compact receipt.
-4. Compare it with active context using replace-before-add. Compare the
-   responsibility, trigger, reachable execution path, intended effect, and
-   observable verification rather than relying on shared nouns. Only when
-   related active rules suggest the same responsibility or failure shape, read
-   pointer-first summaries for those applied proposals and shortlist the few
-   aggregates needed to test subsumption. Do not scan full proposal history
-   after every failure.
-5. Create one evidence-backed proposal aggregate in proposals/.
-6. Use pending_current_fix while repair is not verified; otherwise use
-   proposed.
-7. Keep evidence as workspace-relative pointers and short result summaries.
-8. Evaluate authority, retention value, privacy, and the net active-context
-   change.
-9. When the patch adds an Active Context rule, give each new rule a stable ID
-   using the source proposal ID plus a one-based ordinal. Place a compact
-   `acp-rule` Markdown comment immediately above it with its source proposal and
-   `subsumes: none`. A replacement uses a new ID and names the replaced IDs;
-   never retrofit IDs through an unapproved bulk migration.
-10. For a workspace proposal, persist the full JSON PatchPlan under Proposed
-   Patch and compute plan_hash from its canonical JSON.
-11. Evaluate policy and all auto gates. When eligible, invoke Lifecycle
-    Reconciliation again. It persists the `policy_auto` Decision, enters
-    approved, calls the Commit Kernel with the exact runtime plan, appends the
-    Apply Attempt, and enters applied only after success.
-12. Finalize the Agent-owned `detect` and `propose` stages with the exact
-    reconciliation result through `finalizeEvolutionOutcome`. Print only
-    `outcome.receipt.text`; do not request approval, wait for a reply, or print
-    the full PatchPlan or plan hash on an applied path.
-13. If an auto gate fails, keep the exact proposal and let the Outcome Interface
-    report `approval_required` or `blocked` with one machine-readable reason and
-    a safe next action when known. Ask for a decision only when the operation is
-    an allowed approval-only exception.
+## Hard invariants
 
-### $evolve approve
+- Never edit the instruction file outside the managed `acp-catalog` block, and
+  never edit the block by hand; `catalog --write` re-renders it.
+- Never store secrets, raw conversation, complete logs, customer data, or
+  absolute user paths in a rule, state entry, profile, or proposal. The
+  privacy gate fails the proposal; `--approved` cannot bypass it.
+- Never apply a proposal whose fix is not verified.
+- Never hand-format an applied receipt; only `apply` produces it.
+- Never invent a rule id that already exists; supersede or retire instead.
+- Hand edits to `rules/` are allowed but must be followed by `catalog --write`.
+- Kit updates run only when the user invokes `$evolve update`. They never
+  poll in the background, emit telemetry, silently replace the installed
+  skill, edit a workspace, or authorize a workspace-schema migration.
 
-This is the public exception path for a proposal that cannot use auto:
-
-1. Reconcile unfinished lifecycles. If the requested proposal was resumed to
-   applied or superseded, report that result and stop. If it needs regeneration,
-   supersession, audit recovery, or manual recovery, resolve that exact outcome
-   before requesting approval.
-2. Parse the four-tilde JSON block under Proposed Patch / PatchPlan JSON.
-   Reject prose-only or partial patch descriptions.
-3. Recompute canonical JSON SHA-256 and require it to equal frontmatter
-   plan_hash. Require target_files to equal the operation targets and every
-   existing Decision/Apply hash to equal the same value. Require
-   semanticOperation to equal frontmatter operation.
-4. Show a concise semantic summary followed by the complete immutable plan:
-   target contents, operations, before hashes, policy result, context delta,
-   and plan_hash. High-risk approval must be informed even though it is rare.
-5. Obtain explicit approval for the exact current plan. The user may simply
-   reply with approval; never require them to copy or repeat the hash.
-6. Persist a Decision Log entry and status approved. If this write fails, stop
-   before calling the kernel.
-7. Invoke Lifecycle Reconciliation again. It rechecks the exact plan, current
-   config, paths, mechanical privacy, and before hashes, adds runtime-only
-   absolute workspaceRoot and
-   planHash, then calls `applyPatchPlan(plan, {approvedPlanHash})`. Approval
-   stays outside the hashed plan and must match plan_hash exactly.
-8. Let the kernel transaction update only the context targets and return its
-   raw status, reason, and per-target hash operations.
-9. Let the coordinator map that result to an Apply Attempt, add the attempt
-   timestamp and a content-free error summary, then append it immediately. On
-   success it sets status to applied; on conflict, failure, or rollback it keeps
-   status approved.
-10. If audit writeback fails, report audit_write_pending and retry it. Do not
-    create a separate receipt or claim lifecycle completion.
-
-If a target changes before any decision or attempt, replace the plan and
-recompute its hash. After audit history exists, create a superseding proposal
-instead, write the replacement ID in the old Supersession section, and rerun
-Lifecycle Reconciliation; one aggregate never mixes hashes from multiple plans.
-Without the kernel, propose mode may apply the exact human-approved patch, but
-must still record hashes and the result.
-
-A user-global promotion has no workspace PatchPlan before an adapter resolves
-its real target. Store only a sanitized candidate hash, keep status proposed,
-and defer exact approval to the adapter plan. Never send it to the workspace
-kernel.
-
-### $evolve review-context
-
-Review active context against current sources. Use
-references/cleanup-policy.md and references/context-budget.md.
-
-- Reconcile unfinished proposal lifecycles before calculating proposal health.
-- Rank authority separately from retention value.
-- Detect stale, duplicated, conflicting, vague, or over-specific rules.
-- Use a summary-first two-stage read: scan Active Context plus proposal IDs and
-  short summaries, then deeply inspect only the shortlist that may share the
-  same responsibility and behavior failure shape.
-- Generalize across different implementation nouns only when one testable
-  invariant preserves the included verification guarantees. Record subsumed
-  rules and proposal IDs, preserved domain details, exclusions or
-  counterexamples, behavior lost, and net active-context change.
-- Prefer tighten, merge, rewrite, supersede, or archive over another append.
-- When bounded, content-safe task evidence is available for a stable rule ID,
-  distinguish `material_use`, `loaded_only`, `relevant_but_missed`,
-  `not_applicable`, and `unknown`. Reading a context file alone is
-  `loaded_only`; absent task coverage is `unknown`, not evidence of disuse.
-- Recommend only `retain`, `observe`, `narrow_route`, `rewrite_candidate`, or
-  `cleanup_candidate`. Low use schedules review and never authorizes removal.
-- Produce an exact cleanup proposal with what behavior would be lost and the
-  net context change.
-- Require human approval for every semantic removal or replacement.
-
-Thresholds trigger review and block auto; they never authorize truncation.
-
-### $evolve weekly
-
-Reconcile unfinished proposal lifecycles first, then write a compact derived
-report in reports/ covering:
-
-1. recurring signals and verification status
-2. applied improvements
-3. proposal triage
-4. stale, redundant, or conflicting active context
-5. a bounded effectiveness view for reviewed stable rule IDs: relevant-task
-   opportunities, material uses, recurrence after activation, last material-use
-   pointer, irrelevant-load observations, and explicit unknown coverage
-6. review signals independent of line count, including repeated failure after
-   activation, repeated loaded-only or irrelevant default loading, rapid active
-   additions, long auto-add sequences without cleanup, and undifferentiated
-   high-retention declarations with little known coverage
-7. recommended patches, cleanup, and possible cross-noun generalization
-   candidates for `$evolve review-context`; the report never merges them
-8. next review priorities
-
-Reports are rebuildable views, not sources of truth, and are not part of the
-default context read. Inspect only explicitly available, content-safe task
-evidence. Do not add a background scan, per-task receipt, raw usage ledger, or
-mechanical hit-rate score.
-
-### Personal multi-repository dogfooding
-
-When the user explicitly wants to establish or review their own long-running
-use of this kit across repositories, read the experimental owner-dogfood guide
-`references/personal-dogfooding.zh-CN.md`. Keep each repository workspace-first,
-promote only evidence-backed patterns, and do not turn the review cadence into
-mandatory ceremony when no real signal exists.
-
-### $evolve update
+## $evolve update
 
 This is the only public Kit update entry point. Run it only when the user asks:
 
@@ -397,39 +195,30 @@ Version discovery sends no workspace path, context, source code, conversation,
 or usage event. GitHub Release notifications are external; this skill provides
 no daemon, scheduled check, telemetry, or silent upgrade.
 
-## Policy evaluation
+## $evolve migrate-v1
 
-Read context_write_policy from config.yml. `auto` is the default write policy
-for newly initialized workspaces:
+Converts a Schema 1 workspace (`PROJECT_CONTEXT_INDEX.md`, `PROJECT_PROFILE.md`,
+`checklists/`, PatchPlan proposals) in place, once, lossily. Run it only when
+the user asks. Every checklist bullet and profile "Active Working Rules" bullet
+becomes a draft rule with `needs_rewrite: true`; old proposals, checklists, and
+the profile move to `archive/`. The catalog will usually exceed its budget
+right after migration. The next step is a one-time rewrite pass by the agent:
+merge and rewrite drafts to at most 60 rules with real hooks and scopes, then
+retire the rest. New adds are refused until the catalog is within budget.
 
-- auto: complete the same audited lifecycle immediately without a human
-  decision when every low-risk gate in references/protocol-v1.md passes.
-- propose: an explicit cautious mode, or a preserved setting in an existing
-  workspace; create the exact record and wait for approval.
+## $evolve weekly
 
-If an auto gate fails, keep the proposal and its machine-readable policy result,
-but show the user only one concise exception by default:
+Writes `reports/weekly-<date>.md`: catalog size against budget, most consulted
+rules, relevant-but-missed rules, rules never consulted in 30 days, similar
+hook pairs at or above 0.35 as merge candidates, state expiring within three
+days, migrated drafts still flagged `needs_rewrite`, and, with
+`--memory-dir`, Claude memory files not yet moved into rules or STATE. The
+report recommends; it never removes anything. Act on it through `apply`.
 
-~~~yaml
-requested_policy: auto
-effective_policy: propose
-reason: <machine-readable-reason>
-~~~
+## $evolve init
 
-The agent or kernel must not weaken a failed gate. A successful auto path must
-end with one non-blocking receipt and no request for user action.
-
-## References
-
-- references/protocol-v1.md
-- references/config-schema.md
-- references/proposal-schema.md
-- references/legacy-migration.md
-- references/domain-packs.md
-- references/context-budget.md
-- references/cleanup-policy.md
-- references/privacy.md
-- references/personal-dogfooding.zh-CN.md
-- references/domain-coding.md
-- references/domain-prd.md
-- references/domain-seo.md
+Creates a fresh Schema 2 workspace: `config.yml`, `STATE.yml`, `PROFILE.md`,
+`README.md`, and the `rules/`, `proposals/`, `reports/`, `archive/`
+directories, then renders the empty catalog block into the instruction file.
+Existing files are left untouched. Fill `PROFILE.md` with verified facts only,
+through a `profile` operation that carries the current `before_hash`.

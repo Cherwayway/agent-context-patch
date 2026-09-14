@@ -1,41 +1,27 @@
 # Agent Context Patch
 
-Use the installed `$evolve` skill autonomously when a failure, correction,
-stale rule, or recurring workflow lesson is likely to matter again. The user
-does not need to invoke `$evolve after-failure` manually.
+The `acp-catalog` block in `AGENTS.md` is the workspace's active context: one
+hook per rule, grouped by repo and operation, then dated STATE. Read it before
+acting. Keep this file a one-line `@AGENTS.md` import so both agents read the
+same block; evolve renders the block only into `AGENTS.md`.
 
+- When a hook matches the task, read the rule body before the first edit:
+  `.agent-context/rules/<id>.md`, or run `evolve select` with a task
+  signature built from paths, ops, skills, and repos (never the raw prompt).
 - Fix and verify the current task before evolving long-term context.
-- If `.agent-context/PROJECT_CONTEXT_INDEX.md` exists, read it before making
-  workspace-level claims or context changes.
-- When the installed evolve runtime provides `compileWorkspaceContext`, build a
-  content-safe structured task signature (never the raw prompt or an absolute
-  user path) and load only its returned `content`. Honor `legacy_full` fallback
-  instead of reconstructing a partial context. On `status: blocked`, stop and
-  report the bounded reason; do not continue with empty or invented guidance.
-  Proposal attention is only a bounded pointer: verify current sources before
-  reading a proposal more deeply or changing behavior.
-- At the delivery checkpoint, after the current fix is verified, run the
-  evolution checkpoint when any high-signal event occurred:
-  `failed_verification_later_passed`, `explicit_user_correction`,
-  `independent_qa_defect`, `stale_context`, or
-  `first_fix_failed_then_passed`.
-- The Agent owns the semantic `detect` and `propose` results. Pass them, the
-  content-safe proposal ID when one exists, and the exact Lifecycle Coordinator
-  result to `finalizeEvolutionOutcome` from `runtime/outcome.mjs`. Never invent
-  `apply`. Print only `receipt.text`: one compact, non-blocking receipt covering
-  `detect`, `propose`, and `apply`, stable non-success reasons, and the proposal
-  ID and workspace-relative targets when available.
-- If there is no high-signal trigger, stay silent: do not create a proposal or
-  durable context write merely to emit an outcome. Use `detect: skipped` only
-  when an explicit diagnostic result is required.
-- Default to `auto`. When every `auto` gate passes, persist the proposal audit,
-  apply the exact patch immediately through the Commit Kernel, and finish the
-  audit before the final response. Do not ask for approval and do not wait for
-  a user reply on this eligible path.
-- If a safety gate requires approval, ask only for that exceptional decision
-  and state the blocking reason plainly.
-- Never silently modify `CLAUDE.md`, delete Active Context, migrate a legacy
-  workspace, activate a domain, or promote a rule to user-global guidance.
-- Prefer replace-before-add and propose cleanup when rules overlap, conflict,
-  become stale, or no longer earn their context cost.
-- Persist evidence pointers and summaries, not raw conversations or full logs.
+- After the fix is verified, run the evolution checkpoint only for a
+  high-signal event (`failed_verification_later_passed`,
+  `explicit_user_correction`, `independent_qa_defect`, `stale_context`,
+  `first_fix_failed_then_passed`): author one proposal and call
+  `evolve apply`; on `similar_rule_exists`, supersede instead of rewording.
+  Otherwise stay silent: no proposal, no receipt.
+- Print only receipts: the `Evolution outcome:` line returned by `apply` or
+  by `evolve receipt`, never lesson prose, proposal JSON, or a diff.
+- At the end of any task that read rule bodies, run
+  `evolve consult --consulted <ids> [--missed <ids>]` with the ids that
+  actually influenced the work, and print its `Context use:` line.
+- Never edit the managed `acp-catalog` block in `AGENTS.md` by hand, and never
+  edit `AGENTS.md` outside it on evolve's behalf; `evolve catalog --write`
+  re-renders the block.
+- Persist evidence pointers and summaries, not raw conversation, secrets, or
+  absolute user paths.

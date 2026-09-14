@@ -39,7 +39,7 @@ def main() -> None:
         / "proposals"
         / "2026-07-09-greeting-contract.md"
     ).read_text(encoding="utf-8")
-    for evidence in ["status: applied", "decision: policy_auto", "result: applied"]:
+    for evidence in ["decision: auto_applied", "trigger: verification_failure", "fix_status: verified"]:
         if evidence not in proposal:
             raise RuntimeError(f"demo proposal is missing verified evidence: {evidence}")
 
@@ -92,7 +92,7 @@ def main() -> None:
         render_frame(
             "6 / 9  DETERMINISTIC COMMIT",
             [
-                ("Target: .agent-context/checklists/coding.md", BLUE),
+                ("Target: .agent-context/rules/greeting-preserve-caller-name.md", BLUE),
                 ("Source hash: verified   Conflict: none", GREEN),
                 ("Rollback boundary: exact workspace patch", FOREGROUND),
             ],
@@ -103,14 +103,14 @@ def main() -> None:
             [
                 ("Evolution outcome:", FOREGROUND),
                 ("detect=candidate; propose=created; apply=applied;", GREEN),
-                ("targets=.agent-context/checklists/coding.md", MUTED),
+                ("targets=.agent-context/rules/greeting-preserve-caller-name.md", MUTED),
             ],
             "No raw chat, full log, private path, or PatchPlan is exposed.",
         ),
         render_frame(
             "8 / 9  BETTER NEXT TASK",
             [
-                ("Context read: .agent-context/checklists/coding.md", BLUE),
+                ("Context read: .agent-context/rules/greeting-preserve-caller-name.md", BLUE),
                 ("Reusable guard loaded before the next edit.", GREEN),
                 ("Claude Code + OpenAI Codex", FOREGROUND),
             ],
