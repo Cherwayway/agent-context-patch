@@ -67,7 +67,7 @@ export async function commitFiles(workspace, changes, { write = atomicWrite } = 
       try {
         if (backup.content === undefined) await rm(backup.path, { force: true });
         else await write(backup.path, backup.content);
-      } catch { failed.push(relative(workspace.workspaceRoot, backup.path)); }
+      } catch { failed.push(relative(workspace.workspaceRoot, backup.path).replaceAll("\\", "/")); }
     }
     return { status: "failed", reason: failed.length ? "rollback_failed" : "commit_failed", details: [String(error.message ?? error)], rollback: { complete: failed.length === 0, failed } };
   }

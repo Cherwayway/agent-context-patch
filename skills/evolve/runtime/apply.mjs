@@ -205,7 +205,7 @@ async function commitPlan(workspace, plan, { kitVersion, now = new Date() }) {
   const catalog = await prepareCatalog(plan.nextWorkspace, { renderedAt: appliedAt, kitVersion });
   const changes = [...plan.removes.map(r => ({ target: r.target, after: null })), ...plan.writes];
   if (catalog.changed) changes.push({ target: workspace.config.agents_file, after: catalog.next });
-  changes.push({ target: relative(workspace.workspaceRoot, plan.proposalPath), after: renderAudit(plan, { appliedAt, kitVersion: kitVersion ?? workspace.config.kit_version }) });
+  changes.push({ target: relative(workspace.workspaceRoot, plan.proposalPath).replaceAll("\\", "/"), after: renderAudit(plan, { appliedAt, kitVersion: kitVersion ?? workspace.config.kit_version }) });
   const committed = await commitFiles(workspace, changes);
   if (committed.status !== "ok") return { ...committed, proposalId: plan.proposalId, targets: plan.targets };
   return {
