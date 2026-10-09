@@ -93,7 +93,7 @@ async function run(name, opts) {
         const scan = await scanMemory(resolve(opts["memory-dir"]));
         memoryCandidates = scan.status === "ok" ? scan.candidates : [];
       }
-      return exitOn(await buildWeeklyReport({ workspaceRoot: await workspaceRoot(opts), today: opts.today, memoryCandidates }));
+      return exitOn(await buildWeeklyReport({ workspaceRoot: await workspaceRoot(opts), today: opts.today, memoryCandidates, kitVersion }));
     }
     case "memory-sync": {
       if (!opts["memory-dir"]) throw new Error("memory-sync requires --memory-dir");

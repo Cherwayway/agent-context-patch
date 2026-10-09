@@ -3,7 +3,7 @@
 This repository dogfoods its own kit. The block below is rendered by `evolve`;
 rule bodies live in `.agent-context/rules/`. Do not edit the block by hand.
 
-<!-- acp-catalog: kit=0.8.0 schema=2 rendered=2026-10-09T08:03:06.484Z rules=3 state=0 -->
+<!-- acp-catalog: kit=0.8.1 schema=2 rendered=2026-10-09T08:50:18.582Z rules=3 state=0 -->
 ## Workspace Context Catalog
 
 Read .agent-context/rules/<id>.md first. (+ops) adds ops. Select needs repos; no edits.

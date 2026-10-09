@@ -14,12 +14,12 @@ const SIMILAR_REVIEW_THRESHOLD = 0.35;
  * is a rebuildable derived file; it recommends merges and retirements but
  * never removes anything itself.
  */
-export async function buildWeeklyReport({ workspaceRoot, today, memoryCandidates = [] } = {}) {
+export async function buildWeeklyReport({ workspaceRoot, today, memoryCandidates = [], kitVersion } = {}) {
   return withMutation(workspaceRoot, { today }, async workspace => {
-  const health = await inspectHealth(workspace);
+  const health = await inspectHealth(workspace, { kitVersion });
   const date = workspace.today;
   const { rules, state, config } = workspace;
-  const catalog = renderCatalog(workspace);
+  const catalog = renderCatalog(workspace, { kitVersion });
 
   const usedBefore = new Set(health.lineage.filter(item => item.previousConsulted > 0).map(item => item.id));
   const neverConsulted = rules.filter((rule) => rule.consulted === 0 && !usedBefore.has(rule.id) && daysBetween(rule.created, date) >= STALE_DAYS);

@@ -150,7 +150,7 @@ The catalog is the whole point of this release. A lesson that is stored but
 never read is worthless, so Schema 2 makes the read side free:
 
 ```markdown
-<!-- acp-catalog: kit=0.8.0 schema=2 rendered=2026-09-14T08:12:31.000Z rules=12 state=1 -->
+<!-- acp-catalog: kit=0.8.1 schema=2 rendered=2026-09-14T08:12:31.000Z rules=12 state=1 -->
 ## Workspace Context Catalog
 
 ### ilands · migration
@@ -359,7 +359,7 @@ token shapes, credential assignments, and absolute user-home paths.
 ## Legacy Workspaces
 
 A Schema 1 workspace (`PROJECT_CONTEXT_INDEX.md`, `PROJECT_PROFILE.md`,
-`checklists/`, PatchPlan proposals) is not read by Kit 0.8.0. `migrate-v1`
+`checklists/`, PatchPlan proposals) is not read by Kit 0.8.1. `migrate-v1`
 converts it in place, once: every checklist bullet and profile rule becomes a
 draft rule flagged `needs_rewrite`, history moves to `archive/`, and the
 catalog is rendered. The conversion is lossy and accepted as such; the

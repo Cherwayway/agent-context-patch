@@ -1,5 +1,5 @@
 schema_version: 2
-kit_version: "0.8.0"
+kit_version: "0.8.1"
 write_policy: auto
 agents_file: AGENTS.md
 budgets:
