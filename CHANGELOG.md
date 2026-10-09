@@ -3,6 +3,15 @@
 All notable changes to Agent Context Patch are recorded here. The project uses
 semantic versions for the Kit independently from the Workspace Schema version.
 
+## [0.8.1] - 2026-10-09
+
+- Fix `weekly` catalog freshness after a Kit upgrade: use the running Kit
+  version for both the health comparison and byte count, as `status` does.
+  Historical workspace creation metadata remains unchanged. Real stale hooks
+  still trigger a stale-catalog warning.
+- Workspace Schema remains 2. Upgrade through `$evolve update`; no migration
+  or new manual action is required beyond starting a fresh Agent task.
+
 ## [Unreleased]
 
 ## [0.8.0] - 2026-10-09

@@ -5,7 +5,7 @@ description: Read task-relevant workspace rules, keep verified lessons through g
 
 # Evolve
 
-Kit 0.8.0, Workspace Schema 2. Read `references/protocol-v2.md` for normative
+Kit 0.8.1, Workspace Schema 2. Read `references/protocol-v2.md` for normative
 formats and `runtime/README.md` for the API. Fix and verify the current task
 before evolving long-term context.
 

@@ -23,6 +23,38 @@ function tryJson(text) {
   }
 }
 
+test("weekly and status agree after a Kit upgrade without rewriting creation metadata", () => {
+  const root = mkdtempSync(join(tmpdir(), "acp-cli-upgraded-"));
+  try {
+    assert.equal(evolve(root, "init", "--workspace", root).status, 0);
+    const configPath = join(root, ".agent-context", "config.yml");
+    const historicalConfig = readFileSync(configPath, "utf8").replace(/^kit_version: .+$/mu, 'kit_version: "0.7.0"');
+    writeFileSync(configPath, historicalConfig);
+    const proposalPath = join(root, "proposal.json");
+    writeFileSync(proposalPath, JSON.stringify({
+      id: "upgraded-fixture", trigger: "stale_context", fix_status: "verified", evidence: "synthetic CLI fixture",
+      operations: [{ op: "add", rule: { id: "upgrade-gate", hook: "Version-aware fixture gate", kind: "gate", body: "Verify the synthetic artifact." } }],
+    }));
+    assert.equal(evolve(root, "apply", "--proposal", `@${proposalPath}`, "--today", "2026-10-09").status, 0);
+    const status = evolve(root, "status", "--today", "2026-10-09");
+    const weekly = evolve(root, "weekly", "--today", "2026-10-09");
+    assert.equal(status.status, 0, status.stderr);
+    assert.equal(weekly.status, 0, weekly.stderr);
+    assert.equal(status.json.health.catalog.fresh, true);
+    assert.equal(weekly.json.summary.health.catalog.fresh, true, "weekly must use the running Kit, not historical creation metadata");
+    assert.equal(weekly.json.summary.catalogBytes, status.json.catalogBytes);
+    assert.ok(!weekly.json.summary.actions.some(action => action.includes("stale catalog")));
+
+    const agentsPath = join(root, "AGENTS.md");
+    writeFileSync(agentsPath, readFileSync(agentsPath, "utf8").replace("Version-aware fixture gate", "Stale fixture hook"));
+    assert.equal(evolve(root, "status", "--today", "2026-10-09").json.health.catalog.fresh, false);
+    assert.equal(evolve(root, "weekly", "--today", "2026-10-09").json.summary.health.catalog.fresh, false);
+    assert.equal(readFileSync(configPath, "utf8"), historicalConfig, "Kit checks must preserve creation metadata");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("the CLI drives the whole loop: init, apply, select, consult, status, expire, weekly, receipt", () => {
   const root = mkdtempSync(join(tmpdir(), "acp-cli-"));
   try {

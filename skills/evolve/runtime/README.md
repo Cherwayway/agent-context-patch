@@ -1,4 +1,4 @@
-# evolve runtime (Kit 0.8.0, Workspace Schema 2)
+# evolve runtime (Kit 0.8.1, Workspace Schema 2)
 
 Plain Node 20+ ES modules with no dependencies. `cli.mjs` is the command
 entry; `index.mjs` re-exports the programmatic API. Pure rendering/selection APIs are synchronous; filesystem APIs return
@@ -107,7 +107,7 @@ if (workspace.status !== "ok") throw new Error(workspace.failures.join("\n"));
 const selection = selectRules(workspace, { paths: ["ilands/migrations/481.sql"], ops: ["migration"] });
 // Read all pages: selection.complete must be true before claiming completion.
 
-const result = await applyProposal({ workspaceRoot, proposal, approved: false, today: "2026-09-14", kitVersion: "0.8.0" });
+const result = await applyProposal({ workspaceRoot, proposal, approved: false, today: "2026-09-14", kitVersion: "0.8.1" });
 if (result.status === "applied") console.log(result.receipt);
 else console.log(result.status, result.reason, result.details ?? "");
 
