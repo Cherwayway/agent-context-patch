@@ -132,7 +132,7 @@ catalog 是这个版本的核心。存下来却没人读的经验毫无价值，
 的成本降到零：
 
 ```markdown
-<!-- acp-catalog: kit=0.7.0 schema=2 rendered=2026-09-14T08:12:31.000Z rules=12 state=1 -->
+<!-- acp-catalog: kit=0.8.0 schema=2 rendered=2026-09-14T08:12:31.000Z rules=12 state=1 -->
 ## Workspace Context Catalog
 
 ### ilands · migration
@@ -307,7 +307,7 @@ Evidence 优先保存指针和摘要：使用 workspace-relative 路径、命令
 
 ## Legacy Workspace
 
-Kit 0.7.0 不再读取 Schema 1 workspace（`PROJECT_CONTEXT_INDEX.md`、
+Kit 0.8.0 不再读取 Schema 1 workspace（`PROJECT_CONTEXT_INDEX.md`、
 `PROJECT_PROFILE.md`、`checklists/`、PatchPlan proposal）。`migrate-v1` 会就地转换一次：
 每条 checklist 条目和 profile 规则变成标记为 `needs_rewrite` 的草稿规则，历史移入
 `archive/`，然后渲染 catalog。转换是有损的，这是接受的代价；原文件保留在 `archive/`
@@ -334,3 +334,12 @@ npm test
 catalog 渲染与替换、选择、apply 门禁与回滚、consult 回写、weekly、memory bridge、
 migrate-v1、CLI）、Bootstrap 安装器测试（dry-run、apply、幂等、升级）和仓库卫生检查；
 CI 在 Windows 与 Ubuntu 运行同一入口。
+
+## 0.8 的读取与维护
+
+`select` 要带实际 repo、相关路径和当前操作；跨仓库任务显式列出所有 repo。
+缺少 repo 会提示歧义，global gate 优先。`complete: false` 和退出码 1
+表示仍有正文未读；用同一 signature 和 `--cursor` 续读，来源变化则重新开始。
+JSON 只提供路由清单。status/weekly 区分目录陈旧、归档前身使用和近期增长；
+missed 先排查路由、预算与范围，不自动重写。正常写入在读取前加锁，处理到的
+错误会回滚正文、审计和目录；进程中断需要检查遗留锁，不保证跨文件崩溃原子性。

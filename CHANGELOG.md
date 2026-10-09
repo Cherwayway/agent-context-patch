@@ -5,6 +5,37 @@ semantic versions for the Kit independently from the Workspace Schema version.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-09
+
+Workspace Schema remains 2; no migration or creation-version rewrite is needed.
+
+- Normal Schema 2 writers share a lock before reading/planning; atomic per-file
+  replacement and handled-error rollback include audits and catalogs. Concurrent
+  successful consultations no longer lose counts. Apply archives expired STATE.
+- Selection requires repo disambiguation, prioritizes global gates, reports
+  incomplete reads (exit 1), and supports source-bound continuation pages.
+  Unknown ids fail; oversized rules never bypass the body-byte budget. JSON
+  output is a routing manifest, not a body read.
+- Catalogs expose every repo/op scope once, preserve surrounding CRLF bytes,
+  and skip render-time-only rewrites. Status/weekly report freshness, pending
+  expiry, audit consistency, recent growth and separate predecessor use.
+- Smaller skill entry; explicit update/migration guidance moved to a reference.
+  Optional local material-use observations store safe references and rule hashes,
+  without prompts, telemetry or claims of causal improvement.
+
+Upgrade with `$evolve update` from the immutable Release, approve its exact
+Bootstrap plan hash, then start fresh Codex/Claude tasks. Adapt select callers to
+supply actual repos and consume every page; exit 1 is no longer safe to ignore.
+The existing preceding-stable recovery protocol is retained and tested. No
+workspace edits or memory migration are included in a Kit update.
+
+Limits: matching beyond the repo filter remains OR; selection bytes cover body
+text and separators, not CLI framing/manifests. Locks fail on contention and
+require serial retry. Hand edits/init/migrate need a quiescent workspace.
+Handled errors roll back; abrupt termination/power loss is not crash-atomic and
+requires inspecting the leftover lock. Incomplete rollback reports failed paths
+and keeps the lock. Use counters/observations remain self-reports.
+
 ## [0.7.0] - 2026-09-14
 
 Workspace Schema 2. A read-first rewrite: the always-on context is a

@@ -1,8 +1,8 @@
-# evolve runtime (Kit 0.7.0, Workspace Schema 2)
+# evolve runtime (Kit 0.8.0, Workspace Schema 2)
 
 Plain Node 20+ ES modules with no dependencies. `cli.mjs` is the command
-entry; `index.mjs` re-exports the programmatic API. Every module is
-synchronous and pure where it can be; only `apply`, `consult`, `expire`,
+entry; `index.mjs` re-exports the programmatic API. Pure rendering/selection APIs are synchronous; filesystem APIs return
+Promises and must be awaited; only `apply`, `consult`, `expire`,
 `init`, `memory-sync`, `migrate-v1`, and `weekly` write files.
 
 ## Module map
@@ -30,15 +30,15 @@ rule or state entry invalidates the whole workspace.
 
 `catalog.mjs`: `renderCatalog(workspace, {renderedAt, kitVersion})` builds the
 managed block text and its byte count; `sortRules` orders gate, advice, fact,
-then by `consulted`; `replaceCatalogBlock(source, catalogText)` swaps or
+then by id; `replaceCatalogBlock(source, catalogText)` swaps or
 appends the block and throws on an unbalanced one; `writeCatalog` renders and
 writes it into `config.agents_file`, reporting `changed`.
 
 `select.mjs`: `normalizeSignature` validates the five-list task signature and
-derives repos from path prefixes; `selectRules(workspace, signature)` applies
+normalizes inputs; selection resolves only known repo path prefixes; `selectRules(workspace, signature)` applies
 the matching rules (repos filter, any intersecting dimension, global gates
-only, explicit ids), orders by kind, score, and use, and caps the output at
-`select_bytes`. `renderRule` and `pathMatches` are exported for tests.
+only, explicit ids), prioritizes global gates and returns explicit completion, ambiguity and
+fingerprint-bound pages; counts body text and separators within `select_bytes`. `renderRule` and `pathMatches` are exported for tests.
 
 `apply.mjs`: `applyProposal({workspaceRoot, proposal, approved, today,
 kitVersion, now})` runs the full gate order, then commits under
@@ -77,6 +77,11 @@ discovery (`--workspace`, `ACP_WORKSPACE`, or nearest ancestor with
 exit-code mapping (0 ok/applied, 1 blocked/failed/approval_required, 2
 usage error). Run `node cli.mjs` with no command for usage.
 
+`mutation.mjs`: shared lock, atomic file replacement and full handled-error rollback.
+
+`health.mjs`: `buildStatus` and `inspectHealth`, catalog freshness, audits, growth
+and archived lineage; read diagnostics do not claim causal effectiveness.
+
 `index.mjs`: the public re-export surface listed below.
 
 ## Programmatic API
@@ -100,9 +105,9 @@ const workspace = await loadWorkspace(workspaceRoot, { today: "2026-09-14" });
 if (workspace.status !== "ok") throw new Error(workspace.failures.join("\n"));
 
 const selection = selectRules(workspace, { paths: ["ilands/migrations/481.sql"], ops: ["migration"] });
-// selection.text holds the rule bodies; selection.omitted lists ids dropped by select_bytes
+// Read all pages: selection.complete must be true before claiming completion.
 
-const result = await applyProposal({ workspaceRoot, proposal, approved: false, today: "2026-09-14", kitVersion: "0.7.0" });
+const result = await applyProposal({ workspaceRoot, proposal, approved: false, today: "2026-09-14", kitVersion: "0.8.0" });
 if (result.status === "applied") console.log(result.receipt);
 else console.log(result.status, result.reason, result.details ?? "");
 
@@ -117,8 +122,9 @@ no processes.
 
 - It writes only under `.agent-context/` and inside the `acp-catalog` block
   of `config.agents_file`; nothing else in the instruction file is touched.
-- `apply` is all-or-nothing per proposal: every written file is restored on
-  failure and the lock is always released.
+- All normal Schema 2 mutations reload under the shared lock. Handled failures
+  restore all touched files; incomplete rollback retains the lock and reports
+  failed paths. This is not crash-atomic across files; see the protocol.
 - A proposal with `fix_status` other than `verified`, or with a privacy
   hazard in any text, never writes, even with `approved: true`.
 - The catalog is derived from `rules/` and `STATE.yml`; it is never a source

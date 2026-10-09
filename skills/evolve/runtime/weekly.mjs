@@ -1,10 +1,10 @@
-import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { expireState, findSimilar } from "./apply.mjs";
 import { renderCatalog } from "./catalog.mjs";
 import { daysBetween } from "./text.mjs";
-import { loadWorkspace } from "./workspace.mjs";
+import { inspectHealth } from "./health.mjs";
+import { commitFiles, withMutation } from "./mutation.mjs";
 
 const STALE_DAYS = 30;
 const SIMILAR_REVIEW_THRESHOLD = 0.35;
@@ -15,13 +15,14 @@ const SIMILAR_REVIEW_THRESHOLD = 0.35;
  * never removes anything itself.
  */
 export async function buildWeeklyReport({ workspaceRoot, today, memoryCandidates = [] } = {}) {
-  const workspace = await loadWorkspace(workspaceRoot, { today });
-  if (workspace.status !== "ok") return { status: "failed", reason: "workspace_invalid", details: workspace.failures };
+  return withMutation(workspaceRoot, { today }, async workspace => {
+  const health = await inspectHealth(workspace);
   const date = workspace.today;
   const { rules, state, config } = workspace;
   const catalog = renderCatalog(workspace);
 
-  const neverConsulted = rules.filter((rule) => rule.consulted === 0 && daysBetween(rule.created, date) >= STALE_DAYS);
+  const usedBefore = new Set(health.lineage.filter(item => item.previousConsulted > 0).map(item => item.id));
+  const neverConsulted = rules.filter((rule) => rule.consulted === 0 && !usedBefore.has(rule.id) && daysBetween(rule.created, date) >= STALE_DAYS);
   const stale = rules.filter((rule) => rule.consulted > 0 && rule.last_consulted && daysBetween(rule.last_consulted, date) >= STALE_DAYS);
   const missed = rules.filter((rule) => rule.missed > 0).sort((left, right) => right.missed - left.missed);
   const needsRewrite = rules.filter((rule) => rule.needs_rewrite);
@@ -43,12 +44,24 @@ export async function buildWeeklyReport({ workspaceRoot, today, memoryCandidates
   lines.push(`- active rules: ${rules.length} (gate ${count(rules, "gate")}, advice ${count(rules, "advice")}, fact ${count(rules, "fact")})`);
   lines.push(`- state entries: ${expiry.active.length} active, ${expiry.expired.length} expired and pending archive`);
   lines.push(`- rules flagged needs_rewrite: ${needsRewrite.length}`);
+  lines.push(`- stored catalog: ${health.catalog.storedBytes} bytes; semantic freshness: ${health.catalog.fresh}`);
+  lines.push(`- latest applied proposal: ${health.latestAppliedAt ?? "none"}; previous weekly report: ${health.lastWeeklyReport ?? "none"}`);
+  lines.push(`- proposal audits: ${health.proposals.appliedAudits}; pending input files: ${health.proposals.pendingInputs.length}; invalid audits: ${health.proposals.invalidAudits.length}`);
+  lines.push(`- growth: ${health.growth[7].createdRules} rules created / ${health.growth[7].appliedProposals} proposals applied in 7 days; ${health.growth[30].createdRules} / ${health.growth[30].appliedProposals} in 30 days`);
+  lines.push("- Counters are cumulative self-reports, not evidence of causal improvement. Empty age-filtered lists do not prove all rules were used.");
+  lines.push("");
+  lines.push("## Use inherited through supersede (not current-version use)");
+  for (const item of health.lineage.filter(item => item.previousConsulted > 0)) lines.push(`- [${item.id}] current ${item.currentConsulted}×; predecessors ${item.previousConsulted}×`);
+  lines.push("");
+  lines.push("## Optional material use (last 30 days, self-reported)");
+  lines.push(`- observations: ${health.materialUse.observations}; relevant-task opportunities: unknown; recurrence: unknown`);
+  for (const item of health.materialUse.rules) lines.push(`- [${item.id}] ${item.observations}× last ${item.lastMaterialUse}; ${item.currentVersion ? "current rule text" : "historical rule text"}`);
   lines.push("");
   lines.push("## Most consulted");
   pushRules(lines, mostUsed.filter((rule) => rule.consulted > 0), (rule) => `${rule.consulted}× last ${rule.last_consulted}`);
   lines.push("");
   lines.push("## Relevant but missed");
-  pushRules(lines, missed, (rule) => `missed ${rule.missed}× — rewrite the hook or widen applies_to`);
+  pushRules(lines, missed, (rule) => `missed ${rule.missed}× — investigate routing, budget, stale scope, then hook clarity`);
   lines.push("");
   lines.push(`## Never consulted (older than ${STALE_DAYS} days)`);
   pushRules(lines, neverConsulted, () => "retire candidate unless it is a gate that simply has not been hit");
@@ -73,22 +86,25 @@ export async function buildWeeklyReport({ workspaceRoot, today, memoryCandidates
   const actions = [];
   if (catalog.bytes > config.budgets.catalog_bytes * 0.9) actions.push("catalog is within 10% of budget: merge or retire before adding");
   if (similarPairs.length > 0) actions.push(`review ${similarPairs.length} similar pair(s) for supersede`);
-  if (missed.length > 0) actions.push(`rewrite ${missed.length} rule(s) that were relevant but missed`);
+  if (missed.length > 0) actions.push(`investigate ${missed.length} missed rule(s) before changing hooks or scope`);
   if (neverConsulted.length > 0) actions.push(`decide on ${neverConsulted.length} never-consulted rule(s)`);
   if (needsRewrite.length > 0) actions.push(`finish rewriting ${needsRewrite.length} migrated draft rule(s)`);
   if (memoryCandidates.length > 0) actions.push(`migrate ${memoryCandidates.length} Claude memory file(s) into rules or STATE`);
+  if (!health.catalog.fresh) actions.push("re-render the stale catalog after reviewing its changes");
+  if (health.expiredPendingArchive.length) actions.push("run expire to archive expired STATE; do not renew without fresh evidence");
   if (actions.length === 0) actions.push("nothing urgent");
   for (const action of actions) lines.push(`- ${action}`);
   lines.push("");
 
   const report = lines.join("\n");
   const reportPath = join(workspace.contextRoot, "reports", `weekly-${date}.md`);
-  await mkdir(join(workspace.contextRoot, "reports"), { recursive: true });
-  await writeFile(reportPath, report, "utf8");
+  const written = await commitFiles(workspace, [{ target: `.agent-context/reports/weekly-${date}.md`, after: report }]);
+  if (written.status !== "ok") return written;
   return {
     status: "ok",
     reportPath,
     summary: {
+      health,
       catalogBytes: catalog.bytes,
       rules: rules.length,
       neverConsulted: neverConsulted.map((rule) => rule.id),
@@ -99,6 +115,7 @@ export async function buildWeeklyReport({ workspaceRoot, today, memoryCandidates
       actions,
     },
   };
+  });
 }
 
 function count(rules, kind) {

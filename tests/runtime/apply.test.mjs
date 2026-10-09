@@ -94,7 +94,7 @@ test("state_set, state_clear, expiry, and profile operations manage STATE.yml an
     });
     assert.equal(cleared.status, "applied", JSON.stringify(cleared));
     assert.deepEqual(cleared.expired, ["short"], "expired entries are archived as part of the same commit");
-    assert.deepEqual(cleared.targets, [".agent-context/PROFILE.md", ".agent-context/STATE.yml"]);
+    assert.deepEqual(cleared.targets, [".agent-context/PROFILE.md", ".agent-context/STATE.yml", ".agent-context/archive/state.yml"]);
     state = parseYaml(read(root, "STATE.yml"));
     assert.deepEqual(JSON.parse(JSON.stringify(state)), []);
     assert.match(read(root, "PROFILE.md"), /Lint: npm run lint/u);
@@ -155,10 +155,10 @@ test("gates: envelope, unverified fix, privacy, similarity, catalog budget, dupl
     const replay = await run("p-1", [{ op: "add", rule: rule("another") }]);
     assert.deepEqual([replay.status, replay.reason], ["blocked", "proposal_exists"]);
 
-    writeFileSync(join(root, ".agent-context", "config.yml"), read(root, "config.yml").replace("catalog_bytes: 8192", "catalog_bytes: 600"), "utf8");
+    writeFileSync(join(root, ".agent-context", "config.yml"), read(root, "config.yml").replace("catalog_bytes: 8192", "catalog_bytes: 400"), "utf8");
     const budget = await run("p-9", [{ op: "add", rule: rule("too-much", { hook: "A completely different hook about deploy windows on Fridays" }) }]);
     assert.deepEqual([budget.status, budget.reason], ["blocked", "catalog_budget_exceeded"]);
-    assert.ok(budget.details.catalog_bytes > 600);
+    assert.ok(budget.details.catalog_bytes > 400);
   } finally {
     dispose();
   }

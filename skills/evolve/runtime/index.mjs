@@ -9,3 +9,4 @@ export { buildWeeklyReport } from "./weekly.mjs";
 export { loadWorkspace, inspectConfig, inspectRule, inspectStateEntry, DEFAULT_CONFIG, SCHEMA_VERSION } from "./workspace.mjs";
 export { parseYaml, parseFrontmatter, serializeFrontmatter, toYaml } from "./yaml.mjs";
 export { sha256Text, unifiedDiff, findPrivacyHazard } from "./text.mjs";
+export { buildStatus, inspectHealth } from "./health.mjs";

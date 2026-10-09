@@ -1,13 +1,10 @@
-import { byteLength, globMatch, isIdentifier } from "./text.mjs";
-import { sortRules } from "./catalog.mjs";
+import { byteLength, globMatch, isIdentifier, sha256Text } from "./text.mjs";
 import { APPLIES_TO_KEYS } from "./workspace.mjs";
 
 const SIGNATURE_KEYS = new Set([...APPLIES_TO_KEYS, "ids"]);
 
 /**
- * Normalize a task signature. Repos are derived from the first path segment
- * when the caller did not name them, so `paths: ["ilands/migrations/1.sql"]`
- * matches rules scoped to `repos: [ilands]`.
+ * Validate a task signature. Selection resolves known repo path prefixes only.
  */
 export function normalizeSignature(signature = {}) {
   const failures = [];
@@ -29,11 +26,8 @@ export function normalizeSignature(signature = {}) {
     lists[key] = [...new Set(list.map((item) => item.trim().replaceAll("\\", "/")))];
   }
   for (const id of lists.ids) if (!isIdentifier(id)) failures.push(`signature.ids contains an invalid identifier: ${id}`);
-  const derivedRepos = lists.paths
-    .map((path) => path.replace(/^\.\//u, "").split("/")[0])
-    .filter((segment) => segment && !segment.includes("."));
   const value = {
-    repos: [...new Set([...lists.repos, ...derivedRepos])],
+    repos: lists.repos,
     paths: lists.paths.map((path) => path.replace(/^\.\//u, "")),
     ops: lists.ops,
     skills: lists.skills,
@@ -42,55 +36,68 @@ export function normalizeSignature(signature = {}) {
   return { failures, value };
 }
 
-/**
- * Select the rule bodies relevant to one task. Repos act as a filter: a rule
- * scoped to other repos never matches. Beyond that, any intersecting
- * paths / ops / skills dimension is a hit and the score counts how many
- * dimensions agree. Rules with no scope at all are global; only global
- * gates are selected, because a global advice is already fully expressed by
- * its catalog hook. Explicit ids are always included. Output is capped by
- * budgets.select_bytes with gates first, so overflow drops advice before it
- * drops a gate.
+/** Repo filter plus OR matching of paths/ops/skills; globals and explicit ids.
+ * Missing repo scope is ambiguous. Pages never silently exceed the byte budget.
  */
-export function selectRules(workspace, signature) {
+export function selectRules(workspace, signature, { cursor, bytes: requestedBytes } = {}) {
   const normalized = normalizeSignature(signature);
-  if (normalized.failures.length > 0) return { status: "invalid", failures: normalized.failures };
+  if (normalized.failures.length > 0) return { status: "invalid", complete: false, failures: normalized.failures };
   const task = normalized.value;
+  const knownRepos = new Set(workspace.rules.flatMap(rule => rule.applies_to.repos));
+  if (!task.repos.length) task.repos = [...new Set(task.paths.map(path => path.split("/")[0]).filter(repo => knownRepos.has(repo)))];
+  const unknown = task.ids.filter(id => !workspace.rules.some(rule => rule.id === id));
+  if (unknown.length) return { status: "invalid", complete: false, failures: [`unknown rule ids: ${unknown.join(", ")}`] };
+  const budget = requestedBytes ?? workspace.config.budgets.select_bytes;
+  if (!Number.isSafeInteger(budget) || budget <= 0) return { status: "invalid", complete: false, failures: ["bytes must be a positive integer"] };
   const matched = [];
+  const ambiguous = [];
   for (const rule of workspace.rules) {
     const explicit = task.ids.includes(rule.id);
     const match = matchRule(rule, task);
     if (!explicit && !match.matched) continue;
-    matched.push({ rule, score: explicit ? 100 : match.score, reasons: explicit ? ["id"] : match.reasons });
-  }
-  const ordered = sortRules(matched.map(({ rule }) => rule)).map((rule) => matched.find((entry) => entry.rule === rule));
-  ordered.sort((left, right) => {
-    const kindDelta = kindRank(left.rule.kind) - kindRank(right.rule.kind);
-    if (kindDelta !== 0) return kindDelta;
-    return right.score - left.score || right.rule.consulted - left.rule.consulted || left.rule.id.localeCompare(right.rule.id);
-  });
-
-  const budget = workspace.config.budgets.select_bytes;
-  const selected = [];
-  const omitted = [];
-  let bytes = 0;
-  for (const entry of ordered) {
-    const text = renderRule(entry.rule);
-    const size = byteLength(text);
-    if (bytes + size > budget && selected.length > 0) {
-      omitted.push(entry.rule.id);
+    if (!explicit && rule.applies_to.repos.length && !task.repos.length) {
+      ambiguous.push(rule.id);
       continue;
     }
-    bytes += size;
-    selected.push({ id: entry.rule.id, kind: entry.rule.kind, hook: entry.rule.hook, score: entry.score, reasons: entry.reasons, text });
+    matched.push({ rule, score: explicit ? 100 : match.score, reasons: explicit ? ["id"] : match.reasons });
   }
+  // Every unscoped gate comes first. Counters do not change routing or page identity.
+  const globalGate = rule => rule.kind === "gate" && APPLIES_TO_KEYS.every(key => !rule.applies_to[key].length);
+  matched.sort((left, right) => Number(globalGate(right.rule)) - Number(globalGate(left.rule)) ||
+    kindRank(left.rule.kind) - kindRank(right.rule.kind) || right.score - left.score || left.rule.id.localeCompare(right.rule.id));
+  const entries = matched.map(({ rule, score, reasons }) => ({ id: rule.id, kind: rule.kind, hook: rule.hook, score, reasons, text: renderRule(rule) }));
+  const fingerprint = sha256Text(JSON.stringify({ signature: task, budget, ambiguous, entries }));
+  let offset = 0;
+  if (cursor !== undefined) {
+    if (typeof cursor !== "string" || cursor.length > 4096) return { status: "invalid", complete: false, failures: ["invalid cursor"] };
+    try {
+      const page = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+      if (page.fingerprint !== fingerprint) return { status: "blocked", complete: false, reason: "selection_changed", hint: "restart select without a cursor" };
+      if (!Number.isInteger(page.offset) || page.offset < 0 || page.offset >= entries.length) throw new Error("offset");
+      offset = page.offset;
+    } catch { return { status: "invalid", complete: false, failures: ["invalid cursor"] }; }
+  }
+  const selected = [];
+  let size = 0;
+  let end = offset;
+  for (const entry of entries.slice(offset)) {
+    const cost = byteLength(entry.text) + (selected.length ? 1 : 0);
+    if (size + cost > budget) break;
+    selected.push(entry);
+    size += cost;
+    end += 1;
+  }
+  const omitted = entries.slice(end).map(entry => entry.id);
+  const complete = omitted.length === 0 && ambiguous.length === 0;
+  const oversized = selected.length === 0 && omitted.length > 0;
   return {
-    status: "ok",
-    signature: task,
-    selected,
-    omitted,
-    bytes,
-    text: selected.map((entry) => entry.text).join("\n"),
+    status: oversized ? "blocked" : complete ? "ok" : "incomplete",
+    ...(oversized ? { reason: "rule_exceeds_budget", hint: `read rules/${omitted[0]}.md directly or increase --bytes and restart` } : {}),
+    complete, signature: task, fingerprint, budget, offset,
+    matched: entries.map(({ text, ...entry }) => entry),
+    selected, omitted, ambiguous, bytes: size,
+    cursor: omitted.length && !oversized ? Buffer.from(JSON.stringify({ fingerprint, offset: end })).toString("base64url") : undefined,
+    text: selected.map(entry => entry.text).join("\n"),
   };
 }
 
