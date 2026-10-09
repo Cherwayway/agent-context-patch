@@ -1,7 +1,6 @@
-import { mkdir, open, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { join, relative } from "node:path";
 
-import { renderCatalog, writeCatalog } from "./catalog.mjs";
+import { prepareCatalog, renderCatalog } from "./catalog.mjs";
 import {
   addDays,
   byteLength,
@@ -13,7 +12,7 @@ import {
   similarityTokens,
   unifiedDiff,
 } from "./text.mjs";
-import { CONTEXT_DIR, inspectRule, inspectStateEntry, loadWorkspace, normalizeRule } from "./workspace.mjs";
+import { CONTEXT_DIR, inspectRule, inspectStateEntry, normalizeRule } from "./workspace.mjs";
 import { isRecord, serializeFrontmatter, toYaml } from "./yaml.mjs";
 
 export const TRIGGERS = new Set([
@@ -30,7 +29,7 @@ export const OPERATIONS = new Set(["add", "supersede", "retire", "state_set", "s
 const NARRATIVE_KEYS = ["observed", "evidence", "root_cause"];
 const NARRATIVE_LIMIT = 800;
 const PROPOSAL_KEYS = new Set(["id", "trigger", "fix_status", ...NARRATIVE_KEYS, "operations"]);
-const LOCK_FILE = ".lock";
+import { commitFiles, readMaybe, withMutation } from "./mutation.mjs";
 
 /**
  * Apply one proposal to a Schema 2 workspace in a single call: validate,
@@ -40,17 +39,17 @@ const LOCK_FILE = ".lock";
  * Result statuses: applied | approval_required | blocked | failed.
  */
 export async function applyProposal({ workspaceRoot, proposal, approved = false, today, kitVersion, now } = {}) {
-  const workspace = await loadWorkspace(workspaceRoot, { today });
-  if (workspace.status !== "ok") return failure("workspace_invalid", workspace.failures);
-  if (isRecord(proposal) && isIdentifier(proposal.id) && (await readMaybe(join(workspace.contextRoot, "proposals", `${proposal.id}.md`))) !== undefined) {
-    return blocked("proposal_exists", proposal.id, []);
-  }
-  const plan = planProposal(workspace, proposal, { approved });
-  if (plan.status !== "ready") return plan;
-  if (workspace.config.write_policy === "propose" && !approved) {
-    return { status: "approval_required", reason: "policy_requires_approval", proposalId: plan.proposalId, targets: plan.targets };
-  }
-  return commitPlan(workspace, plan, { kitVersion, now });
+  return withMutation(workspaceRoot, { today }, async workspace => {
+    if (isRecord(proposal) && isIdentifier(proposal.id) && (await readMaybe(join(workspace.contextRoot, "proposals", `${proposal.id}.md`))) !== undefined) {
+      return blocked("proposal_exists", proposal.id, []);
+    }
+    const plan = planProposal(workspace, proposal, { approved });
+    if (plan.status !== "ready") return plan;
+    if (workspace.config.write_policy === "propose" && !approved) {
+      return { status: "approval_required", reason: "policy_requires_approval", proposalId: plan.proposalId, targets: plan.targets };
+    }
+    return commitPlan(workspace, plan, { kitVersion, now });
+  });
 }
 
 /** Validate a proposal and compute the exact file changes without writing. */
@@ -84,7 +83,7 @@ export function planProposal(workspace, proposal, { approved = false } = {}) {
         const rule = normalizeRuleInput(operation.rule, proposal, workspace.today);
         const failures = inspectRule(rule.data, rule.body, budgets);
         if (failures.length > 0) return failure("invalid_rule", failures.map((message) => `${label}: ${message}`));
-        if (nextRules.has(rule.data.id) || archived.some((entry) => entry.id === rule.data.id)) {
+        if (nextRules.has(rule.data.id) || workspace.archivedRuleIds?.includes(rule.data.id) || archived.some((entry) => entry.id === rule.data.id)) {
           return failure("invalid_rule", [`${label}: rule ${rule.data.id} already exists`]);
         }
         const replaces = operation.op === "supersede" ? operation.replaces : [];
@@ -169,8 +168,12 @@ export function planProposal(workspace, proposal, { approved = false } = {}) {
   }
   const stateChanged = toYaml(stateDocument(nextState)) !== toYaml(stateDocument(workspace.state));
   if (stateChanged || expiredEntries.length > 0) {
-    const beforeState = workspace.state.length === 0 ? null : toYaml(stateDocument(workspace.state));
+    const beforeState = workspace.stateRaw ?? null;
     writes.push({ target: `${CONTEXT_DIR}/STATE.yml`, before: beforeState, after: toYaml(stateDocument(nextState)) });
+  }
+  if (expiredEntries.length > 0) {
+    writes.push({ target: `${CONTEXT_DIR}/archive/state.yml`, before: workspace.stateArchive || null,
+      after: `${workspace.stateArchive ?? ""}${toYaml(stateDocument(expiredEntries.map(entry => ({ ...entry, archived: workspace.today }))))}` });
   }
   if (nextProfile !== undefined && nextProfile !== workspace.profile) {
     writes.push({ target: `${CONTEXT_DIR}/PROFILE.md`, before: workspace.profile, after: nextProfile });
@@ -192,71 +195,47 @@ export function planProposal(workspace, proposal, { approved = false } = {}) {
     diff,
     catalog,
     expired: expiredEntries.map((entry) => entry.id),
+    expiredEntries,
     nextWorkspace,
   };
 }
 
 async function commitPlan(workspace, plan, { kitVersion, now = new Date() }) {
-  const lock = await acquireLock(workspace.contextRoot);
-  if (!lock) return { status: "blocked", reason: "workspace_locked", proposalId: plan.proposalId, targets: plan.targets };
-  const backups = [];
-  try {
-    const existingAudit = await readMaybe(plan.proposalPath);
-    if (existingAudit !== undefined) return { status: "blocked", reason: "proposal_exists", proposalId: plan.proposalId, targets: plan.targets };
-
-    for (const remove of plan.removes) {
-      const absolute = join(workspace.workspaceRoot, remove.target);
-      backups.push({ absolute, content: remove.before });
-      await unlink(absolute);
-    }
-    for (const write of plan.writes) {
-      const absolute = join(workspace.workspaceRoot, write.target);
-      backups.push({ absolute, content: write.before });
-      await mkdir(dirname(absolute), { recursive: true });
-      await atomicWrite(absolute, write.after);
-    }
-    const appliedAt = (now instanceof Date ? now : new Date(now)).toISOString();
-    const audit = renderAudit(plan, { appliedAt, kitVersion: kitVersion ?? workspace.config.kit_version });
-    await mkdir(dirname(plan.proposalPath), { recursive: true });
-    await atomicWrite(plan.proposalPath, audit);
-    const catalog = await writeCatalog({ ...plan.nextWorkspace, workspaceRoot: workspace.workspaceRoot }, { renderedAt: appliedAt, kitVersion });
-    return {
-      status: "applied",
-      proposalId: plan.proposalId,
-      targets: plan.targets,
-      expired: plan.expired,
-      catalog: { bytes: catalog.bytes, rules: catalog.rules, state: catalog.state, agentsFile: relative(workspace.workspaceRoot, catalog.agentsPath) },
-      receipt: formatApplyReceipt({ proposalId: plan.proposalId, targets: plan.targets, catalog }),
-    };
-  } catch (error) {
-    for (const backup of [...backups].reverse()) {
-      try {
-        if (backup.content === null) await rm(backup.absolute, { force: true });
-        else await writeFile(backup.absolute, backup.content, "utf8");
-      } catch {
-        // best effort rollback
-      }
-    }
-    return { status: "failed", reason: "commit_failed", proposalId: plan.proposalId, targets: plan.targets, details: [String(error?.message ?? error)] };
-  } finally {
-    await releaseLock(lock);
-  }
+  const appliedAt = (now instanceof Date ? now : new Date(now)).toISOString();
+  const catalog = await prepareCatalog(plan.nextWorkspace, { renderedAt: appliedAt, kitVersion });
+  const changes = [...plan.removes.map(r => ({ target: r.target, after: null })), ...plan.writes];
+  if (catalog.changed) changes.push({ target: workspace.config.agents_file, after: catalog.next });
+  changes.push({ target: relative(workspace.workspaceRoot, plan.proposalPath).replaceAll("\\", "/"), after: renderAudit(plan, { appliedAt, kitVersion: kitVersion ?? workspace.config.kit_version }) });
+  const committed = await commitFiles(workspace, changes);
+  if (committed.status !== "ok") return { ...committed, proposalId: plan.proposalId, targets: plan.targets };
+  return {
+    status: "applied", proposalId: plan.proposalId, targets: plan.targets, expired: plan.expired,
+    catalog: { bytes: catalog.bytes, rules: catalog.rules, state: catalog.state, agentsFile: workspace.config.agents_file },
+    receipt: formatApplyReceipt({ proposalId: plan.proposalId, targets: plan.targets, catalog }),
+  };
 }
 
-/** Archive expired STATE entries and re-render the catalog. */
+async function archiveStateChange(workspace, expired) {
+  const target = `${CONTEXT_DIR}/archive/state.yml`;
+  const previous = (await readMaybe(join(workspace.workspaceRoot, target))) ?? "";
+  return { target, after: `${previous}${toYaml(stateDocument(expired.map(entry => ({ ...entry, archived: workspace.today }))))}` };
+}
+
+/** Archive expired STATE entries and re-render the catalog under the same lock. */
 export async function expireWorkspaceState({ workspaceRoot, today, kitVersion } = {}) {
-  const workspace = await loadWorkspace(workspaceRoot, { today });
-  if (workspace.status !== "ok") return failure("workspace_invalid", workspace.failures);
-  const { active, expired } = expireState(workspace.state, workspace.today);
-  if (expired.length > 0) {
-    const archivePath = join(workspace.contextRoot, "archive", "state.yml");
-    await mkdir(dirname(archivePath), { recursive: true });
-    const previous = (await readMaybe(archivePath)) ?? "";
-    await writeFile(archivePath, `${previous}${toYaml(stateDocument(expired.map((entry) => ({ ...entry, archived: workspace.today }))))}`, "utf8");
-    await atomicWrite(join(workspace.contextRoot, "STATE.yml"), toYaml(stateDocument(active)));
-  }
-  const catalog = await writeCatalog({ ...workspace, state: active }, { kitVersion });
-  return { status: "ok", expired: expired.map((entry) => entry.id), catalog: { bytes: catalog.bytes, rules: catalog.rules, state: catalog.state, changed: catalog.changed } };
+  return withMutation(workspaceRoot, { today }, async workspace => {
+    const { active, expired } = expireState(workspace.state, workspace.today);
+    const catalog = await prepareCatalog({ ...workspace, state: active }, { kitVersion });
+    const changes = [];
+    if (expired.length) {
+      changes.push(await archiveStateChange(workspace, expired));
+      changes.push({ target: `${CONTEXT_DIR}/STATE.yml`, after: toYaml(stateDocument(active)) });
+    }
+    if (catalog.changed) changes.push({ target: workspace.config.agents_file, after: catalog.next });
+    const result = await commitFiles(workspace, changes);
+    if (result.status !== "ok") return result;
+    return { status: "ok", expired: expired.map(entry => entry.id), catalog: { bytes: catalog.bytes, rules: catalog.rules, state: catalog.state, changed: catalog.changed } };
+  });
 }
 
 export function expireState(state, today) {
@@ -401,7 +380,7 @@ function renderAudit(plan, { appliedAt, kitVersion }) {
     fix_status: proposal.fix_status,
     operations: proposal.operations.map((operation) => operation.op),
     targets: plan.targets,
-    before_hashes: Object.fromEntries(plan.writes.filter((write) => write.before !== null).map((write) => [write.target, sha256Text(write.before)])),
+    before_hashes: Object.fromEntries([...plan.writes, ...plan.removes].filter((write) => write.before !== null).map((write) => [write.target, sha256Text(write.before)])),
     after_hashes: Object.fromEntries(plan.writes.map((write) => [write.target, sha256Text(write.after)])),
     decision: "auto_applied",
     applied_at: appliedAt,
@@ -437,37 +416,4 @@ function failure(reason, details = []) {
 
 function blocked(reason, proposalId, targets, details) {
   return { status: "blocked", reason, proposalId, targets, ...(details ? { details } : {}) };
-}
-
-async function acquireLock(contextRoot) {
-  const path = join(contextRoot, LOCK_FILE);
-  try {
-    await mkdir(contextRoot, { recursive: true });
-    const handle = await open(path, "wx");
-    await handle.writeFile(JSON.stringify({ pid: process.pid, at: new Date().toISOString() }), "utf8");
-    return { handle, path };
-  } catch (error) {
-    if (error?.code === "EEXIST") return undefined;
-    throw error;
-  }
-}
-
-async function releaseLock(lock) {
-  await lock.handle.close().catch(() => {});
-  await unlink(lock.path).catch(() => {});
-}
-
-async function atomicWrite(path, content) {
-  const temporary = `${path}.${process.pid}.tmp`;
-  await writeFile(temporary, content, "utf8");
-  await rename(temporary, path);
-}
-
-async function readMaybe(path) {
-  try {
-    return await readFile(path, "utf8");
-  } catch (error) {
-    if (error?.code === "ENOENT") return undefined;
-    throw error;
-  }
 }

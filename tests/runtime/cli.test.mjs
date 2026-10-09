@@ -53,7 +53,7 @@ test("the CLI drives the whole loop: init, apply, select, consult, status, expir
     const nested = join(root, "sub", "dir");
     const select = evolve(root, "select", "--signature", '{"ops":["sql"]}');
     assert.equal(select.status, 0, select.stderr);
-    assert.match(select.stdout, /^### gate \[cli-gate\] CLI gate hook for sql work\n<!-- ops=sql -->\nBody\.\n$/u);
+    assert.match(select.stdout, /^Context selection: complete; \d+B body text\.\n\n### gate \[cli-gate\] CLI gate hook for sql work\n<!-- ops=sql -->\nBody\.\n$/u);
     const selectJson = evolve(root, "select", "--signature", '{"ops":["docs"]}', "--json");
     assert.deepEqual(selectJson.json.selected, []);
     const badSignature = evolve(root, "select", "--signature", '{"prompt":"raw"}');

@@ -254,6 +254,9 @@ export async function loadWorkspace(workspaceRoot, { today } = {}) {
     config: config.value,
     rules: rules.sort((left, right) => left.id.localeCompare(right.id)),
     state,
+    stateRaw: stateSource,
+    stateArchive: (await readTextMaybe(join(contextRoot, "archive", "state.yml"))) ?? "",
+    archivedRuleIds: (await listMarkdown(join(contextRoot, "archive", "rules"))).map(file => basename(file, ".md")),
     profile,
     today: today ?? new Date().toISOString().slice(0, 10),
   };

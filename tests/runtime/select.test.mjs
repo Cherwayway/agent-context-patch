@@ -4,10 +4,10 @@ import test from "node:test";
 import { loadWorkspace, normalizeSignature, selectRules } from "../../skills/evolve/runtime/index.mjs";
 import { createWorkspace, rule, seed, TODAY } from "./helpers.mjs";
 
-test("normalizeSignature derives repos from paths and rejects unknown keys", () => {
+test("normalizeSignature validates paths; selection resolves known repo prefixes and rejects unknown keys", () => {
   const { failures, value } = normalizeSignature({ paths: ["./ilands/migrations/1.sql", "README.md"], ops: ["sql"] });
   assert.deepEqual(failures, []);
-  assert.deepEqual(value, { repos: ["ilands"], paths: ["ilands/migrations/1.sql", "README.md"], ops: ["sql"], skills: [], ids: [] });
+  assert.deepEqual(value, { repos: [], paths: ["ilands/migrations/1.sql", "README.md"], ops: ["sql"], skills: [], ids: [] });
   assert.match(normalizeSignature({ prompt: "raw text" }).failures.join("\n"), /unsupported signature key prompt/u);
   assert.match(normalizeSignature({ ids: ["Bad Id"] }).failures.join("\n"), /invalid identifier/u);
   assert.match(normalizeSignature({ paths: "x" }).failures.join("\n"), /signature\.paths must be a list of strings/u);
@@ -35,7 +35,7 @@ test("selectRules filters by repo, matches any scoped dimension, and includes on
     const result = selectRules(workspace, { paths: ["ilands/migrations/2026-09-14-add-index.sql"], ops: ["sql"] });
     assert.equal(result.status, "ok");
     const ids = result.selected.map((entry) => entry.id);
-    assert.deepEqual(ids, ["ilands-sql-gate", "global-gate", "ilands-migration-paths", "ilands-only"], "gates first, higher score first within a kind");
+    assert.deepEqual(ids, ["global-gate", "ilands-sql-gate", "ilands-migration-paths", "ilands-only"], "gates first, higher score first within a kind");
     assert.ok(!ids.includes("pi-mono-sql"), "other repos are filtered out");
     assert.ok(!ids.includes("global-advice"), "global advice is served by the catalog hook only");
     assert.ok(!ids.includes("ship-skill"), "skill-scoped rules need the skill in the signature");
@@ -59,7 +59,7 @@ test("selectRules honors skills, explicit ids, and the select byte budget with g
 
     const tight = { ...workspace, config: { ...workspace.config, budgets: { ...workspace.config.budgets, select_bytes: 200 } } };
     const capped = selectRules(tight, { paths: ["ilands/migrations/x.sql"], ops: ["sql"] });
-    assert.deepEqual(capped.selected.map((entry) => entry.id), ["ilands-sql-gate", "global-gate"]);
+    assert.deepEqual(capped.selected.map((entry) => entry.id), ["global-gate", "ilands-sql-gate"]);
     assert.deepEqual(capped.omitted, ["ilands-migration-paths", "ilands-only"]);
     assert.ok(capped.bytes <= 200);
 

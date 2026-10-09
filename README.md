@@ -150,7 +150,7 @@ The catalog is the whole point of this release. A lesson that is stored but
 never read is worthless, so Schema 2 makes the read side free:
 
 ```markdown
-<!-- acp-catalog: kit=0.7.0 schema=2 rendered=2026-09-14T08:12:31.000Z rules=12 state=1 -->
+<!-- acp-catalog: kit=0.8.0 schema=2 rendered=2026-09-14T08:12:31.000Z rules=12 state=1 -->
 ## Workspace Context Catalog
 
 ### ilands · migration
@@ -282,8 +282,7 @@ accepts `--workspace <dir>` and `--today YYYY-MM-DD`.
   needing rewrite, state entries, catalog bytes against budget, policy).
 - `catalog [--write]`: print the block, or re-render it into the instruction
   file.
-- `select --signature '<json>' | @file [--json]`: print the rule bodies that
-  match a task signature.
+- `select --signature '<json>' | @file [--json] [--cursor <token>] [--bytes <n>]`: read task bodies with actual repo scope. Incomplete pages exit 1; read every page. JSON is a routing manifest.
 - `apply --proposal '<json>' | @file [--approved]`: validate, gate, write,
   audit, and re-render in one call. Statuses: `applied`,
   `approval_required`, `blocked`, `failed`.
@@ -360,7 +359,7 @@ token shapes, credential assignments, and absolute user-home paths.
 ## Legacy Workspaces
 
 A Schema 1 workspace (`PROJECT_CONTEXT_INDEX.md`, `PROJECT_PROFILE.md`,
-`checklists/`, PatchPlan proposals) is not read by Kit 0.7.0. `migrate-v1`
+`checklists/`, PatchPlan proposals) is not read by Kit 0.8.0. `migrate-v1`
 converts it in place, once: every checklist bullet and profile rule becomes a
 draft rule flagged `needs_rewrite`, history moves to `archive/`, and the
 catalog is rendered. The conversion is lossy and accepted as such; the
@@ -397,3 +396,14 @@ gates and rollback, consult writeback, weekly, memory bridge, migrate-v1, and
 the CLI), the Bootstrap installer tests (dry-run, apply, idempotency,
 upgrade), and repository hygiene. CI runs the same interface on Windows and
 Ubuntu.
+
+## Reading and maintaining context in 0.8
+
+Supply actual repos, relevant paths and the current operation to `select`.
+Missing repo scope is explicit; global gates come first. `complete: false`
+and exit 1 mean bodies remain unread. Continue with the same signature and
+`--cursor`; changed sources require restarting. JSON lists routes without bodies.
+Status/weekly compare semantic catalog freshness, archive lineage and recent
+growth. A missed rule calls for investigation, not an automatic rewrite.
+Normal writers lock before reading and roll back handled failures including
+audits/catalogs. Abrupt termination needs inspection; it is not crash-atomic.

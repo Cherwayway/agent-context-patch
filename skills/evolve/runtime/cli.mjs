@@ -10,17 +10,19 @@ import { initWorkspace } from "./init.mjs";
 import { syncMemoryIndex, scanMemory } from "./memory-bridge.mjs";
 import { migrateV1 } from "./migrate-v1.mjs";
 import { selectRules } from "./select.mjs";
+import { withMutation } from "./mutation.mjs";
+import { buildStatus } from "./health.mjs";
 import { buildWeeklyReport } from "./weekly.mjs";
-import { CONTEXT_DIR, loadWorkspace, readTextMaybe } from "./workspace.mjs";
+import { CONTEXT_DIR, readTextMaybe } from "./workspace.mjs";
 
 const USAGE = `usage: evolve <command> [options]
 
   init          create a Schema 2 workspace and render the catalog
   status        validate the workspace and print a JSON summary
   catalog       print the catalog block; --write re-renders it into the instruction file
-  select        print rule bodies for a task: --signature '<json>' or --signature @file [--json]
+  select        print rule bodies for a task: --signature '<json>' or --signature @file [--json] [--cursor <token>] [--bytes <n>]
   apply         apply one proposal: --proposal '<json>' or --proposal @file [--approved]
-  consult       record use: --consulted a,b [--missed c,d]
+  consult       record use: --consulted a,b [--missed c,d] [--task-ref <id> --action <category>]
   expire        archive expired STATE entries and re-render the catalog
   weekly        write reports/weekly-<date>.md [--memory-dir <dir>]
   memory-sync   regenerate a Claude memory index: --memory-dir <dir> [--dry-run]
@@ -49,38 +51,28 @@ async function run(name, opts) {
       const workspaceRoot = resolve(opts.workspace ?? process.cwd());
       return exitOn(await initWorkspace({ workspaceRoot, kitVersion, writePolicy: opts.policy ?? "auto", agentsFile: opts["agents-file"] ?? "AGENTS.md" }));
     }
-    case "status": {
-      const workspace = await loadWorkspace(await workspaceRoot(opts), { today: opts.today });
-      if (workspace.status !== "ok") return exitOn({ status: "failed", reason: "workspace_invalid", details: workspace.failures });
-      const catalog = renderCatalog(workspace, { kitVersion });
-      return {
-        status: "ok",
-        workspaceRoot: workspace.workspaceRoot,
-        rules: workspace.rules.length,
-        needsRewrite: workspace.rules.filter((rule) => rule.needs_rewrite).length,
-        state: workspace.state.length,
-        catalogBytes: catalog.bytes,
-        catalogBudget: workspace.config.budgets.catalog_bytes,
-        writePolicy: workspace.config.write_policy,
-      };
-    }
+    case "status":
+      return exitOn(await buildStatus({ workspaceRoot: await workspaceRoot(opts), today: opts.today, kitVersion }));
     case "catalog": {
-      const workspace = await loadWorkspace(await workspaceRoot(opts), { today: opts.today });
-      if (workspace.status !== "ok") return exitOn({ status: "failed", reason: "workspace_invalid", details: workspace.failures });
+      const root = await workspaceRoot(opts);
       if (opts.write) {
-        const result = await writeCatalog(workspace, { kitVersion });
-        return { status: "ok", bytes: result.bytes, rules: result.rules, state: result.state, changed: result.changed };
+        const result = await writeCatalog({ workspaceRoot: root, today: opts.today }, { kitVersion });
+        return exitOn({ ...result, text: undefined, agentsPath: undefined });
       }
-      return renderCatalog(workspace, { kitVersion }).text;
+      const result = await withMutation(root, { today: opts.today }, workspace => ({ status: "ok", text: renderCatalog(workspace, { kitVersion }).text }));
+      return result.status === "ok" ? result.text : exitOn(result);
     }
     case "select": {
-      const workspace = await loadWorkspace(await workspaceRoot(opts), { today: opts.today });
-      if (workspace.status !== "ok") return exitOn({ status: "failed", reason: "workspace_invalid", details: workspace.failures });
       const signature = await readJsonOption(opts.signature, "--signature");
-      const result = selectRules(workspace, signature);
-      if (result.status !== "ok") return exitOn({ status: "failed", reason: "invalid_signature", details: result.failures });
-      if (opts.json) return { status: "ok", selected: result.selected.map(({ id, kind, hook, score, reasons }) => ({ id, kind, hook, score, reasons })), omitted: result.omitted, bytes: result.bytes };
-      return result.selected.length === 0 ? "" : `${result.text}${result.omitted.length > 0 ? `\n<!-- omitted by select budget: ${result.omitted.join(", ")} -->\n` : ""}`;
+      const result = await withMutation(await workspaceRoot(opts), { today: opts.today }, workspace =>
+        selectRules(workspace, signature, { cursor: opts.cursor, bytes: opts.bytes === undefined ? undefined : Number(opts.bytes) }));
+      if (result.status === "invalid") return exitOn({ ...result, reason: "invalid_signature" });
+      if (opts.json) return exitOn({ ...result, selected: result.selected?.map(({ text, ...entry }) => entry), text: undefined });
+      if (!["ok", "incomplete"].includes(result.status)) return exitOn(result);
+      if (!result.complete) process.exitCode = 1;
+      const notice = result.complete ? `Context selection: complete; ${result.bytes}B body text.\n` :
+        `Context selection: INCOMPLETE; unread=${result.omitted.join(",") || "none"}; repo-required=${result.ambiguous.join(",") || "none"}.\n`;
+      return `${notice}${result.cursor ? `Continue with the same signature and --cursor ${result.cursor}\n` : ""}\n${result.text}`;
     }
     case "apply": {
       const proposal = await readJsonOption(opts.proposal, "--proposal");
@@ -89,7 +81,7 @@ async function run(name, opts) {
       return exitOn(result);
     }
     case "consult": {
-      const result = await recordConsultation({ workspaceRoot: await workspaceRoot(opts), consulted: list(opts.consulted), missed: list(opts.missed), today: opts.today });
+      const result = await recordConsultation({ workspaceRoot: await workspaceRoot(opts), consulted: list(opts.consulted), missed: list(opts.missed), today: opts.today, taskRef: opts["task-ref"], action: opts.action });
       if (result.status !== "ok") return exitOn(result);
       return `${result.receipt}\n`;
     }

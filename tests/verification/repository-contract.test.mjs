@@ -115,7 +115,7 @@ test("demo and dogfood workspaces are Schema 2 and their catalog blocks match a 
     for (const proposal of readdirSync(join(workspace.contextRoot, "proposals")).filter((entry) => entry.endsWith(".md"))) {
       const { data, body } = parseFrontmatter(read(join(relativeRoot, ".agent-context", "proposals", proposal)), proposal);
       assert.equal(data.decision, "auto_applied", `${proposal} must document an applied audit`);
-      assert.equal(data.kit_version, packageJson.version);
+      assert.match(data.kit_version, /^\d+\.\d+\.\d+$/u, "audit kit version is historical provenance");
       assert.match(body, /## Diff\n\n```diff\n/u, `${proposal} must carry a unified diff, not a full file copy`);
       for (const target of data.targets) {
         assert.ok(data.after_hashes[target], `${proposal} lacks an after hash for ${target}`);

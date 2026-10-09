@@ -43,7 +43,7 @@ test("replaceCatalogBlock appends when absent, replaces in place, and rejects un
   const source = `# Title\n\nintro\n\n${block}\n## After\n`;
   const next = replaceCatalogBlock(source, block.replace("body", "new body"));
   assert.equal(next, `# Title\n\nintro\n\n${block.replace("body", "new body")}\n## After\n`);
-  assert.equal(replaceCatalogBlock(source.replaceAll("\n", "\r\n"), block).includes("\r\n"), false, "output is LF-normalized");
+  assert.ok(replaceCatalogBlock(source.replaceAll("\n", "\r\n"), block).startsWith("# Title\r\n\r\nintro\r\n\r\n"), "outside bytes are preserved");
   assert.throws(() => replaceCatalogBlock("<!-- acp-catalog: x -->\nno close\n", block), /unbalanced acp-catalog block/u);
 });
 
@@ -57,9 +57,15 @@ test("writeCatalog only touches the managed block of the instruction file", asyn
     assert.ok(written.startsWith("# Hand-written\n\nKeep me.\n\n<!-- acp-catalog:"));
     const workspace = await loadWorkspace(root, { today: TODAY });
     const again = await writeCatalog(workspace, { kitVersion: KIT, renderedAt: "2026-09-14T00:00:00.000Z" });
-    assert.equal(again.changed, true, "a new rendered timestamp rewrites the block");
+    assert.equal(again.changed, false, "timestamp alone does not rewrite the block");
     const third = await writeCatalog(workspace, { kitVersion: KIT, renderedAt: "2026-09-14T00:00:00.000Z" });
     assert.equal(third.changed, false, "an identical render is a no-op");
+    const lf = readFileSync(agentsPath, "utf8");
+    writeFileSync(agentsPath, lf.replaceAll("\n", "\r\n"));
+    const crlf = await writeCatalog(workspace, { kitVersion: KIT });
+    assert.equal(crlf.changed, false, "equivalent CRLF catalogs do not rewrite");
+    assert.equal(crlf.bytes, Buffer.byteLength(crlf.text));
+    assert.ok(crlf.text.includes("\r\n"), "reported stored bytes include actual CRLF framing");
     assert.equal((readFileSync(agentsPath, "utf8").match(/acp-catalog:/gu) ?? []).length, 1);
   } finally {
     dispose();
