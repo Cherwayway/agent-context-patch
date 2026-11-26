@@ -8,6 +8,14 @@ export const SCHEMA_VERSION = 2;
 export const CONTEXT_DIR = ".agent-context";
 export const RULE_KINDS = ["gate", "advice", "fact"];
 export const APPLIES_TO_KEYS = ["repos", "paths", "ops", "skills"];
+export const MATERIAL_USE_ACTIONS = Object.freeze([
+  "prevented_error",
+  "changed_plan",
+  "added_verification",
+  "avoided_work",
+  "confirmed_path",
+  "flagged_stale",
+]);
 export const DEFAULT_CONFIG = Object.freeze({
   schema_version: SCHEMA_VERSION,
   kit_version: "0.0.0",
@@ -28,10 +36,20 @@ const BUDGET_KEYS = ["catalog_bytes", "hook_bytes", "body_bytes", "select_bytes"
 const STATE_KEYS = ["default_ttl_days", "max_ttl_days"];
 const RULE_KEYS = new Set([
   "id", "hook", "kind", "applies_to", "supersedes", "source", "created",
-  "consulted", "last_consulted", "missed", "needs_rewrite", "superseded_by", "retired",
+  "consulted", "last_consulted", "missed", "needs_rewrite", "superseded_by",
+  "retired", "retired_reason", "graduated_to",
 ]);
 const REQUIRED_RULE_KEYS = ["id", "hook", "kind", "applies_to", "supersedes", "source", "created"];
 const STATE_ENTRY_KEYS = new Set(["id", "expires", "repos", "text", "created"]);
+
+export function isSafeWorkspaceTarget(target) {
+  if (typeof target !== "string" || target.trim() === "" || target.trim() !== target) return false;
+  if (target.startsWith("/") || target.includes("\\") || /[\r\n\0]/u.test(target)) return false;
+  const parts = target.split("/");
+  if (parts.some((part) => part === "" || part === "." || part === "..")) return false;
+  if (parts[0] === CONTEXT_DIR) return false;
+  return true;
+}
 
 /** Validate a parsed config document; returns { value, failures }. */
 export function inspectConfig(value) {
@@ -105,6 +123,8 @@ export function inspectRule(data, body, budgets, fileName) {
   if (Object.hasOwn(data, "needs_rewrite")) expect(typeof data.needs_rewrite === "boolean", "needs_rewrite must be boolean");
   if (Object.hasOwn(data, "superseded_by")) expect(isIdentifier(data.superseded_by), "superseded_by must be an identifier");
   if (Object.hasOwn(data, "retired")) expect(isIsoDate(data.retired), "retired must be an ISO date");
+  if (Object.hasOwn(data, "retired_reason")) expect(typeof data.retired_reason === "string" && data.retired_reason.trim() !== "", "retired_reason must be non-empty text");
+  if (Object.hasOwn(data, "graduated_to")) expect(isSafeWorkspaceTarget(data.graduated_to), "graduated_to must be a safe workspace-relative path outside .agent-context");
   expect(typeof body === "string", "body must be text");
   if (typeof body === "string") expect(byteLength(body) <= budgets.body_bytes, `body exceeds ${budgets.body_bytes} bytes`);
   return failures;

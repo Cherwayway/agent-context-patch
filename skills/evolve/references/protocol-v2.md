@@ -1,4 +1,4 @@
-# Protocol v2 (Kit 0.8.0, Workspace Schema 2)
+# Protocol v2 (Kit 0.9.0, Workspace Schema 2)
 
 This document is normative for the files under `.agent-context/`, the
 proposal input accepted by `apply`, the catalog block, the task signature,
@@ -108,6 +108,8 @@ Frontmatter keys (no others are accepted):
 | `needs_rewrite` | no | boolean; set by `migrate-v1` |
 | `superseded_by` | no | identifier; only in `archive/rules/` |
 | `retired` | no | ISO date; only in `archive/rules/` |
+| `retired_reason` | no | non-empty text; only in `archive/rules/` |
+| `graduated_to` | no | workspace-relative path outside `.agent-context/`; only in `archive/rules/` |
 
 The body is Markdown, at most `body_bytes`. A duplicate id across files or
 any invalid rule file makes the whole workspace invalid; nothing is skipped
@@ -180,6 +182,7 @@ Operations:
 | `add` | `rule: {id, hook, kind?, applies_to?, supersedes?, body?}` | writes `rules/<id>.md`; `kind` defaults to `advice`; `source`, `created`, counters are filled by the runtime |
 | `supersede` | `replaces: [id, ...]`, `rule: {...}` | every replaced rule must be active; each moves to `archive/rules/<id>.md` with `superseded_by`; the new rule's `supersedes` is the union of its own list and `replaces` |
 | `retire` | `id`, `reason` | moves the active rule to `archive/rules/<id>.md` with `retired: <today>` and `retired_reason` |
+| `graduate` | `id`, `graduated_to`, `reason` | verifies `graduated_to` is an existing regular file inside the workspace (outside `.agent-context/`), then moves the active rule to `archive/rules/<id>.md` with `retired: <today>`, `retired_reason`, and `graduated_to` |
 | `state_set` | `entry: {id, text, repos?, ttl_days? or expires?}` | replaces the entry with that id; `expires` defaults to `today + ttl_days`, `ttl_days` defaults to `default_ttl_days` |
 | `state_clear` | `id` | removes an existing entry |
 | `profile` | `content`, `before_hash` | replaces `PROFILE.md`; `before_hash` is the SHA-256 hex of the current content |

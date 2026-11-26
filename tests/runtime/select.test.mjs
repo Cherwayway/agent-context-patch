@@ -71,3 +71,37 @@ test("selectRules honors skills, explicit ids, and the select byte budget with g
     dispose();
   }
 });
+
+test("selectRules ranks path and skill matches ahead of generic ops at equal score and supports stage filtering", async () => {
+  const { root, dispose } = await createWorkspace();
+  try {
+    await seed(root, "p-1", [
+      { op: "add", rule: rule("a-generic-op", { hook: "Generic coding advice", applies_to: { repos: ["ilands"], ops: ["coding"] } }) },
+      { op: "add", rule: rule("m-skill-match", { hook: "Skill specific advice", applies_to: { repos: ["ilands"], skills: ["cloud-sql"] } }) },
+      { op: "add", rule: rule("z-path-match", { hook: "Exact file path advice", applies_to: { repos: ["ilands"], paths: ["ilands/migrations/**"] } }) },
+      { op: "add", rule: rule("pr-stage-only", { hook: "PR review checklist", applies_to: { repos: ["ilands"], ops: ["pr"] } }) },
+    ], { approved: true });
+    const workspace = await loadWorkspace(root, { today: TODAY });
+    const ranked = selectRules(workspace, {
+      repos: ["ilands"],
+      paths: ["ilands/migrations/001.sql"],
+      ops: ["coding", "pr"],
+      skills: ["cloud-sql"],
+    });
+    assert.deepEqual(
+      ranked.selected.map((entry) => entry.id),
+      ["z-path-match", "m-skill-match", "a-generic-op", "pr-stage-only"],
+      "within equal kind and score (2), paths outrank skills which outrank generic ops",
+    );
+
+    const editStage = selectRules(workspace, { repos: ["ilands"], ops: ["coding", "pr"] }, { stage: "edit" });
+    assert.deepEqual(editStage.selected.map((entry) => entry.id), ["a-generic-op"]);
+
+    const prStage = selectRules(workspace, { repos: ["ilands"] }, { stage: "pr" });
+    assert.deepEqual(prStage.selected.map((entry) => entry.id), ["pr-stage-only"]);
+
+    assert.equal(selectRules(workspace, { repos: ["ilands"] }, { stage: "unknown" }).status, "invalid");
+  } finally {
+    dispose();
+  }
+});

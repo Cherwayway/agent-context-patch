@@ -48,6 +48,43 @@ test("optional material-use records bind a safe reference to the exact rule text
   } finally { dispose(); }
 });
 
+test("health and weekly detect overpacked lineages, graduated rules, and flagged_stale observations", async () => {
+  const { root, dispose } = await createWorkspace();
+  try {
+    await writeFile(join(root, "check.mjs"), "// gate\n", "utf8");
+    await seed(root, "p-0", [
+      { op: "add", rule: rule("r0", { hook: "Initial hook zero" }) },
+      { op: "add", rule: rule("grad-me", { hook: "Enforced check to graduate" }) },
+    ], { approved: true });
+    for (let i = 1; i <= 8; i += 1) {
+      const body = i === 8 ? "Packed clause. ".repeat(90).trim() : `Step ${i}`;
+      await seed(root, `p-${i}`, [
+        { op: "supersede", replaces: [`r${i - 1}`], rule: rule(`r${i}`, { hook: `Hook step ${i}`, body }) },
+      ], { approved: true });
+    }
+    await seed(root, "p-grad", [
+      { op: "graduate", id: "grad-me", graduated_to: "check.mjs", reason: "moved to check.mjs" },
+    ]);
+    await recordConsultation({ workspaceRoot: root, consulted: ["r8"], today: TODAY, taskRef: "audit-1", action: "flagged_stale" });
+
+    const status = await buildStatus({ workspaceRoot: root, today: TODAY, kitVersion: KIT });
+    assert.equal(status.health.graduatedRules, 1);
+    const r8Lineage = status.health.lineage.find((item) => item.id === "r8");
+    assert.equal(r8Lineage.ancestors.length, 8);
+    assert.equal(r8Lineage.lineageDepth, 8);
+    assert.equal(r8Lineage.overpacked, true);
+    assert.deepEqual(status.health.materialUse.flaggedStale, ["r8"]);
+
+    const weekly = await buildWeeklyReport({ workspaceRoot: root, today: TODAY, kitVersion: KIT });
+    assert.deepEqual(weekly.summary.overpacked, ["r8"]);
+    assert.deepEqual(weekly.summary.flaggedStale, ["r8"]);
+    const reportText = await readFile(weekly.reportPath, "utf8");
+    assert.match(reportText, /graduated to code\/skills: 1/u);
+    assert.match(reportText, /## Overpacked lineages[\s\S]*\[r8\] ancestors=8, depth=8/u);
+    assert.match(reportText, /## Flagged stale during tasks\n- \[r8\]/u);
+  } finally { dispose(); }
+});
+
 test("a failure after earlier writes restores all bytes, including an audit", async () => {
   const { root, dispose } = await createWorkspace();
   try {

@@ -3,9 +3,12 @@ import { join } from "node:path";
 import { catalogBlock, catalogSemanticText, renderCatalog } from "./catalog.mjs";
 import { readMaybe, withMutation } from "./mutation.mjs";
 import { renderRule } from "./select.mjs";
-import { daysBetween, isIdentifier, sha256Text } from "./text.mjs";
-import { listMarkdown } from "./workspace.mjs";
+import { byteLength, daysBetween, isIdentifier, sha256Text } from "./text.mjs";
+import { listMarkdown, MATERIAL_USE_ACTIONS } from "./workspace.mjs";
 import { parseFrontmatter } from "./yaml.mjs";
+
+export const OVERPACKED_ANCESTORS = 8;
+export const OVERPACKED_BODY_RATIO = 0.85;
 
 export async function inspectHealth(workspace, { kitVersion } = {}) {
   const catalog = renderCatalog(workspace, { kitVersion });
@@ -20,6 +23,23 @@ export async function inspectHealth(workspace, { kitVersion } = {}) {
     } catch { invalidArchives.push(file); }
   }
   const byId = new Map(archives.map(rule => [rule.id, rule]));
+  const depthMemo = new Map();
+  const computeDepth = (ids, trail = new Set()) => {
+    let maxDepth = 0;
+    for (const id of ids ?? []) {
+      if (trail.has(id)) continue;
+      if (depthMemo.has(id)) {
+        maxDepth = Math.max(maxDepth, 1 + depthMemo.get(id));
+        continue;
+      }
+      const ancestor = byId.get(id);
+      const subDepth = ancestor ? computeDepth(ancestor.supersedes ?? [], new Set([...trail, id])) : 0;
+      depthMemo.set(id, subDepth);
+      maxDepth = Math.max(maxDepth, 1 + subDepth);
+    }
+    return maxDepth;
+  };
+  const bodyThreshold = Math.ceil(workspace.config.budgets.body_bytes * OVERPACKED_BODY_RATIO);
   const lineage = workspace.rules.map(rule => {
     const visited = new Set([rule.id]);
     const pending = [...rule.supersedes];
@@ -34,8 +54,13 @@ export async function inspectHealth(workspace, { kitVersion } = {}) {
       previousConsulted += ancestor.consulted ?? 0;
       pending.push(...(ancestor.supersedes ?? []));
     }
-    return { id: rule.id, currentConsulted: rule.consulted, previousConsulted, ancestors: [...visited].filter(id => id !== rule.id), missing };
+    const ancestors = [...visited].filter(id => id !== rule.id);
+    const lineageDepth = computeDepth(rule.supersedes);
+    const bodyBytes = byteLength(rule.body);
+    const overpacked = ancestors.length >= OVERPACKED_ANCESTORS && bodyBytes >= bodyThreshold;
+    return { id: rule.id, currentConsulted: rule.consulted, previousConsulted, ancestors, lineageDepth, bodyBytes, overpacked, missing };
   });
+  const graduatedRules = archives.filter(rule => typeof rule.graduated_to === "string" && rule.graduated_to.length > 0).length;
   const audits = [];
   const invalidAudits = [];
   const proposalsRoot = join(workspace.contextRoot, "proposals");
@@ -57,8 +82,9 @@ export async function inspectHealth(workspace, { kitVersion } = {}) {
     } catch { invalidInputs.push(file); }
   }
   const reports = await filesMaybe(join(workspace.contextRoot, "reports"));
-  const materialUse = { windowDays: 30, observations: 0, rules: [], invalidReports: [], opportunityCoverage: "unknown", recurrence: "unknown", evidenceType: "optional_self_reports" };
+  const materialUse = { windowDays: 30, observations: 0, rules: [], flaggedStale: [], invalidReports: [], opportunityCoverage: "unknown", recurrence: "unknown", evidenceType: "optional_self_reports" };
   const materialByVersion = new Map();
+  const staleSet = new Set();
   for (const file of reports.filter(file => /^material-use-\d{4}-\d{2}-\d{2}\.json$/u.test(file))) {
     const date = file.slice(13, 23);
     if (daysBetween(date, workspace.today) < 0 || daysBetween(date, workspace.today) >= 30) continue;
@@ -66,11 +92,12 @@ export async function inspectHealth(workspace, { kitVersion } = {}) {
       const path = join(workspace.contextRoot, "reports", file);
       if ((await stat(path)).size > 512 * 1024) throw new Error("report too large");
       const entries = JSON.parse(await readMaybe(path));
-      if (!Array.isArray(entries) || entries.length > 1000 || entries.some(entry => !isIdentifier(entry.taskRef) || !isIdentifier(entry.ruleId) || !/^[a-f0-9]{64}$/u.test(entry.ruleHash) || entry.evidenceType !== "self_report" || !["prevented_error", "changed_plan", "added_verification", "avoided_work", "confirmed_path"].includes(entry.action))) throw new Error("invalid report");
+      if (!Array.isArray(entries) || entries.length > 1000 || entries.some(entry => !isIdentifier(entry.taskRef) || !isIdentifier(entry.ruleId) || !/^[a-f0-9]{64}$/u.test(entry.ruleHash) || entry.evidenceType !== "self_report" || !MATERIAL_USE_ACTIONS.includes(entry.action))) throw new Error("invalid report");
       for (const entry of entries) {
         const key = `${entry.ruleId}:${entry.ruleHash}`;
         const rule = workspace.rules.find(rule => rule.id === entry.ruleId);
         const currentVersion = Boolean(rule) && sha256Text(renderRule(rule)) === entry.ruleHash;
+        if (currentVersion && entry.action === "flagged_stale") staleSet.add(entry.ruleId);
         const summary = materialByVersion.get(key) ?? { id: entry.ruleId, ruleHash: entry.ruleHash, currentVersion, observations: 0, lastMaterialUse: date };
         summary.observations += 1;
         if (summary.lastMaterialUse < date) summary.lastMaterialUse = date;
@@ -80,6 +107,7 @@ export async function inspectHealth(workspace, { kitVersion } = {}) {
     } catch { materialUse.invalidReports.push(file); }
   }
   materialUse.rules = [...materialByVersion.values()];
+  materialUse.flaggedStale = [...staleSet].sort();
   const weeklyReports = reports.filter(file => /^weekly-\d{4}-\d{2}-\d{2}\.md$/u.test(file)).sort();
   const latestAppliedAt = audits.map(audit => audit.applied_at).sort().at(-1) ?? null;
   const growth = Object.fromEntries([7, 30].map(days => [days, {
@@ -91,7 +119,7 @@ export async function inspectHealth(workspace, { kitVersion } = {}) {
       fresh: Boolean(stored) && catalogSemanticText(stored) === catalogSemanticText(catalog.text), renderedAt: stored?.match(/rendered=([^ ]+)/u)?.[1] ?? null },
     expiredPendingArchive: workspace.state.filter(entry => entry.expires < workspace.today).map(entry => entry.id),
     proposals: { appliedAudits: audits.length, inputFiles: inputs.length, pendingInputs, invalidInputs, invalidAudits },
-    invalidArchives, lineage, growth, latestAppliedAt, materialUse,
+    invalidArchives, graduatedRules, lineage, growth, latestAppliedAt, materialUse,
     lastWeeklyReport: weeklyReports.at(-1) ?? null,
   };
 }

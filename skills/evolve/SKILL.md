@@ -5,7 +5,7 @@ description: Read task-relevant workspace rules, keep verified lessons through g
 
 # Evolve
 
-Kit 0.8.1, Workspace Schema 2. Read `references/protocol-v2.md` for normative
+Kit 0.9.0, Workspace Schema 2. Read `references/protocol-v2.md` for normative
 formats and `runtime/README.md` for the API. Fix and verify the current task
 before evolving long-term context.
 
@@ -18,16 +18,20 @@ before the first edit and again when the task changes stage or scope.
 Use hard facts, never the raw prompt, to select bodies:
 
 ```bash
-node <skill>/runtime/cli.mjs select --signature '{"repos":["ilands"],"paths":["ilands/migrations/481.sql"],"ops":["migration"],"skills":["cloud-sql"]}'
+node <skill>/runtime/cli.mjs select --stage edit --signature '{"repos":["ilands"],"paths":["ilands/migrations/481.sql"],"ops":["migration"],"skills":["cloud-sql"]}'
 ```
 
 Skills must include the actual repo, relevant paths, and current operation in
-their signature. Cross-repo work names both repos. A known repo prefix in a
+their signature; pass `--stage <edit|verify|pr|deploy|analysis|eval>` to keep
+selection focused on the active lifecycle phase instead of loading unrelated
+stages at once. Cross-repo work names both repos. A known repo prefix in a
 workspace-relative path can resolve scope; an arbitrary `src/` prefix cannot.
 Missing repo scope is reported as `repo-required`, without loading other repos'
 bodies. Explicit ids include exactly those rules plus matching/global gates;
-unknown ids fail. Beyond the repo filter, any matching path, op, or skill still
-matches; this version does not change the scope model to AND.
+unknown ids fail. Within the same kind and score, exact `paths` and `skills`
+matches outrank generic `ops` matches. Beyond the repo filter, any matching
+path, op, or skill still matches; this version does not change the scope model
+to AND.
 
 Global gates come first. Selection is complete only when `complete: true`:
 `INCOMPLETE` / exit 1 means some matching bodies remain unread or require repo
@@ -53,11 +57,15 @@ call `apply` once; proposals are audit records, not an inbox.
 - Rule: `id`, one-line situation + action `hook` (160 bytes), `kind`
   (`gate`, `advice`, `fact`), `applies_to: {repos,paths,ops,skills}`, short
   `body` (1500 bytes) with why, action, and a relative evidence pointer.
-- Operations: `add`, `supersede` with `replaces`, `retire` with reason,
-  `state_set`, `state_clear`, `profile` with exact current `before_hash`.
-  See protocol examples when authoring an unfamiliar operation.
-- `similar_rule_exists`: supersede the existing rule; do not reword an add.
-  `catalog_budget_exceeded`: review and supersede/retire before adding.
+- Operations: `add`, `supersede` with `replaces`, `graduate` with verified
+  workspace-relative `graduated_to` (test/CI gate/linter/skill file) and
+  `reason`, `retire` with reason, `state_set`, `state_clear`, `profile` with
+  exact current `before_hash`. Keep one failure mechanism per rule; do not pack
+  orthogonal lessons into an overcompressed rule.
+- `similar_rule_exists`: supersede the existing rule only when it shares the
+  same mechanism; do not merge unrelated rules to save space.
+  `catalog_budget_exceeded`: `graduate` rules already enforced in code/skills or
+  `retire` obsolete rules before adding.
   `--approved` bypasses only similarity and catalog limits and satisfies
   `write_policy: propose`, only when a human has made that decision.
 
@@ -82,7 +90,9 @@ Print the returned `Context use:` line. Counters are cumulative self-reports,
 not proof of improved outcomes. For a high-value local observation, optionally
 add `--task-ref <safe-kebab-id> --action <category>`. Categories:
 `prevented_error`, `changed_plan`, `added_verification`, `avoided_work`,
-`confirmed_path`. This stores a bounded report with the rule-text hash, safe
+`confirmed_path`, `flagged_stale`. `flagged_stale` marks a current rule whose
+referenced code or table appears outdated so weekly maintenance can verify and
+graduate/supersede/retire it. This stores a bounded report with the rule-text hash, safe
 reference and category; no prompt or telemetry. Ordinary tasks need no extra
 fields. Do not infer a causal benefit from these observations alone.
 

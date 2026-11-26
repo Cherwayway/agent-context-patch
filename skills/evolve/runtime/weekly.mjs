@@ -26,6 +26,8 @@ export async function buildWeeklyReport({ workspaceRoot, today, memoryCandidates
   const stale = rules.filter((rule) => rule.consulted > 0 && rule.last_consulted && daysBetween(rule.last_consulted, date) >= STALE_DAYS);
   const missed = rules.filter((rule) => rule.missed > 0).sort((left, right) => right.missed - left.missed);
   const needsRewrite = rules.filter((rule) => rule.needs_rewrite);
+  const overpacked = health.lineage.filter((item) => item.overpacked).sort((a, b) => b.ancestors.length - a.ancestors.length || a.id.localeCompare(b.id));
+  const flaggedStale = health.materialUse.flaggedStale ?? [];
   const mostUsed = [...rules].sort((left, right) => right.consulted - left.consulted || left.id.localeCompare(right.id)).slice(0, 10);
 
   const similarPairs = [];
@@ -41,7 +43,7 @@ export async function buildWeeklyReport({ workspaceRoot, today, memoryCandidates
   const lines = [`# Weekly context review ${date}`, ""];
   lines.push("## Catalog");
   lines.push(`- bytes: ${catalog.bytes} / ${config.budgets.catalog_bytes} budget (${Math.round((catalog.bytes / config.budgets.catalog_bytes) * 100)}%)`);
-  lines.push(`- active rules: ${rules.length} (gate ${count(rules, "gate")}, advice ${count(rules, "advice")}, fact ${count(rules, "fact")})`);
+  lines.push(`- active rules: ${rules.length} (gate ${count(rules, "gate")}, advice ${count(rules, "advice")}, fact ${count(rules, "fact")}); graduated to code/skills: ${health.graduatedRules}`);
   lines.push(`- state entries: ${expiry.active.length} active, ${expiry.expired.length} expired and pending archive`);
   lines.push(`- rules flagged needs_rewrite: ${needsRewrite.length}`);
   lines.push(`- stored catalog: ${health.catalog.storedBytes} bytes; semantic freshness: ${health.catalog.fresh}`);
@@ -73,6 +75,17 @@ export async function buildWeeklyReport({ workspaceRoot, today, memoryCandidates
   if (similarPairs.length === 0) lines.push("- none");
   for (const pair of similarPairs) lines.push(`- ${pair.score.toFixed(2)} [${pair.left}] ↔ [${pair.right}]`);
   lines.push("");
+  lines.push("## Overpacked lineages (split or graduate candidates)");
+  if (overpacked.length === 0) lines.push("- none");
+  for (const item of overpacked) {
+    lines.push(`- [${item.id}] ancestors=${item.ancestors.length}, depth=${item.lineageDepth}, body=${item.bodyBytes}/${config.budgets.body_bytes}B — graduate enforced checks or split orthogonal mechanisms`);
+  }
+  if (flaggedStale.length > 0) {
+    lines.push("");
+    lines.push("## Flagged stale during tasks");
+    for (const id of flaggedStale) lines.push(`- [${id}] current text flagged stale; verify against live source and supersede, graduate, or retire`);
+  }
+  lines.push("");
   lines.push("## State expiring within 3 days");
   if (expiringSoon.length === 0) lines.push("- none");
   for (const entry of expiringSoon) lines.push(`- (${entry.expires}) ${entry.id}: ${entry.text}`);
@@ -84,7 +97,9 @@ export async function buildWeeklyReport({ workspaceRoot, today, memoryCandidates
   lines.push("");
   lines.push("## Recommended next actions");
   const actions = [];
-  if (catalog.bytes > config.budgets.catalog_bytes * 0.9) actions.push("catalog is within 10% of budget: merge or retire before adding");
+  if (catalog.bytes > config.budgets.catalog_bytes * 0.9) actions.push("catalog is within 10% of budget: graduate enforced rules or retire before adding");
+  if (overpacked.length > 0) actions.push(`graduate or split ${overpacked.length} overpacked rule(s) instead of compressing unrelated lessons`);
+  if (flaggedStale.length > 0) actions.push(`review ${flaggedStale.length} rule(s) flagged stale during recent tasks`);
   if (similarPairs.length > 0) actions.push(`review ${similarPairs.length} similar pair(s) for supersede`);
   if (missed.length > 0) actions.push(`investigate ${missed.length} missed rule(s) before changing hooks or scope`);
   if (neverConsulted.length > 0) actions.push(`decide on ${neverConsulted.length} never-consulted rule(s)`);
@@ -110,6 +125,8 @@ export async function buildWeeklyReport({ workspaceRoot, today, memoryCandidates
       neverConsulted: neverConsulted.map((rule) => rule.id),
       missed: missed.map((rule) => rule.id),
       similarPairs,
+      overpacked: overpacked.map((item) => item.id),
+      flaggedStale,
       expiringSoon: expiringSoon.map((entry) => entry.id),
       needsRewrite: needsRewrite.map((rule) => rule.id),
       actions,

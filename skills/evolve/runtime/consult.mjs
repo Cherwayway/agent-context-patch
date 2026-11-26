@@ -4,6 +4,7 @@ import { commitFiles, readMaybe, withMutation } from "./mutation.mjs";
 import { serializeRule } from "./apply.mjs";
 import { renderRule } from "./select.mjs";
 import { isIdentifier, sha256Text } from "./text.mjs";
+import { MATERIAL_USE_ACTIONS } from "./workspace.mjs";
 
 /**
  * Record which rules a task actually used (`consulted`) and which relevant
@@ -12,9 +13,8 @@ import { isIdentifier, sha256Text } from "./text.mjs";
  */
 export async function recordConsultation({ workspaceRoot, consulted = [], missed = [], today, taskRef, action } = {}) {
   const failures = [];
-  const actions = ["prevented_error", "changed_plan", "added_verification", "avoided_work", "confirmed_path"];
   if (taskRef !== undefined || action !== undefined) {
-    if (!isIdentifier(taskRef) || !actions.includes(action) || !consulted.length) failures.push("material use requires a safe identifier taskRef, an allowed action, and consulted ids");
+    if (!isIdentifier(taskRef) || !MATERIAL_USE_ACTIONS.includes(action) || !consulted.length) failures.push("material use requires a safe identifier taskRef, an allowed action, and consulted ids");
   }
   for (const id of [...consulted, ...missed]) if (!isIdentifier(id)) failures.push(`invalid rule id: ${id}`);
   if (failures.length > 0) return { status: "failed", reason: "invalid_ids", details: failures };

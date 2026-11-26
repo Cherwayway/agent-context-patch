@@ -20,7 +20,7 @@ const USAGE = `usage: evolve <command> [options]
   init          create a Schema 2 workspace and render the catalog
   status        validate the workspace and print a JSON summary
   catalog       print the catalog block; --write re-renders it into the instruction file
-  select        print rule bodies for a task: --signature '<json>' or --signature @file [--json] [--cursor <token>] [--bytes <n>]
+  select        print rule bodies for a task: --signature '<json>' or --signature @file [--stage <name>] [--json] [--cursor <token>] [--bytes <n>]
   apply         apply one proposal: --proposal '<json>' or --proposal @file [--approved]
   consult       record use: --consulted a,b [--missed c,d] [--task-ref <id> --action <category>]
   expire        archive expired STATE entries and re-render the catalog
@@ -65,7 +65,7 @@ async function run(name, opts) {
     case "select": {
       const signature = await readJsonOption(opts.signature, "--signature");
       const result = await withMutation(await workspaceRoot(opts), { today: opts.today }, workspace =>
-        selectRules(workspace, signature, { cursor: opts.cursor, bytes: opts.bytes === undefined ? undefined : Number(opts.bytes) }));
+        selectRules(workspace, signature, { cursor: opts.cursor, bytes: opts.bytes === undefined ? undefined : Number(opts.bytes), stage: opts.stage }));
       if (result.status === "invalid") return exitOn({ ...result, reason: "invalid_signature" });
       if (opts.json) return exitOn({ ...result, selected: result.selected?.map(({ text, ...entry }) => entry), text: undefined });
       if (!["ok", "incomplete"].includes(result.status)) return exitOn(result);

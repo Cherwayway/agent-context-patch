@@ -2,6 +2,14 @@ import { byteLength, globMatch, isIdentifier, sha256Text } from "./text.mjs";
 import { APPLIES_TO_KEYS } from "./workspace.mjs";
 
 const SIGNATURE_KEYS = new Set([...APPLIES_TO_KEYS, "ids"]);
+export const STAGE_OPS = Object.freeze({
+  edit: ["coding", "sql", "migration", "agent-runtime"],
+  verify: ["coding", "eval", "sql", "review"],
+  pr: ["pr", "review", "feishu"],
+  deploy: ["deploy", "release", "analytics"],
+  analysis: ["analysis", "analytics", "incident"],
+  eval: ["eval", "analysis"],
+});
 
 /**
  * Validate a task signature. Selection resolves known repo path prefixes only.
@@ -39,10 +47,17 @@ export function normalizeSignature(signature = {}) {
 /** Repo filter plus OR matching of paths/ops/skills; globals and explicit ids.
  * Missing repo scope is ambiguous. Pages never silently exceed the byte budget.
  */
-export function selectRules(workspace, signature, { cursor, bytes: requestedBytes } = {}) {
+export function selectRules(workspace, signature, { cursor, bytes: requestedBytes, stage } = {}) {
   const normalized = normalizeSignature(signature);
   if (normalized.failures.length > 0) return { status: "invalid", complete: false, failures: normalized.failures };
+  if (stage !== undefined && !Object.hasOwn(STAGE_OPS, stage)) {
+    return { status: "invalid", complete: false, failures: [`stage must be one of ${Object.keys(STAGE_OPS).join(", ")}`] };
+  }
   const task = normalized.value;
+  if (stage !== undefined) {
+    const allowedOps = STAGE_OPS[stage];
+    task.ops = task.ops.length > 0 ? task.ops.filter((op) => allowedOps.includes(op)) : [...allowedOps];
+  }
   const knownRepos = new Set(workspace.rules.flatMap(rule => rule.applies_to.repos));
   if (!task.repos.length) task.repos = [...new Set(task.paths.map(path => path.split("/")[0]).filter(repo => knownRepos.has(repo)))];
   const unknown = task.ids.filter(id => !workspace.rules.some(rule => rule.id === id));
@@ -61,12 +76,16 @@ export function selectRules(workspace, signature, { cursor, bytes: requestedByte
     }
     matched.push({ rule, score: explicit ? 100 : match.score, reasons: explicit ? ["id"] : match.reasons });
   }
-  // Every unscoped gate comes first. Counters do not change routing or page identity.
+  // Every unscoped gate comes first; exact path/skill matches outrank generic ops at equal score.
   const globalGate = rule => rule.kind === "gate" && APPLIES_TO_KEYS.every(key => !rule.applies_to[key].length);
-  matched.sort((left, right) => Number(globalGate(right.rule)) - Number(globalGate(left.rule)) ||
-    kindRank(left.rule.kind) - kindRank(right.rule.kind) || right.score - left.score || left.rule.id.localeCompare(right.rule.id));
+  matched.sort((left, right) =>
+    Number(globalGate(right.rule)) - Number(globalGate(left.rule)) ||
+    kindRank(left.rule.kind) - kindRank(right.rule.kind) ||
+    right.score - left.score ||
+    specificityRank(right.reasons) - specificityRank(left.reasons) ||
+    left.rule.id.localeCompare(right.rule.id));
   const entries = matched.map(({ rule, score, reasons }) => ({ id: rule.id, kind: rule.kind, hook: rule.hook, score, reasons, text: renderRule(rule) }));
-  const fingerprint = sha256Text(JSON.stringify({ signature: task, budget, ambiguous, entries }));
+  const fingerprint = sha256Text(JSON.stringify({ signature: task, stage: stage ?? null, budget, ambiguous, entries }));
   let offset = 0;
   if (cursor !== undefined) {
     if (typeof cursor !== "string" || cursor.length > 4096) return { status: "invalid", complete: false, failures: ["invalid cursor"] };
@@ -125,6 +144,10 @@ export function pathMatches(pattern, path) {
 
 function kindRank(kind) {
   return kind === "gate" ? 0 : kind === "advice" ? 1 : 2;
+}
+
+function specificityRank(reasons) {
+  return (reasons.includes("paths") ? 4 : 0) + (reasons.includes("skills") ? 2 : 0) + (reasons.includes("repos") ? 1 : 0);
 }
 
 export function renderRule(rule) {
