@@ -1,4 +1,5 @@
-import { join, relative } from "node:path";
+import { realpath, stat } from "node:fs/promises";
+import { join, relative, resolve, sep } from "node:path";
 
 import { prepareCatalog, renderCatalog } from "./catalog.mjs";
 import {
@@ -12,7 +13,7 @@ import {
   similarityTokens,
   unifiedDiff,
 } from "./text.mjs";
-import { CONTEXT_DIR, inspectRule, inspectStateEntry, normalizeRule } from "./workspace.mjs";
+import { CONTEXT_DIR, inspectRule, inspectStateEntry, isSafeWorkspaceTarget, normalizeRule } from "./workspace.mjs";
 import { isRecord, serializeFrontmatter, toYaml } from "./yaml.mjs";
 
 export const TRIGGERS = new Set([
@@ -25,7 +26,7 @@ export const TRIGGERS = new Set([
   "agent_self_detected",
   "first_fix_failed_then_passed",
 ]);
-export const OPERATIONS = new Set(["add", "supersede", "retire", "state_set", "state_clear", "profile"]);
+export const OPERATIONS = new Set(["add", "supersede", "retire", "graduate", "state_set", "state_clear", "profile"]);
 const NARRATIVE_KEYS = ["observed", "evidence", "root_cause"];
 const NARRATIVE_LIMIT = 800;
 const PROPOSAL_KEYS = new Set(["id", "trigger", "fix_status", ...NARRATIVE_KEYS, "operations"]);
@@ -45,6 +46,8 @@ export async function applyProposal({ workspaceRoot, proposal, approved = false,
     }
     const plan = planProposal(workspace, proposal, { approved });
     if (plan.status !== "ready") return plan;
+    const graduationCheck = await verifyGraduationTargets(workspace.workspaceRoot, proposal.operations);
+    if (graduationCheck) return blocked("graduation_target_missing", proposal.id, [], graduationCheck);
     if (workspace.config.write_policy === "propose" && !approved) {
       return { status: "approval_required", reason: "policy_requires_approval", proposalId: plan.proposalId, targets: plan.targets };
     }
@@ -116,6 +119,19 @@ export function planProposal(workspace, proposal, { approved = false } = {}) {
         touched.add(operation.id);
         break;
       }
+      case "graduate": {
+        const rule = nextRules.get(operation.id);
+        if (!rule) return failure("invalid_rule", [`${label}: rule ${operation.id} is not active`]);
+        nextRules.delete(operation.id);
+        archived.push({
+          ...rule,
+          retired: workspace.today,
+          retired_reason: operation.reason.trim(),
+          graduated_to: operation.graduated_to,
+        });
+        touched.add(operation.id);
+        break;
+      }
       case "state_set": {
         const entry = normalizeStateInput(operation.entry, workspace.today, stateConfig);
         const failures = inspectStateEntry(entry, stateConfig, workspace.today);
@@ -148,7 +164,7 @@ export function planProposal(workspace, proposal, { approved = false } = {}) {
     return blocked("catalog_budget_exceeded", proposal.id, [], {
       catalog_bytes: catalog.bytes,
       budget: budgets.catalog_bytes,
-      hint: "supersede or retire a rule before adding another",
+      hint: "graduate an enforced rule to code/skill, or supersede/retire before adding another",
     });
   }
 
@@ -285,9 +301,14 @@ export function inspectProposalEnvelope(proposal) {
       if (operation.op === "supersede") {
         expect(Array.isArray(operation.replaces) && operation.replaces.length > 0 && operation.replaces.every(isIdentifier), `${label}: replaces must list rule ids`);
       }
-    } else if (operation.op === "retire" || operation.op === "state_clear") {
+    } else if (operation.op === "retire" || operation.op === "graduate" || operation.op === "state_clear") {
       expect(isIdentifier(operation.id), `${label}: id must be an identifier`);
-      if (operation.op === "retire") expect(typeof operation.reason === "string" && operation.reason.trim() !== "", `${label}: reason is required`);
+      if (operation.op === "retire" || operation.op === "graduate") {
+        expect(typeof operation.reason === "string" && operation.reason.trim() !== "", `${label}: reason is required`);
+      }
+      if (operation.op === "graduate") {
+        expect(isSafeWorkspaceTarget(operation.graduated_to), `${label}: graduated_to must be a safe workspace-relative path outside .agent-context`);
+      }
     } else if (operation.op === "state_set") {
       expect(isRecord(operation.entry), `${label}: entry must be an object`);
     } else if (operation.op === "profile") {
@@ -358,7 +379,29 @@ export function serializeRule(rule) {
   if (rule.superseded_by) data.superseded_by = rule.superseded_by;
   if (rule.retired) data.retired = rule.retired;
   if (rule.retired_reason) data.retired_reason = rule.retired_reason;
+  if (rule.graduated_to) data.graduated_to = rule.graduated_to;
   return serializeFrontmatter(data, rule.body ?? "");
+}
+
+async function verifyGraduationTargets(workspaceRoot, operations) {
+  const realRoot = await realpath(workspaceRoot);
+  const rootPrefix = realRoot.endsWith(sep) ? realRoot : `${realRoot}${sep}`;
+  const contextPrefix = `${join(realRoot, CONTEXT_DIR)}${sep}`;
+  for (const operation of operations) {
+    if (operation.op !== "graduate") continue;
+    const candidate = resolve(workspaceRoot, operation.graduated_to);
+    try {
+      const realTarget = await realpath(candidate);
+      if (!realTarget.startsWith(rootPrefix) || realTarget.startsWith(contextPrefix)) {
+        return { target: operation.graduated_to, reason: "outside_workspace_or_inside_context" };
+      }
+      const info = await stat(realTarget);
+      if (!info.isFile()) return { target: operation.graduated_to, reason: "not_regular_file" };
+    } catch {
+      return { target: operation.graduated_to, reason: "file_not_found" };
+    }
+  }
+  return null;
 }
 
 function stateDocument(state) {

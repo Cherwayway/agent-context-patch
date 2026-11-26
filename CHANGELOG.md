@@ -3,6 +3,26 @@
 All notable changes to Agent Context Patch are recorded here. The project uses
 semantic versions for the Kit independently from the Workspace Schema version.
 
+## [0.9.0] - 2026-11-26
+
+Workspace Schema remains 2; existing Schema 2 workspaces load without migration.
+
+- Add first-class `graduate` operation (`op: "graduate"`): verifies the named
+  `graduated_to` workspace-relative target (test, CI gate, linter, or skill)
+  resolves to an existing regular file inside the workspace and outside
+  `.agent-context/`, then archives the rule with `graduated_to` provenance and
+  frees catalog budget without losing lineage history.
+- Detect overpacked rule lineages (`ancestors >= 8` and `body >= 85%` of
+  `body_bytes`) in `status` and `weekly`, prompting maintainers to graduate
+  enforced checks or split orthogonal mechanisms instead of compressing
+  unrelated lessons into a single rule.
+- Improve `select` routing precision: support `--stage <edit|verify|pr|deploy|analysis|eval>`
+  lifecycle filtering and break equal-score ties by match specificity
+  (`paths > skills > repos > ops`) so file- and skill-specific rules outrank
+  broad operation rules.
+- Add `flagged_stale` to optional `consult --action` categories and surface
+  stale-flagged current rules in `weekly` reviews.
+
 ## [0.8.1] - 2026-10-09
 
 - Fix `weekly` catalog freshness after a Kit upgrade: use the running Kit

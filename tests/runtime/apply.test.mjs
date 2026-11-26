@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -187,4 +187,55 @@ test("formatReceipt renders non-success stages with stable reasons", () => {
     formatReceipt({ detect: { status: "candidate" }, propose: { status: "created" }, apply: { status: "blocked", reason: "similar_rule_exists" }, proposalId: "p", targets: ["a"], catalog: { bytes: 10, rules: 1 } }),
     "Evolution outcome: detect=candidate; propose=created; apply=blocked(similar_rule_exists); proposal=p; targets=a; catalog=10B/1 rules.",
   );
+});
+
+test("graduate verifies an in-workspace regular file target and archives provenance", async () => {
+  const { root, dispose } = await createWorkspace();
+  try {
+    await seed(root, "p-1", [
+      { op: "add", rule: rule("sql-cast", { hook: "Cast every SQL parameter explicitly", kind: "gate" }) },
+      { op: "add", rule: rule("stay", { hook: "Keep release proofs verifiable" }) },
+    ]);
+    mkdirSync(join(root, "tests"), { recursive: true });
+    writeFileSync(join(root, "tests", "sql-cast.test.js"), "// enforces sql-cast\n", "utf8");
+
+    const missing = await applyProposal({
+      workspaceRoot: root,
+      proposal: proposal("p-missing", [{ op: "graduate", id: "sql-cast", graduated_to: "tests/missing.test.js", reason: "enforced in test" }]),
+      today: TODAY, kitVersion: KIT,
+    });
+    assert.deepEqual([missing.status, missing.reason], ["blocked", "graduation_target_missing"]);
+
+    const selfRef = await applyProposal({
+      workspaceRoot: root,
+      proposal: proposal("p-self", [{ op: "graduate", id: "sql-cast", graduated_to: ".agent-context/PROFILE.md", reason: "bad target" }]),
+      today: TODAY, kitVersion: KIT,
+    });
+    assert.equal(selfRef.status, "failed");
+    assert.equal(selfRef.reason, "invalid_proposal");
+
+    symlinkSync("/etc/hosts", join(root, "tests", "escape.js"));
+    const escape = await applyProposal({
+      workspaceRoot: root,
+      proposal: proposal("p-escape", [{ op: "graduate", id: "sql-cast", graduated_to: "tests/escape.js", reason: "symlink escape" }]),
+      today: TODAY, kitVersion: KIT,
+    });
+    assert.deepEqual([escape.status, escape.reason], ["blocked", "graduation_target_missing"]);
+
+    const applied = await applyProposal({
+      workspaceRoot: root,
+      proposal: proposal("p-grad", [{ op: "graduate", id: "sql-cast", graduated_to: "tests/sql-cast.test.js", reason: "enforced by tests/sql-cast.test.js" }]),
+      today: TODAY, kitVersion: KIT,
+    });
+    assert.equal(applied.status, "applied", JSON.stringify(applied));
+    assert.ok(!existsSync(join(root, ".agent-context", "rules", "sql-cast.md")));
+    const archived = parseFrontmatter(read(root, "archive", "rules", "sql-cast.md")).data;
+    assert.equal(archived.retired, TODAY);
+    assert.equal(archived.retired_reason, "enforced by tests/sql-cast.test.js");
+    assert.equal(archived.graduated_to, "tests/sql-cast.test.js");
+    const loaded = await loadWorkspace(root);
+    assert.deepEqual(loaded.rules.map((r) => r.id), ["stay"]);
+  } finally {
+    dispose();
+  }
 });
